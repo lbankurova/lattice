@@ -67,11 +67,25 @@ Write the spec to `docs/_internal/incoming/` using this structure:
 ...
 ```
 
-### 4. Present for review
+### 4. ROADMAP intake (rule 12)
 
-Show the user the generated spec. They may adjust it (add requirements, remove accidentals) before `/review` runs.
+Before presenting the spec, classify and track it:
 
-### 5. Next step
+1. Read `docs/_internal/ROADMAP.md`
+2. Classify: is this a **bug fix** (→ TODO.md only), a **feature/improvement** (→ ROADMAP entry under existing area), or an **epic** (→ new ROADMAP section with stages)?
+3. If feature or epic:
+   - Find or create the appropriate ROADMAP area
+   - Add an entry with: source (`Spec: incoming/[name].md`), what, why, depends-on
+   - If it fits an existing ROADMAP item, link the spec to it instead of creating a new entry
+4. If bug fix: ensure a TODO.md entry exists (if not already)
+
+Present the ROADMAP update alongside the spec for user confirmation.
+
+### 5. Present for review
+
+Show the user the generated spec AND the ROADMAP entry. They may adjust either before `/review` runs.
+
+### 6. Next step
 
 After the spec is finalized:
 - Run `/review` — it will detect the spec and run the full evidence trace
