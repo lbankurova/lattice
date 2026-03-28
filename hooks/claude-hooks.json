@@ -1,0 +1,27 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash(git commit*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'staged=$(git diff --cached --name-only 2>/dev/null); if echo \"$staged\" | grep -qE \"PIPELINE_MODULES_PATTERN\"; then if ! echo \"$staged\" | grep -qE \"\\.(test|spec)\\.\"; then echo \"PIPELINE MODULE CHANGED WITHOUT TESTS. Staged pipeline files:\"; echo \"$staged\" | grep -E \"PIPELINE_MODULES_PATTERN\"; echo \"\"; echo \"Commit checklist requires: write the failing test FIRST for these modules.\"; echo \"Stage a test file, or use git commit with --no-verify if you have a reason.\"; exit 1; fi; fi'",
+            "_comment": "Replace PIPELINE_MODULES_PATTERN with a regex matching your project's data pipeline modules. Example for SENDEX: (classification|findings_|derive-summaries|cross-domain-syndromes|syndrome-interpretation|findings-rail-engine|recovery-classification|finding-nature|protective-signal|lab-clinical-catalog)"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'if echo \"$CLAUDE_TOOL_INPUT\" | grep -q \"Co-Authored-By\"; then echo \"BLOCKED: CLAUDE.md rule 5 — never add Claude as co-author.\"; exit 1; fi'"
+          }
+        ]
+      }
+    ]
+  }
+}
