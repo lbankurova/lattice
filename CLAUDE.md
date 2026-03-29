@@ -1,8 +1,8 @@
-# Datagrok Development Framework
+# Lattice — Datagrok Development Framework
 
 ## Overview
 
-Framework for building Datagrok platform plugins with LLM-assisted development. Provides process rules, design system enforcement, scientific knowledge scaffolding, and quality gates.
+Lattice is a framework for exploratory development of scientific apps on the Datagrok platform with LLM-assisted development. Provides process rules, design system enforcement, scientific knowledge scaffolding, and quality gates.
 
 Three layers — use what applies:
 - **Layer 1 (Platform):** Datagrok design system, UX patterns, visual conventions — applies to ALL Datagrok plugins
@@ -61,6 +61,10 @@ cd <project>/frontend && npm test         # Vitest
 11. **Pre-write protocol for new code.** Before writing new functionality (features, not bug fixes): (a) read CLAUDE.md design decisions; (b) read ALL files you're about to modify, not just the entry point; (c) search for existing hooks/utils/patterns that overlap with what you're building (rule 6); (d) state your approach in 3–5 bullets — what you'll build, what you'll reuse, what constraints apply — before writing code. Skipping this step is the #1 cause of inconsistent implementation quality.
 
 12. **New spec → ROADMAP intake.** When a spec enters `docs/_internal/incoming/` (user-provided or generated via `/spec-from-code`): (a) read `docs/_internal/ROADMAP.md`; (b) classify the spec — bug fix (→ TODO.md only), feature/improvement (→ ROADMAP entry under existing area), or epic (→ new ROADMAP section or entry with stages); (c) if feature or epic, create/update the ROADMAP entry with source reference, what, why, and depends-on; (d) if the spec fits an existing ROADMAP item, link it (`Spec: incoming/name.md`). A spec without a ROADMAP entry is orphaned work — it will be implemented but never tracked strategically.
+
+13. **Merit-driven architectural decisions.** When speccing or planning an implementation, evaluate every architectural decision on scientific correctness and product value. Effort/complexity is not a valid factor in choosing between approaches. If approach A is more scientifically sound, produces better data fidelity, or delivers more analytical value than approach B, choose A regardless of implementation cost. State the merit rationale for each non-obvious decision in the plan.
+
+14. **No unprompted deferrals.** Never defer a feature, capability, or design element to a "later phase" or "future work" unless (a) there is a real technical dependency that blocks it now, or (b) the user has explicitly decided to defer it. "It would be simpler to do later" or "this can be added in a follow-up" are not valid reasons. If an agent believes deferral is warranted, it must state the specific blocking dependency — not effort — and get user approval before deferring.
 
 ## Commit & Review
 
