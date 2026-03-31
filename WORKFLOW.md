@@ -2,105 +2,143 @@
 
 The canonical workflow for research-driven development of scientific apps.
 
+## Quick Start
+
+```
+/lattice:prioritize                        — what should I work on?
+/lattice:research-cycle {topic}            — full research + review loop
+/lattice:research-cycle {topic} --from synthesize  — synthesis + plan review loop
+/lattice:spike or spec-driven              — build it
+/lattice:review                            — quality gate + commit
+```
+
 ## Pipeline
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│  RESEARCH PHASE                                             │
-│                                                             │
-│  /lattice:research {topic}                                  │
-│       │                                                     │
-│       ▼                                                     │
-│  /lattice:peer-review {research doc}     ◄── Round 1        │
-│       │                                                     │
-│       ▼                                                     │
-│  /lattice:research {topic}               ◄── incorporate    │
-│       │                                                     │
-│       ▼                                                     │
-│  /lattice:peer-review {updated research} ◄── Round 2        │
-│       │                                                     │
-│       ├── SOUND/CONDITIONAL ──► proceed to synthesis        │
-│       └── FLAWED ──► escalate to user                       │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│  PRIORITIZE                                                         │
+│                                                                     │
+│  /lattice:prioritize                                                │
+│       │  reads: TODO.md, incoming/, research/INDEX.md, git log      │
+│       │  ranks by scientist value, not effort                       │
+│       ▼                                                             │
+│  recommendation: research X / synthesize Y / fix Z                  │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
                           │
                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│  SYNTHESIS PHASE                                            │
-│                                                             │
-│  /lattice:synthesize {research doc}                         │
-│       │                                                     │
-│       ▼  produces:                                          │
-│       ├── Build plan (implementation spec)                  │
-│       ├── Research gaps (next research cycle)               │
-│       └── Data/coverage gaps (backlog)                      │
-│       │                                                     │
-│       ▼                                                     │
-│  /lattice:peer-review {build plan}       ◄── Round 1        │
-│       │                                                     │
-│       ▼                                                     │
-│  /lattice:synthesize {research doc}      ◄── incorporate    │
-│       │                                                     │
-│       ▼                                                     │
-│  /lattice:peer-review {updated plan}     ◄── Round 2        │
-│       │                                                     │
-│       ├── SOUND/CONDITIONAL ──► proceed to build            │
-│       └── FLAWED ──► escalate to user                       │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│  RESEARCH CYCLE (/lattice:research-cycle)                           │
+│  Enter at any step with --from {step}                               │
+│  Auto-detects entry point from existing files                       │
+│                                                                     │
+│  Step 1: /lattice:research               ◄── produce                │
+│       │  landscape (--landscape) or deep dive (--deep {branch})     │
+│       ▼                                                             │
+│  Step 2: /lattice:peer-review            ◄── separate agent, R1     │
+│       │  WAIT — user accepts/rejects findings                       │
+│       ▼                                                             │
+│  Step 3: incorporate feedback            ◄── orchestrator            │
+│       │                                                             │
+│       ▼                                                             │
+│  Step 4: /lattice:peer-review            ◄── fresh agent, R2        │
+│       │  optional: --novel (different sources)                      │
+│       ▼                                                             │
+│  Step 5: evaluate                                                   │
+│       ├── SOUND/CONDITIONAL ──► research validated                  │
+│       └── FLAWED ──► escalate to user                               │
+│       │                                                             │
+│       ▼  WAIT — user decides: proceed to synthesis or stop          │
+│                                                                     │
+│  Step 7: /lattice:synthesize             ◄── build plan + gaps      │
+│       │                                                             │
+│       ▼                                                             │
+│  Step 8: /lattice:peer-review            ◄── separate agent, R1     │
+│       │  WAIT — user accepts/rejects                                │
+│       ▼                                                             │
+│  Step 9: incorporate plan feedback                                  │
+│       │                                                             │
+│       ▼                                                             │
+│  Step 10: /lattice:peer-review           ◄── fresh agent, R2        │
+│       │                                                             │
+│       ▼                                                             │
+│  Step 11: cycle complete                                            │
+│       ├── Build plan → ready for implementation                     │
+│       ├── Research gaps → next /lattice:research-cycle               │
+│       └── Data gaps → TODO.md                                       │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
                           │
                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│  BUILD PHASE                                                │
-│                                                             │
-│  /lattice:spike {feature}    or    spec-driven from plan    │
-│       │                                                     │
-│       ▼                                                     │
-│  /lattice:review                                            │
-│       │                                                     │
-│       ▼                                                     │
-│  commit                                                     │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│  BUILD PHASE                                                        │
+│                                                                     │
+│  /lattice:spike {feature}    or    spec-driven from plan            │
+│       │                                                             │
+│       ▼                                                             │
+│  /lattice:review             ◄── mandatory output sections          │
+│       │                         decision audit (rules 13-14)        │
+│       │                         deferral litmus test                 │
+│       │                         four-dimension trace                 │
+│       ▼                                                             │
+│  commit                                                             │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
                           │
                           ▼
-┌─────────────────────────────────────────────────────────────┐
-│  FEEDBACK LOOP                                              │
-│                                                             │
-│  Research gaps from synthesis ──► next /lattice:research     │
-│  Data gaps from synthesis ──► TODO.md or data acquisition   │
-│  Coverage gaps ──► validation reference cards                │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────┐
+│  FEEDBACK LOOP                                                      │
+│                                                                     │
+│  Research gaps from synthesis ──► next /lattice:research-cycle       │
+│  Data gaps from synthesis ──► TODO.md or data acquisition           │
+│  Coverage gaps ──► validation reference cards                       │
+│  /lattice:daily-update ──► Slack                                    │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
 ```
+
+## Entry Points
+
+The research cycle auto-detects where to start based on existing files, or use `--from`:
+
+| Entry | When | Existing files |
+|-------|------|----------------|
+| `--from research` | New topic | Nothing |
+| `--from review` | Doc written, needs challenge | `research/{topic}.md` |
+| `--from incorporate` | Review done, needs integration | `+ peer-reviews/{topic}-review.md` |
+| `--from r2` | Feedback incorporated | `+ "Peer Review Notes" in doc` |
+| `--from synthesize` | Research validated | `+ peer-reviews/{topic}-review-r2.md` |
+| `--from plan-review` | Synthesis written | `+ incoming/{topic}-synthesis.md` |
 
 ## Peer Review Protocol
 
+**Separate agent mandatory.** Peer review always runs in a launched agent with no access to the orchestrator's context. Self-review doesn't work — the research rationale is in the context window.
+
 **Maximum 2 rounds per artifact.** Each round is a full `/lattice:peer-review` pass.
 
-### Round 1
-Peer reviewer challenges the artifact (research doc or build plan). Produces verdicts: SOUND, CONDITIONAL, FLAWED, INSUFFICIENT per element.
+### Round 1 (standard)
+Peer reviewer challenges the artifact. Produces verdicts: SOUND, CONDITIONAL, FLAWED, INSUFFICIENT.
 
-Author incorporates feedback:
-- SOUND items: no action
-- CONDITIONAL items: address the conditions, strengthen the evidence
-- FLAWED items: fix the material error or provide counter-evidence
-- INSUFFICIENT items: add the missing information
+Author incorporates accepted feedback:
+- SOUND: no action
+- CONDITIONAL: address the conditions, strengthen evidence
+- FLAWED: fix the material error
+- INSUFFICIENT: add missing information
 
-### Round 2
-Peer reviewer checks the revisions. Three outcomes:
+User decides which findings to accept. Rejected findings are noted with counter-evidence.
+
+### Round 2 (optionally `--novel`)
+Fresh agent checks revisions. With `--novel` flag, forces different sources than Round 1 — recent, niche, underindexed work.
 
 | Outcome | Action |
 |---------|--------|
-| All material items SOUND or CONDITIONAL | Proceed to next phase |
-| New FLAWED ratings on previously-SOUND items | Likely bikeshedding — escalate to user |
-| Same item FLAWED in both rounds (disagreement) | Genuine scientific question — escalate to user with both positions |
+| All SOUND or CONDITIONAL | Proceed |
+| New FLAWED on previously-SOUND | Likely bikeshedding — escalate to user |
+| Same FLAWED both rounds | Genuine disagreement — escalate with both positions |
 
-**No Round 3.** If two rounds can't resolve it, the issue requires human judgment. Present both positions with evidence and let the user decide.
+**No Round 3.** Unresolved issues require human judgment.
 
 ### Escalation Format
-
-When escalating, present:
 
 ```
 UNRESOLVED: {topic}
@@ -117,51 +155,49 @@ Recommendation: {which position has stronger evidence}
 Your call: {what decision is needed}
 ```
 
-## Synthesis Output Sections
+## Synthesis Output
 
 `/lattice:synthesize` produces three sections:
 
-### 1. Build Plan
-Features ready to implement, with:
-- Acceptance criteria
-- Architecture decisions with merit rationale (rule 13)
-- Dependencies (real ones only — rule 14)
+| Section | Content | Routes to |
+|---------|---------|-----------|
+| **Build Plan** | Features with acceptance criteria, merit-driven decisions (rule 13), real dependencies only (rule 14) | `incoming/` spec, ROADMAP intake |
+| **Research Gaps** | Questions needing answers, blocking status, suggested sources | Next `/lattice:research-cycle` |
+| **Data Gaps** | Missing data, species, study types, impact if unaddressed | TODO.md or backlog |
 
-Routes to: `docs/_internal/incoming/` spec → ROADMAP intake (rule 12)
+## Review Quality Gate
 
-### 2. Research Gaps
-Topics needing more investigation before building. Each gap includes:
-- What question needs answering
-- Why it blocks (or doesn't block) implementation
-- Suggested search sources from the original research's source map
+`/lattice:review` produces 6 mandatory output sections:
 
-Routes to: next `/lattice:research` cycle
+1. **CHANGES** — what changed
+2. **DECISION AUDIT** — merit evaluation (rules 13-14) + deferral litmus test
+3. **REQUIREMENT TRACE** — four-dimension check (WHAT/WHEN/UNLESS/HOW)
+4. **MECHANICAL CHECKS** — build, lint, tests
+5. **DOCS UPDATE** — MANIFEST, specs, TODO
+6. **VERDICT** — pass/fail with evidence
 
-### 3. Data & Coverage Gaps
-Missing data, species, study types, methods needing validation. Each gap includes:
-- What's missing (e.g., "no HCD data for NHP clinical chemistry")
-- Impact if not addressed (e.g., "engine will over-classify NHP findings")
-- Whether it blocks implementation or is a known limitation
-
-Routes to: `docs/_internal/TODO.md` or dedicated tracking
+Missing section = incomplete review.
 
 ## Session Management
 
 - `/lattice:pause-work` — persist state if session ends mid-pipeline
 - `/lattice:resume-work` — restore and continue
-
-All artifacts (research docs, peer reviews, synthesis specs) are written to disk. Terminal crashes lose nothing.
+- All artifacts persist to disk — terminal crashes lose nothing
+- Cross-session resume: the cycle re-presents peer review findings for accept/reject when entering at `--from incorporate`
 
 ## Skills Reference
 
 | Skill | Purpose | Input | Output |
 |-------|---------|-------|--------|
-| `/lattice:research` | First-principles gap analysis | Topic | `docs/_internal/research/{topic}.md` |
-| `/lattice:peer-review` | Blind scientific challenge | Any document | `docs/_internal/research/peer-reviews/{topic}-review.md` |
-| `/lattice:synthesize` | Ground research in codebase | Research doc path | `docs/_internal/incoming/{topic}-synthesis.md` |
-| `/lattice:spike` | Exploratory implementation | Feature | Code + `/lattice:spec-from-code` |
-| `/lattice:spec-from-code` | Reverse-engineer spec from spike | Implementation | `docs/_internal/incoming/{feature}.md` |
+| `/lattice:prioritize` | Strategic advisor — what to do next | (reads all state) | Priority recommendations |
+| `/lattice:research-cycle` | Orchestrated research + review loop | Topic + optional `--from` | Validated research + synthesis |
+| `/lattice:research` | First-principles gap analysis | Topic | `research/{topic}.md` |
+| `/lattice:peer-review` | Blind scientific challenge | Any document, optional `--novel` | `peer-reviews/{topic}-review.md` |
+| `/lattice:synthesize` | Ground research in codebase | Research doc path | `incoming/{topic}-synthesis.md` |
+| `/lattice:spike` | Exploratory implementation | Feature | Code |
+| `/lattice:spec-from-code` | Reverse-engineer spec from spike | Implementation | `incoming/{feature}.md` |
 | `/lattice:review` | Quality gate + commit | Changed files | Commit (if passes) |
-| `/lattice:ux-designer` | Design audit | View or component | Inline + design system updates |
+| `/lattice:ux-designer` | Design audit | View or component | Audit report |
+| `/lattice:daily-update` | Slack update from commits | (reads git log) | Formatted message |
 | `/lattice:pause-work` | Session handoff | Current state | `.continue-here.md` |
 | `/lattice:resume-work` | Restore session | `.continue-here.md` | Restored context |

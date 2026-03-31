@@ -51,8 +51,9 @@ See [WORKFLOW.md](WORKFLOW.md) for the full pipeline with peer review protocol, 
 ### Research & Validation
 | Skill | Purpose |
 |-------|---------|
+| `/lattice:research-cycle` | **Orchestrator** — full research + peer review + synthesis loop, enter at any step |
 | `/lattice:research` | First-principles gap analysis — landscape (Tier 1) + deep dive (Tier 2) |
-| `/lattice:peer-review` | Blind scientific challenge — standard + `--novel` mode for underindexed sources |
+| `/lattice:peer-review` | Blind scientific challenge (separate agent) — standard + `--novel` mode |
 | `/lattice:synthesize` | Ground research in codebase — produces Build Plan + Research Gaps + Data Gaps |
 
 ### Build
@@ -60,7 +61,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the full pipeline with peer review protocol, 
 |-------|---------|
 | `/lattice:spike` | Exploratory implementation with pre-write discipline |
 | `/lattice:spec-from-code` | Reverse-engineer spec from successful spike |
-| `/lattice:review` | Quality gate — decision audit (rules 13-14) + four-dimension trace + mechanical checks |
+| `/lattice:review` | Quality gate — decision audit + deferral litmus test + four-dimension trace |
 | `/lattice:ux-designer` | Datagrok design system compliance audit |
 
 ### Session
