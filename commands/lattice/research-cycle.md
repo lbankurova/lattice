@@ -36,6 +36,32 @@ Also accepts:
 
 ---
 
+## Decision Prompt Format
+
+At every WAIT checkpoint, present options in this consistent format:
+
+```
+---
+**Decision: [what needs deciding]**
+
+1. [recommended option] *(recommended — [reason])*
+2. [alternative]
+3. [alternative]
+4. Something else
+
+Modifiers: [applicable flags like --novel, --deep, --landscape]
+---
+```
+
+Rules:
+- Always have a recommended option with a reason
+- Always include "Something else" as the last option
+- Show applicable modifier flags the user can add
+- Number the options so the user can reply with just a number
+- Keep it scannable — one line per option
+
+---
+
 ## Research Loop (Steps 1-6)
 
 ### Step 1: Research
@@ -44,7 +70,19 @@ Run `/lattice:research` on the topic. If a research doc already exists with unad
 
 Write output to `docs/_internal/research/{topic}.md`.
 
-**If `--landscape`:** Present branch recommendations and **WAIT** for user to select branches. Deep dive on selected branches, then continue.
+**If `--landscape`:** Present branch table with coverage scores, then:
+
+```
+---
+**Decision: Which branches to deep dive on?**
+
+1. Branches {N}, {M} *(recommended — {X}% combined coverage)*
+2. Branches {N}, {M}, {P} (adds {topic} at {Y}% coverage)
+3. All branches (comprehensive but token-heavy)
+4. Skip deep dives, proceed to peer review with landscape only
+5. Something else
+---
+```
 
 ### Step 2: Peer Review — Round 1
 
@@ -55,7 +93,26 @@ Launch with:
 - **Input:** The doc path ONLY — no reasoning, no rationale, no context
 - **Output:** `docs/_internal/research/peer-reviews/{topic}-review.md`
 
-Present review summary to user. **WAIT** for accept/reject.
+Present review summary, then:
+
+```
+---
+**Decision: Peer review findings**
+
+[For each finding, numbered:]
+1. [FLAWED] {finding summary} — accept / reject?
+2. [CONDITIONAL] {finding summary} — accept / reject?
+3. [SOUND] {finding summary} — noted
+...
+
+Quick options:
+A. Accept all findings
+R. Reject all, provide counter-evidence
+S. Accept specific (list numbers, e.g., "1, 3, 5")
+
+Modifiers: --novel available for Round 2
+---
+```
 
 ### Step 3: Incorporate Feedback
 
@@ -104,7 +161,16 @@ Launch with:
 Next: /lattice:research-cycle {topic} --from synthesize
 ```
 
-**WAIT** — user decides whether to proceed to synthesis or stop here.
+```
+---
+**Decision: Research validated. What next?**
+
+1. Proceed to synthesis *(recommended — research is validated, ready to ground in codebase)*
+2. Run additional deep dive on branch {X} (expand coverage before synthesizing)
+3. Stop here (research complete, synthesis later)
+4. Something else
+---
+```
 
 ---
 
@@ -130,7 +196,7 @@ Launch with:
 - **Input:** The synthesis doc path ONLY
 - **Output:** `docs/_internal/research/peer-reviews/{topic}-synthesis-review.md`
 
-Present review summary to user. **WAIT** for accept/reject.
+Present review summary using the same decision format as Step 2 (numbered findings, A/R/S quick options). **WAIT** for accept/reject.
 
 ### Step 9: Incorporate Plan Feedback
 
