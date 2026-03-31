@@ -21,14 +21,18 @@ Detect the right entry point from context, or use `--from`:
 | `--from plan-review` | Synthesis done, plan needs review | Step 8 → 9 → 10 → 11 |
 
 **Auto-detection:** If no `--from` flag, detect from existing files:
-1. No research doc → `--from research`
-2. Research doc exists, no peer review → `--from review`
-3. Peer review exists, research not updated since → `--from incorporate`
-4. Research updated after peer review, no R2 review → `--from r2`
-5. Research validated (R2 done), no synthesis → `--from synthesize`
-6. Synthesis exists, no plan review → `--from plan-review`
+1. No `docs/_internal/research/{topic}.md` → `--from research`
+2. Research doc exists, no `peer-reviews/{topic}-review.md` → `--from review`
+3. `{topic}-review.md` exists, no "Peer Review Notes" section in research doc → `--from incorporate` (ask user to accept/reject first)
+4. Research doc has "Peer Review Notes" section, no `{topic}-review-r2.md` → `--from r2`
+5. `{topic}-review-r2.md` exists, no `docs/_internal/incoming/{topic}-synthesis.md` → `--from synthesize`
+6. Synthesis exists, no `peer-reviews/{topic}-synthesis-review.md` → `--from plan-review`
 
-Also accepts `--landscape` or `--deep {branch}` for research tier.
+**Detection uses file existence and content markers, not timestamps.** The "Peer Review Notes" section in the research doc is the marker that incorporation happened.
+
+Also accepts:
+- `--landscape` or `--deep {branch}` for research tier
+- `--novel` to run Round 2 peer review in novel source mode
 
 ---
 
@@ -55,6 +59,8 @@ Present review summary to user. **WAIT** for accept/reject.
 
 ### Step 3: Incorporate Feedback
 
+**If entering here from a previous session** (`--from incorporate`): the user's accept/reject decisions from Step 2 are not in context. Read the peer review file, present a summary of its findings, and **WAIT** for the user to accept/reject before incorporating. Do not assume all findings are accepted.
+
 For each accepted finding:
 - **FLAWED:** Rewrite the affected section with corrected science
 - **CONDITIONAL:** Add evidence, narrow assumptions, or acknowledge limitations
@@ -62,17 +68,19 @@ For each accepted finding:
 
 For rejected findings: note user's counter-evidence in a "Peer Review Notes" section.
 
-Update the doc. Mark revised sections.
+Update the doc. Mark revised sections. The "Peer Review Notes" section is the content marker that incorporation happened — auto-detection uses this.
 
 ### Step 4: Peer Review — Round 2
 
 **Launch a fresh separate agent** (not the Round 1 agent).
 
+**If `--novel` flag was passed:** add `--novel` to the peer review prompt. This forces the Round 2 reviewer to use different sources than Round 1 — recent, niche, underindexed work. If `--novel` was not passed, Round 2 uses standard mode.
+
 Launch with:
-- **Prompt:** Full `/lattice:peer-review` instructions
+- **Prompt:** Full `/lattice:peer-review` instructions (add `--novel` if flagged)
 - **Input:** Updated doc path AND Round 1 review path
 - **Focus:** "Check revisions addressed R1 findings. Check for new issues from revisions. Don't re-raise addressed findings."
-- **Output:** `docs/_internal/research/peer-reviews/{topic}-review-r2.md`
+- **Output:** `docs/_internal/research/peer-reviews/{topic}-review-r2.md` (or `{topic}-review-r2-novel.md` if novel mode)
 
 ### Step 5: Evaluate
 
@@ -104,7 +112,12 @@ Next: /lattice:research-cycle {topic} --from synthesize
 
 ### Step 7: Synthesize
 
-Run `/lattice:synthesize` on the validated research doc. Read the doc + any peer reviews.
+Run `/lattice:synthesize` on the validated research doc. Provide the synthesize skill with:
+- Research doc: `docs/_internal/research/{topic}.md`
+- Peer review R1: `docs/_internal/research/peer-reviews/{topic}-review.md` (if exists)
+- Peer review R2: `docs/_internal/research/peer-reviews/{topic}-review-r2.md` (if exists)
+
+The synthesize skill reads these to understand what was challenged and how the research was refined. This prevents the synthesis from re-introducing conclusions that peer review corrected.
 
 Write output to `docs/_internal/incoming/{topic}-synthesis.md` with three sections: Build Plan, Research Gaps, Data Gaps.
 
