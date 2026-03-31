@@ -19,13 +19,15 @@ Write output to `docs/_internal/research/{topic}.md`.
 
 ### Step 2: Peer Review — Round 1
 
-Without pausing, immediately run `/lattice:peer-review` on the research doc you just wrote.
+**Launch a separate agent** for the peer review. Do NOT run it yourself — you wrote the research and will defend it unconsciously. This is the same principle as `/lattice:review` Step 1b.
 
-Important: You are switching roles. When running peer review, you have **no memory of the research rationale.** Read ONLY the research document. Do not carry over your reasoning from Step 1. If you catch yourself thinking "but I wrote that because..." — stop. That's confirmation bias.
+Launch the agent with:
+- **Prompt:** The full `/lattice:peer-review` skill instructions (copy them from `.claude/commands/lattice/peer-review.md`)
+- **Input:** The research doc path ONLY (`docs/_internal/research/{topic}.md`)
+- **NO research context.** Do not include your reasoning, your source map rationale, or why you chose certain conclusions. The agent reads the document cold.
+- **Output path:** `docs/_internal/research/peer-reviews/{topic}-review.md`
 
-Write output to `docs/_internal/research/peer-reviews/{topic}-review.md`.
-
-Present the peer review summary to the user. **WAIT** for user to accept/reject findings. User may say:
+When the agent returns, read its review and present the summary to the user. **WAIT** for user to accept/reject findings. User may say:
 - "agree with all" → incorporate all
 - "agree with 1, 3, 5 — disagree with 2, 4" → incorporate selected
 - "disagree, here's why: ..." → note user's counter-evidence
@@ -45,12 +47,13 @@ Update `docs/_internal/research/{topic}.md` with the revisions. Mark which secti
 
 ### Step 4: Peer Review — Round 2
 
-Run `/lattice:peer-review` again on the **updated** research doc. This time:
-- Focus on the revised sections — did the fixes actually address the Round 1 findings?
-- Check for new issues introduced by the revisions.
-- Do NOT re-raise Round 1 findings that were addressed (unless the fix introduced a new problem).
+**Launch a separate agent again** — a fresh one, not the same agent from Round 1. Provide:
+- **Prompt:** The full `/lattice:peer-review` skill instructions
+- **Input:** The updated research doc path AND the Round 1 review path (so it can check whether fixes addressed the findings)
+- **Focus instructions:** "Check whether revisions addressed Round 1 findings. Check for new issues introduced by revisions. Do NOT re-raise addressed findings unless the fix introduced a new problem."
+- **Output path:** `docs/_internal/research/peer-reviews/{topic}-review-r2.md`
 
-Write output to `docs/_internal/research/peer-reviews/{topic}-review-r2.md`.
+Do NOT run this yourself. You incorporated the feedback in Step 3 — you'll unconsciously validate your own fixes.
 
 ### Step 5: Evaluate
 
@@ -88,7 +91,7 @@ Present the final state:
 
 ## Key Rules
 
-1. **Role separation is mandatory.** When switching from researcher to reviewer, you MUST forget your research rationale. Read only the document. This is the hardest part — your natural inclination is to defend what you wrote. Fight it.
+1. **Peer review runs in a separate agent. No exceptions.** You are the researcher and orchestrator. The reviewer is a launched agent with no access to your context. Self-review doesn't work — the research rationale is in your context window and you will defend it unconsciously. This is the same principle as `/lattice:review` Step 1b.
 
 2. **Don't skip Round 2.** Even if Round 1 had no FLAWED items, Round 2 checks whether the CONDITIONAL items were adequately addressed. It also catches issues in the revisions themselves.
 
