@@ -52,7 +52,22 @@ For every architectural or method decision in the changed code, evaluate:
 
 **Check against rules 13-14:**
 - **Rule 13 (merit-driven):** Was every decision evaluated on scientific correctness and product value? If an easier-but-less-correct approach was chosen, flag it as FAIL.
-- **Rule 14 (no unprompted deferrals):** Was anything deferred to "later" or "future work"? If yes, is there a real technical dependency blocking it NOW, or did the user explicitly approve the deferral? If neither, flag as FAIL.
+- **Rule 14 (no unprompted deferrals):** Was anything deferred to "later" or "future work"? If yes, apply the **deferral litmus test:**
+
+### Deferral Litmus Test
+
+For every deferral, ask: **"Can this be done now, in this session, with no external blocker?"**
+
+| Reason given | Valid deferral? | Why |
+|-------------|----------------|-----|
+| "Data exists but isn't wired through yet" | **NO** — wiring is just work, not a blocker | Do the wiring now |
+| "The function exists but isn't called from here" | **NO** — adding a call is just work | Add the call now |
+| "Would need a small refactor to support this" | **NO** — a small refactor is just work | Do it now |
+| "Needs data from an API that doesn't exist yet" | **YES** — external dependency | Document what's needed |
+| "Requires user decision on which approach" | **YES** — blocked on human input | Escalate to user |
+| "Depends on another module shipping first" | **MAYBE** — is it in this PR? | If yes, not a deferral. If no, check why not. |
+
+The pattern to catch: **"the capability exists in the codebase but isn't connected to this feature."** That's wiring work, not a dependency. If the data is in the pipeline, the function is in the codebase, and the only missing piece is threading it through — that's a task for this session, not a deferral.
 
 **For bug fixes:** The "decision" is the root cause hypothesis. Was it formed by reading the full module (rule 10), or by guessing at the error line?
 
@@ -226,3 +241,4 @@ Update `.claude/roles/review-notes.md` with:
 8. **Feeding implementation context to the review agent.** Spec path + changed file list only.
 9. **Writing "N/A" on the Decision Audit.** Rules 13-14 always apply. Every change has decisions. Find them.
 10. **Producing a review without all 6 mandatory output sections.** An incomplete review is not a review.
+11. **Accepting "data exists but isn't wired" as a deferral.** If the data is in the pipeline and the function is in the codebase, connecting them is work — not a dependency. Apply the deferral litmus test.
