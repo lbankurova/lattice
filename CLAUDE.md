@@ -1,5 +1,15 @@
 # Lattice — Datagrok Development Framework
 
+## Product Thesis
+
+Datagrok is a data analytics platform. The goal is for users to fully **grok** their data and act on it. This thesis governs everything we build:
+
+1. **Every insight that can be auto-generated MUST be auto-generated.** The system computes what it can. Users review conclusions, not raw data. If a human is manually deriving something the engine could compute, that's a missing feature.
+2. **The primary audience is always scientists.** Toxicologists, pharmacologists, biostatisticians — the people who understand the data and need to act on it. Regulatory writers, program managers, and other consumers are secondary. Design for the scientist's daily analytical workflow first; export/reporting/compliance features serve the scientist's output needs, not the other way around.
+3. **Analytical use > regulatory use.** Scientists make Go/No-Go decisions at every program meeting. Regulatory submissions happen once per milestone. Build for the high-frequency analytical use case; regulatory deliverables are a view on the same data, not a separate system.
+
+This thesis informs research (`/lattice:research`), synthesis (`/lattice:synthesize`), and all architectural decisions. When evaluating a feature proposal, ask: "Does this help a scientist grok their data faster?" If not, it's either a supporting feature or out of scope.
+
 ## Overview
 
 Lattice is a framework for exploratory development of scientific apps on the Datagrok platform with LLM-assisted development. Provides process rules, design system enforcement, scientific knowledge scaffolding, and quality gates.
