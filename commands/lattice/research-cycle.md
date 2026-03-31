@@ -1,102 +1,171 @@
 ---
 name: research-cycle
-description: Orchestrate the full research → peer-review → incorporate → peer-review loop automatically.
+description: Orchestrate the full research → peer-review → incorporate → peer-review loop. Enter at any step.
 ---
 
-You are orchestrating a complete research cycle. This skill runs the full loop from WORKFLOW.md automatically — you do NOT wait for user input between steps (except at the checkpoints marked WAIT below).
+You are orchestrating a research cycle. This skill runs a produce → review → incorporate → review loop that applies to ANY artifact (research doc, synthesis plan, implementation spec). Enter at any step, run forward from there.
 
-**Input:** A topic and optional mode (`--landscape` or `--deep {branch}`).
+**Input:** A topic/doc path and optional `--from {step}`.
 
-## The Loop
+## Entry Points
+
+Detect the right entry point from context, or use `--from`:
+
+| Entry | When to use | Starts at |
+|-------|-------------|-----------|
+| `--from research` | New topic, no existing doc | Step 1 → 2 → 3 → 4 → 5 → 6 |
+| `--from review` | Doc exists, needs peer review | Step 2 → 3 → 4 → 5 → 6 |
+| `--from incorporate` | Peer review done, needs incorporation | Step 3 → 4 → 5 → 6 |
+| `--from r2` | Feedback incorporated, needs Round 2 review | Step 4 → 5 → 6 |
+| `--from synthesize` | Research validated, needs synthesis | Step 7 → 8 → 9 → 10 → 11 |
+| `--from plan-review` | Synthesis done, plan needs review | Step 8 → 9 → 10 → 11 |
+
+**Auto-detection:** If no `--from` flag, detect from existing files:
+1. No research doc → `--from research`
+2. Research doc exists, no peer review → `--from review`
+3. Peer review exists, research not updated since → `--from incorporate`
+4. Research updated after peer review, no R2 review → `--from r2`
+5. Research validated (R2 done), no synthesis → `--from synthesize`
+6. Synthesis exists, no plan review → `--from plan-review`
+
+Also accepts `--landscape` or `--deep {branch}` for research tier.
+
+---
+
+## Research Loop (Steps 1-6)
 
 ### Step 1: Research
 
-Run `/lattice:research` on the topic. If a research doc already exists and has unaddressed peer review findings, incorporate those first (see Step 3).
+Run `/lattice:research` on the topic. If a research doc already exists with unaddressed peer review findings, incorporate those first (Step 3).
 
 Write output to `docs/_internal/research/{topic}.md`.
 
-**If `--landscape`:** After writing the landscape, present the branch recommendations and **WAIT** for user to select branches. Then proceed with deep dives on selected branches before continuing to Step 2.
+**If `--landscape`:** Present branch recommendations and **WAIT** for user to select branches. Deep dive on selected branches, then continue.
 
 ### Step 2: Peer Review — Round 1
 
-**Launch a separate agent** for the peer review. Do NOT run it yourself — you wrote the research and will defend it unconsciously. This is the same principle as `/lattice:review` Step 1b.
+**Launch a separate agent.** Do NOT review your own work.
 
-Launch the agent with:
-- **Prompt:** The full `/lattice:peer-review` skill instructions (copy them from `.claude/commands/lattice/peer-review.md`)
-- **Input:** The research doc path ONLY (`docs/_internal/research/{topic}.md`)
-- **NO research context.** Do not include your reasoning, your source map rationale, or why you chose certain conclusions. The agent reads the document cold.
-- **Output path:** `docs/_internal/research/peer-reviews/{topic}-review.md`
+Launch with:
+- **Prompt:** Full `/lattice:peer-review` skill instructions from `.claude/commands/lattice/peer-review.md`
+- **Input:** The doc path ONLY — no reasoning, no rationale, no context
+- **Output:** `docs/_internal/research/peer-reviews/{topic}-review.md`
 
-When the agent returns, read its review and present the summary to the user. **WAIT** for user to accept/reject findings. User may say:
-- "agree with all" → incorporate all
-- "agree with 1, 3, 5 — disagree with 2, 4" → incorporate selected
-- "disagree, here's why: ..." → note user's counter-evidence
+Present review summary to user. **WAIT** for accept/reject.
 
 ### Step 3: Incorporate Feedback
 
-Re-read the research doc AND the peer review. For each accepted finding:
+For each accepted finding:
+- **FLAWED:** Rewrite the affected section with corrected science
+- **CONDITIONAL:** Add evidence, narrow assumptions, or acknowledge limitations
+- **Plausible alternatives:** Add as acknowledged alternatives
 
-- **FLAWED items:** Fix the material error. Rewrite the affected section with corrected science.
-- **CONDITIONAL items:** Address the condition. Add evidence, narrow the assumption, or acknowledge the limitation explicitly.
-- **Alternative hypotheses rated "plausible":** Add them to the research as acknowledged alternatives, not dismissed.
+For rejected findings: note user's counter-evidence in a "Peer Review Notes" section.
 
-For each rejected finding (user disagreed):
-- Note the user's counter-evidence in the research doc under a "Peer Review Notes" section.
-
-Update `docs/_internal/research/{topic}.md` with the revisions. Mark which sections were revised and why.
+Update the doc. Mark revised sections.
 
 ### Step 4: Peer Review — Round 2
 
-**Launch a separate agent again** — a fresh one, not the same agent from Round 1. Provide:
-- **Prompt:** The full `/lattice:peer-review` skill instructions
-- **Input:** The updated research doc path AND the Round 1 review path (so it can check whether fixes addressed the findings)
-- **Focus instructions:** "Check whether revisions addressed Round 1 findings. Check for new issues introduced by revisions. Do NOT re-raise addressed findings unless the fix introduced a new problem."
-- **Output path:** `docs/_internal/research/peer-reviews/{topic}-review-r2.md`
+**Launch a fresh separate agent** (not the Round 1 agent).
 
-Do NOT run this yourself. You incorporated the feedback in Step 3 — you'll unconsciously validate your own fixes.
+Launch with:
+- **Prompt:** Full `/lattice:peer-review` instructions
+- **Input:** Updated doc path AND Round 1 review path
+- **Focus:** "Check revisions addressed R1 findings. Check for new issues from revisions. Don't re-raise addressed findings."
+- **Output:** `docs/_internal/research/peer-reviews/{topic}-review-r2.md`
 
 ### Step 5: Evaluate
 
 | Round 2 outcome | Action |
 |-----------------|--------|
-| All material items SOUND or CONDITIONAL | Research is validated. Proceed to summary. |
-| New FLAWED on previously-SOUND items | Likely bikeshedding. Present both positions to user. **WAIT.** |
-| Same item FLAWED in both rounds | Genuine disagreement. Present both positions with evidence to user. **WAIT.** |
+| All SOUND or CONDITIONAL | Validated — proceed to Step 6 |
+| New FLAWED on previously-SOUND | Bikeshedding — present both positions. **WAIT.** |
+| Same FLAWED both rounds | Genuine disagreement — present both with evidence. **WAIT.** |
 
-### Step 6: Summary
-
-Present the final state:
+### Step 6: Research Summary
 
 ```
-## Research Cycle Complete: {topic}
+## Research Validated: {topic}
 
-**Status:** [Validated / Escalated to user]
-**Rounds:** 2
-**Research doc:** docs/_internal/research/{topic}.md
-**Peer reviews:** {topic}-review.md, {topic}-review-r2.md
+**Doc:** docs/_internal/research/{topic}.md
+**Reviews:** {topic}-review.md, {topic}-review-r2.md
+**Findings incorporated:** [list]
+**User decisions:** [list]
+**Unresolved:** [list or "none"]
 
-### Findings Incorporated
-- [list of Round 1 findings that were addressed]
-
-### User Decisions
-- [list of findings user rejected with their reasoning]
-
-### Unresolved (if any)
-- [items escalated to user]
-
-### Next Step
-- Ready for `/lattice:synthesize docs/_internal/research/{topic}.md`
-- OR: additional research needed on [specific sub-topic]
+Next: /lattice:research-cycle {topic} --from synthesize
 ```
+
+**WAIT** — user decides whether to proceed to synthesis or stop here.
+
+---
+
+## Synthesis Loop (Steps 7-11)
+
+### Step 7: Synthesize
+
+Run `/lattice:synthesize` on the validated research doc. Read the doc + any peer reviews.
+
+Write output to `docs/_internal/incoming/{topic}-synthesis.md` with three sections: Build Plan, Research Gaps, Data Gaps.
+
+### Step 8: Plan Review — Round 1
+
+**Launch a separate agent.** Same rules as Step 2.
+
+Launch with:
+- **Prompt:** Full `/lattice:peer-review` instructions (it will auto-detect "implementation plan" tier)
+- **Input:** The synthesis doc path ONLY
+- **Output:** `docs/_internal/research/peer-reviews/{topic}-synthesis-review.md`
+
+Present review summary to user. **WAIT** for accept/reject.
+
+### Step 9: Incorporate Plan Feedback
+
+Same as Step 3 but on the synthesis doc. Fix FLAWED decisions, address CONDITIONAL items, note rejected findings.
+
+Update `docs/_internal/incoming/{topic}-synthesis.md`.
+
+### Step 10: Plan Review — Round 2
+
+**Launch fresh separate agent.**
+
+Launch with:
+- **Input:** Updated synthesis doc AND Round 1 plan review
+- **Output:** `docs/_internal/research/peer-reviews/{topic}-synthesis-review-r2.md`
+
+### Step 11: Final Summary
+
+```
+## Cycle Complete: {topic}
+
+**Research:** docs/_internal/research/{topic}.md (validated)
+**Synthesis:** docs/_internal/incoming/{topic}-synthesis.md (validated)
+**All reviews:** [list of review files]
+
+### Build Plan — ready for implementation
+[summary of what to build]
+
+### Research Gaps — next /lattice:research cycle
+[list]
+
+### Data Gaps — backlog
+[list]
+
+Next: /lattice:spike or spec-driven implementation
+```
+
+---
 
 ## Key Rules
 
-1. **Peer review runs in a separate agent. No exceptions.** You are the researcher and orchestrator. The reviewer is a launched agent with no access to your context. Self-review doesn't work — the research rationale is in your context window and you will defend it unconsciously. This is the same principle as `/lattice:review` Step 1b.
+1. **Peer review runs in a separate agent. No exceptions.** Self-review doesn't work — the rationale is in your context window. Same principle as `/lattice:review` Step 1b.
 
-2. **Don't skip Round 2.** Even if Round 1 had no FLAWED items, Round 2 checks whether the CONDITIONAL items were adequately addressed. It also catches issues in the revisions themselves.
+2. **Don't skip Round 2.** Even if Round 1 was clean, Round 2 validates the revisions.
 
-3. **2 rounds maximum.** If Round 2 doesn't resolve it, escalate. No Round 3.
+3. **2 rounds max per artifact.** Unresolved → escalate to user. No Round 3.
 
-4. **All outputs persist to disk.** Every research doc, every peer review, every revision. Terminal crashes lose nothing.
+4. **All outputs persist to disk.** Terminal crashes lose nothing.
 
-5. **WAIT checkpoints are real waits.** Do not auto-proceed past them. The user decides which findings to accept and which branches to explore.
+5. **WAIT checkpoints are real waits.** User decides what to accept and when to proceed.
+
+6. **Entry points are flexible.** The cycle picks up wherever the artifacts left off. No need to restart from scratch.
