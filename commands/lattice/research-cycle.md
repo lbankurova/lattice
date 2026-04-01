@@ -17,8 +17,9 @@ Detect the right entry point from context, or use `--from`:
 | `--from review` | Doc exists, needs peer review | Step 2 → 3 → 4 → 5 → 6 |
 | `--from incorporate` | Peer review done, needs incorporation | Step 3 → 4 → 5 → 6 |
 | `--from r2` | Feedback incorporated, needs Round 2 review | Step 4 → 5 → 6 |
-| `--from synthesize` | Research validated, needs synthesis | Step 7 → 8 → 9 → 10 → 11 |
-| `--from plan-review` | Synthesis done, plan needs review | Step 8 → 9 → 10 → 11 |
+| `--from synthesize` | Research validated, needs synthesis | Step 7 → 7.5 → 8 → 9 → 10 → 11 |
+| `--from architect` | Synthesis done, needs architect gate | Step 7.5 → 8 → 9 → 10 → 11 |
+| `--from plan-review` | Architect passed, plan needs peer review | Step 8 → 9 → 10 → 11 |
 
 **Auto-detection:** If no `--from` flag, detect from existing files:
 1. No `docs/_internal/research/{topic}.md` → `--from research`
@@ -26,7 +27,8 @@ Detect the right entry point from context, or use `--from`:
 3. `{topic}-review.md` exists, no "Peer Review Notes" section in research doc → `--from incorporate` (ask user to accept/reject first)
 4. Research doc has "Peer Review Notes" section, no `{topic}-review-r2.md` → `--from r2`
 5. `{topic}-review-r2.md` exists, no `docs/_internal/incoming/{topic}-synthesis.md` → `--from synthesize`
-6. Synthesis exists, no `peer-reviews/{topic}-synthesis-review.md` → `--from plan-review`
+6. Synthesis exists, no `peer-reviews/{topic}-architect-review.md` → `--from architect`
+7. Architect review exists, no `peer-reviews/{topic}-synthesis-review.md` → `--from plan-review`
 
 **Detection uses file existence and content markers, not timestamps.** The "Peer Review Notes" section in the research doc is the marker that incorporation happened.
 
@@ -185,9 +187,54 @@ Run `/lattice:synthesize` on the validated research doc. Provide the synthesize 
 
 The synthesize skill reads these to understand what was challenged and how the research was refined. This prevents the synthesis from re-introducing conclusions that peer review corrected.
 
-Write output to `docs/_internal/incoming/{topic}-synthesis.md` with three sections: Build Plan, Research Gaps, Data Gaps.
+Write output to `docs/_internal/incoming/{topic}-synthesis.md` with six mandatory sections: Build Plan, Reuse Inventory, Simplicity Rationale, Test Strategy, Research Gaps, Data Gaps.
 
-### Step 8: Plan Review — Round 1
+**Verify mandatory sections exist** before proceeding. If any of (1a) Reuse Inventory, (1b) Simplicity Rationale, or (1c) Test Strategy are missing, send the synthesis back — do not proceed to the architect gate with an incomplete synthesis.
+
+### Step 7.5: Architect Gate (automatic)
+
+**Launch a separate agent** with the architect-reviewer instructions (`agents/architect-reviewer.md`). This is NOT the peer review — it checks for overengineering and science preservation, not scientific correctness.
+
+Launch with:
+- **Prompt:** Full architect-reviewer agent instructions
+- **Input:** The synthesis doc path, the guardrails doc path (`docs/_internal/knowledge/code-quality-guardrails.md`), and the list of files the synthesis proposes to modify
+- **Mode:** "gate"
+- **No session context.** The architect reviewer evaluates purely on structural merit.
+
+Handle the verdict:
+
+| Verdict | Action |
+|---------|--------|
+| **PASS** | Proceed to Step 8 (peer review) |
+| **SIMPLIFY** | Present specific cuts to user. If accepted, revise synthesis, re-gate (max 2 rounds). |
+| **REJECT** | Present to user with alternative approach. **WAIT.** |
+| **SCIENCE-FLAG** | Present flagged items to user. Each flag needs explicit accept/reject. Non-flagged items proceed. |
+
+```
+---
+**Decision: Architect review results**
+
+Verdict: [PASS / SIMPLIFY / REJECT / SCIENCE-FLAG]
+
+[If SIMPLIFY, list specific cuts:]
+1. [cut] — accept / reject?
+2. [cut] — accept / reject?
+
+[If SCIENCE-FLAG, list flagged items:]
+1. [SCIENCE-FLAG] {item} — this changes {analytical behavior}. Accept behavior change / keep complexity?
+
+Quick options:
+A. Accept all recommendations
+R. Reject all, keep current plan
+S. Accept specific (list numbers)
+---
+```
+
+**After revision (if any):** re-launch the architect-reviewer on the revised synthesis. Maximum 2 rounds. Unresolved → escalate to user.
+
+Write architect review to `docs/_internal/research/peer-reviews/{topic}-architect-review.md`.
+
+### Step 8: Plan Review — Round 1 (scientific peer review)
 
 **Launch a separate agent.** Same rules as Step 2.
 

@@ -16,6 +16,8 @@ Read the research document fully. Extract:
 
 ## Step 2: Map Against Existing Codebase
 
+**Read `docs/_internal/knowledge/code-quality-guardrails.md` first** (if it exists). This tells you which patterns are canonical, which modules are domain-critical, and what the current complexity budget looks like. Your synthesis must work WITH these patterns, not against them.
+
 For each proposed capability from the research:
 
 1. **Search the codebase** — does something like this already exist? Check:
@@ -56,6 +58,49 @@ For capabilities classified as PARTIAL or NEW that are ready to implement:
 Follow the pre-write protocol (rule 11): state approach, identify reusable code, list constraints.
 
 Routes to: `docs/_internal/incoming/` spec -> ROADMAP intake (rule 12)
+
+### Section 1a: Reuse Inventory (mandatory)
+
+For every NEW or PARTIAL capability in the build plan, document your search:
+
+| Capability | Searched | Found | Reusing | Building New |
+|------------|----------|-------|---------|-------------|
+| [feature] | [where you looked — specific dirs/files/methods-index] | [what exists] | [what you'll call/extend] | [only what doesn't exist yet] |
+
+This section is auditable evidence that rule 6 was followed. **Missing = incomplete synthesis.** The architect gate will reject a synthesis without a reuse inventory.
+
+### Section 1b: Simplicity Rationale (mandatory)
+
+For every new abstraction, config option, type, or utility proposed in the build plan:
+
+| Proposed | Why not inline/direct? | Consumers | Alternatives rejected |
+|----------|----------------------|-----------|----------------------|
+| [new thing] | [specific reason it needs to exist as a separate unit] | [list every caller] | [simpler approaches and why they don't work] |
+
+Rules:
+- **1 consumer = inline it.** No abstractions with a single caller unless required for testability (and you specify the test).
+- **Config options must justify variability.** "Might change later" is not justification. "Varies per study type, set in study_preferences.json" is.
+- **New types must justify their existence.** If an existing type covers 90% of the need, extend it. Don't create a parallel hierarchy.
+- **If the table is empty, say so.** "No new abstractions — all work extends existing patterns" is a valid and good answer.
+
+**Missing = incomplete synthesis.** The architect gate will reject a synthesis without simplicity rationale.
+
+### Section 1c: Test Strategy (mandatory)
+
+For every build plan item, specify the testing approach:
+
+| Feature | Test Type | What It Asserts | Why This Level |
+|---------|-----------|-----------------|---------------|
+| [feature] | unit / integration / validation / none | [specific behavior being verified] | [why this test type is appropriate] |
+
+Rules:
+- **Domain logic (classification, statistics, scoring):** Integration tests with real data. Assert outputs, not internals. Mock nothing that's in-process.
+- **Data transformations:** Unit tests with edge cases (empty data, single row, missing columns).
+- **UI components:** Only if interactive behavior is non-trivial. Don't test that React renders.
+- **Plumbing (API routes, type threading):** Type system covers it. No test needed. Say "type-safe, no test" explicitly.
+- **"Test everything" is not a strategy.** Tests that mock everything and assert `toBeCalled()` are worse than no tests — they create false confidence and resist refactoring. Test observable behavior.
+
+**Missing = incomplete synthesis.**
 
 ### Section 2: Research Gaps
 
@@ -101,3 +146,5 @@ The build plan section is a standard incoming spec — subject to ROADMAP intake
 - **Trace every plan item to a research finding.** No implementation tasks without a research-backed justification.
 - **Don't add scope.** If the research didn't identify it as a gap, don't invent features. The research is the scope boundary.
 - **Research gaps are not deferrals.** A research gap means "we need to learn more before deciding." A deferral means "we decided not to do it." Research gaps get a next `/lattice:research` cycle. Deferrals require user approval (rule 14).
+- **Six mandatory sections.** The synthesis output must contain: (1) Build Plan, (1a) Reuse Inventory, (1b) Simplicity Rationale, (1c) Test Strategy, (2) Research Gaps, (3) Data & Coverage Gaps. Missing any section = incomplete synthesis. The `/lattice:architect` gate will reject it.
+- **Science preservation.** When proposing to simplify, refactor, or restructure existing code, state what analytical output changes. If any output changes, flag it explicitly in the build plan — the architect gate checks for this.

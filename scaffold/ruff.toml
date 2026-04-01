@@ -1,0 +1,29 @@
+# Lattice — Python complexity rules
+# Install: copy to project root
+# Override per-file with inline `# noqa: XXXX` + mandatory justification comment
+
+[lint]
+select = [
+    "E",      # pycodestyle errors
+    "F",      # pyflakes
+    "C901",   # McCabe complexity
+    "PLR",    # pylint refactor rules
+]
+
+[lint.mccabe]
+max-complexity = 15
+
+[lint.pylint]
+max-args = 8
+max-returns = 6
+max-branches = 12
+
+# Exclude vendored/generated code
+[lint.per-file-ignores]
+"venv/*" = ["ALL"]
+".venv-core/*" = ["ALL"]
+"_core_engine/*" = ["ALL"]
+"__pycache__/*" = ["ALL"]
+# Domain-critical files may carry C901 exemptions with mandatory comments.
+# Bare `# noqa: C901` without a comment explaining why complexity is essential
+# is a finding in /lattice:architect audit.

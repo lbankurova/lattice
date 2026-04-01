@@ -51,17 +51,18 @@ See [WORKFLOW.md](WORKFLOW.md) for the full pipeline with peer review protocol, 
 ### Research & Validation
 | Skill | Purpose |
 |-------|---------|
-| `/lattice:research-cycle` | **Orchestrator** — full research + peer review + synthesis loop, enter at any step |
+| `/lattice:research-cycle` | **Orchestrator** — full research + peer review + architect gate + synthesis loop |
 | `/lattice:research` | First-principles gap analysis — landscape (Tier 1) + deep dive (Tier 2) |
 | `/lattice:peer-review` | Blind scientific challenge (separate agent) — standard + `--novel` mode |
-| `/lattice:synthesize` | Ground research in codebase — produces Build Plan + Research Gaps + Data Gaps |
+| `/lattice:synthesize` | Ground research in codebase — Build Plan + Reuse Inventory + Simplicity Rationale + Test Strategy + Gaps |
 
-### Build
+### Build & Quality
 | Skill | Purpose |
 |-------|---------|
+| `/lattice:architect` | Architecture quality gate — audit code, gate specs, enforce science preservation |
 | `/lattice:spike` | Exploratory implementation with pre-write discipline |
 | `/lattice:spec-from-code` | Reverse-engineer spec from successful spike |
-| `/lattice:review` | Quality gate — decision audit + deferral litmus test + four-dimension trace |
+| `/lattice:review` | Quality gate — architect review + decision audit + deferral litmus test + four-dimension trace |
 | `/lattice:ux-designer` | Datagrok design system compliance audit |
 
 ### Session
@@ -87,6 +88,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the full pipeline with peer review protocol, 
 | 12 | New spec → ROADMAP intake | No orphaned specs |
 | 13 | **Merit-driven architectural decisions** | Choose scientifically correct approach, not easiest |
 | 14 | **No unprompted deferrals** | Never defer without real dependency or explicit user decision |
+| 15 | **Science preservation gate** | Cleanup that changes analytical behavior requires scientist review |
 
 ## Research Quality Controls
 

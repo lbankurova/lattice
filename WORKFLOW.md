@@ -6,10 +6,12 @@ The canonical workflow for research-driven development of scientific apps.
 
 ```
 /lattice:prioritize                        — what should I work on?
-/lattice:research-cycle {topic}            — full research + review loop
-/lattice:research-cycle {topic} --from synthesize  — synthesis + plan review loop
+/lattice:research-cycle {topic}            — full research + review + architect gate loop
+/lattice:research-cycle {topic} --from synthesize  — synthesis + architect gate + plan review loop
+/lattice:architect audit {path}            — ad-hoc architecture audit
+/lattice:architect gate {spec}             — pre-implementation architecture gate
 /lattice:spike or spec-driven              — build it
-/lattice:review                            — quality gate + commit
+/lattice:review                            — quality gate (includes architect review) + commit
 ```
 
 ## Pipeline
@@ -51,7 +53,12 @@ The canonical workflow for research-driven development of scientific apps.
 │       ▼  WAIT — user decides: proceed to synthesis or stop          │
 │                                                                     │
 │  Step 7: /lattice:synthesize             ◄── build plan + gaps      │
-│       │                                                             │
+│       │  mandatory: reuse inventory, simplicity rationale,          │
+│       │  test strategy                                              │
+│       ▼                                                             │
+│  Step 7.5: /lattice:architect gate       ◄── separate agent         │
+│       │  PASS / SIMPLIFY / REJECT / SCIENCE-FLAG                    │
+│       │  WAIT on SIMPLIFY/REJECT/SCIENCE-FLAG                       │
 │       ▼                                                             │
 │  Step 8: /lattice:peer-review            ◄── separate agent, R1     │
 │       │  WAIT — user accepts/rejects                                │
@@ -108,7 +115,8 @@ The research cycle auto-detects where to start based on existing files, or use `
 | `--from incorporate` | Review done, needs integration | `+ peer-reviews/{topic}-review.md` |
 | `--from r2` | Feedback incorporated | `+ "Peer Review Notes" in doc` |
 | `--from synthesize` | Research validated | `+ peer-reviews/{topic}-review-r2.md` |
-| `--from plan-review` | Synthesis written | `+ incoming/{topic}-synthesis.md` |
+| `--from architect` | Synthesis written, needs arch gate | `+ incoming/{topic}-synthesis.md` |
+| `--from plan-review` | Architect passed | `+ peer-reviews/{topic}-architect-review.md` |
 
 ## Peer Review Protocol
 
@@ -194,6 +202,7 @@ Missing section = incomplete review.
 | `/lattice:research` | First-principles gap analysis | Topic | `research/{topic}.md` |
 | `/lattice:peer-review` | Blind scientific challenge | Any document, optional `--novel` | `peer-reviews/{topic}-review.md` |
 | `/lattice:synthesize` | Ground research in codebase | Research doc path | `incoming/{topic}-synthesis.md` |
+| `/lattice:architect` | Architecture quality gate | File/dir/spec path | Audit report or gate verdict |
 | `/lattice:spike` | Exploratory implementation | Feature | Code |
 | `/lattice:spec-from-code` | Reverse-engineer spec from spike | Implementation | `incoming/{feature}.md` |
 | `/lattice:review` | Quality gate + commit | Changed files | Commit (if passes) |

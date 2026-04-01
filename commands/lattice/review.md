@@ -20,11 +20,12 @@ Apply this domain knowledge when reviewing code. Check that labels, terminology,
 The review MUST produce ALL of these named sections in its output. A missing section means the review is incomplete — do not present work as reviewed until every section exists.
 
 1. **CHANGES** — what was changed (file list + summary)
-2. **DECISION AUDIT** — merit-based evaluation of every architectural/method decision
-3. **REQUIREMENT TRACE** — four-dimension check (WHAT/WHEN/UNLESS/HOW) — adapted to context
-4. **MECHANICAL CHECKS** — build, lint, tests, code quality
-5. **DOCS UPDATE** — MANIFEST, specs, TODO
-6. **VERDICT** — pass/fail with evidence
+2. **ARCHITECT REVIEW** — complexity and science preservation check (separate agent)
+3. **DECISION AUDIT** — merit-based evaluation of every architectural/method decision
+4. **REQUIREMENT TRACE** — four-dimension check (WHAT/WHEN/UNLESS/HOW) — adapted to context
+5. **MECHANICAL CHECKS** — build, lint, tests, code quality
+6. **DOCS UPDATE** — MANIFEST, specs, TODO
+7. **VERDICT** — pass/fail with evidence
 
 If you catch yourself skipping a section or writing "N/A — not applicable" without justification, stop. That's the section that will contain the bug you missed.
 
@@ -37,8 +38,29 @@ Determine what kind of work you're reviewing:
 1. Check `git diff --stat` and `git status` to see what changed
 2. Ask the user (if not obvious): **"Did this implement from a spec? If so, which file?"**
 
-**If a spec exists** → run the full protocol (Steps 1–6 below)
+**If a spec exists** → run the full protocol (Steps 0.5–7 below)
 **If no spec** (spike, bug fix, ad-hoc) → still run ALL steps, but adapt Steps 1-2 (see below)
+
+---
+
+## Step 0.5: Architect Review (ALL work — produces ARCHITECT REVIEW section)
+
+**Launch a separate agent** with the architect-reviewer instructions (`agents/architect-reviewer.md`).
+
+For spec work: the architect gate already ran during the research cycle (Step 7.5). Skip this step but note: "Architect review: passed during synthesis (see `peer-reviews/{topic}-architect-review.md`)."
+
+For non-spec work (spikes, bug fixes, ad-hoc): this is the only architect check. Launch with:
+- **Prompt:** Full architect-reviewer agent instructions
+- **Input:** The changed file list (`git diff --name-only`), the full diff, and the guardrails doc path
+- **Mode:** "review" (diff review)
+
+Include the architect's report in the ARCHITECT REVIEW output section. If the architect returns SCIENCE-FLAG, the overall review cannot PASS until the user explicitly acknowledges each flag.
+
+| Architect verdict | Review action |
+|-------------------|---------------|
+| PASS | Note in section, continue |
+| SIMPLIFY | List items in section. User decides: fix now or accept. If "fix now", fix before continuing review. |
+| SCIENCE-FLAG | List in section. **WAIT** for user acknowledgment on each flag before continuing. |
 
 ---
 
@@ -207,7 +229,7 @@ Present the complete requirement trace to the user. This is the evidence table, 
 
 ---
 
-## Step 6: Commit gate (all work)
+## Step 7: Commit gate (all work)
 
 When ALL checks pass:
 1. Tell the user: **"All checks pass. Ready to commit. Here's what changed: [file list + summary]. Shall I commit?"**
@@ -240,5 +262,7 @@ Update `.claude/roles/review-notes.md` with:
 7. **Treating build+tests as behavioral verification.** They don't tell you the chart is oriented correctly.
 8. **Feeding implementation context to the review agent.** Spec path + changed file list only.
 9. **Writing "N/A" on the Decision Audit.** Rules 13-14 always apply. Every change has decisions. Find them.
-10. **Producing a review without all 6 mandatory output sections.** An incomplete review is not a review.
+10. **Producing a review without all 7 mandatory output sections.** An incomplete review is not a review.
 11. **Accepting "data exists but isn't wired" as a deferral.** If the data is in the pipeline and the function is in the codebase, connecting them is work — not a dependency. Apply the deferral litmus test.
+12. **Skipping the architect review for spikes.** Spikes are the MOST likely to introduce accidental complexity because they skip spec ceremony. The architect check is mandatory.
+13. **Proceeding past SCIENCE-FLAG without user acknowledgment.** Science flags are hard stops. The user must explicitly accept or reject each one.
