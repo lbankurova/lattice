@@ -171,6 +171,18 @@ After completing research, append to `.lattice/decisions.log`:
 {timestamp}	research	{tier: landscape|deep}	{topic}	branches:{count} gaps:{count} proposals:{count}	{one-line summary}
 ```
 
+## Known Failure Modes
+
+These patterns have caused real failures in past research runs. Check yourself against them before submitting output.
+
+1. **Inferring from types, not data.** When answering "does the engine produce X?" or "what value does Y have?", check actual generated JSON or API output — not TypeScript types or Python function signatures. Types show what's *possible*, not what's *actual*. Use `/ops:explore-data` when available.
+
+2. **Domain assumptions without verification.** CDISC definitions are permissive; real-world CRO submissions vary widely. Before implementing domain logic, check actual TS/TX/EX/DS values in representative studies. Document the encoding variants you expect.
+
+3. **Coverage claims without scope qualification.** "95% of FDA submissions" vs "95% of repeat-dose tox" are very different claims. Always qualify coverage percentages with the specific scope they apply to.
+
+4. **Frequency-only prioritization.** Usage frequency alone doesn't determine value. One failed IND submission = program death (years, hundreds of millions). When ranking by value, consider impact-per-instance alongside frequency.
+
 ## Constraints
 
 - **Never reference current codebase capabilities.** This skill produces pure research. `/synthesize` handles the codebase mapping.

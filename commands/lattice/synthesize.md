@@ -150,6 +150,16 @@ The build plan section is a standard incoming spec — subject to ROADMAP intake
 - **Six mandatory sections.** The synthesis output must contain: (1) Build Plan, (1a) Reuse Inventory, (1b) Simplicity Rationale, (1c) Test Strategy, (2) Research Gaps, (3) Data & Coverage Gaps. Missing any section = incomplete synthesis. The `/lattice:architect` gate will reject it.
 - **Science preservation.** When proposing to simplify, refactor, or restructure existing code, state what analytical output changes. If any output changes, flag it explicitly in the build plan — the architect gate checks for this.
 
+## Known Failure Modes
+
+1. **Inferring capability from code structure.** When mapping research proposals to codebase reality (Step 2), read the actual generated output — not just function signatures. A function that exists but produces wrong/empty results is not "EXISTS."
+
+2. **Threshold transplants from other domains.** Cohen's d thresholds (0.3, 0.5) from behavioral science are not validated for preclinical tox. Inbred strains have lower within-group variance, producing larger d for the same absolute effect. When proposing thresholds, state the domain they come from and flag if validation is needed.
+
+3. **Conditional logic lost in format migration.** Converting complex domain rules to simpler data formats (e.g., string thresholds to numeric dicts) silently drops conditional logic. Check that the proposed format can express ALL current cases, not just the common ones.
+
+4. **Anti-conservative defaults.** In toxicology, "conservative" means "more likely to flag a safety signal." A default that reduces adversity classification (e.g., D9=-1 for expected effects at unexpected doses) may be anti-conservative. Always verify direction.
+
 ## Decision Log
 
 After completing synthesis, append to `.lattice/decisions.log`:

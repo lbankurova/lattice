@@ -371,6 +371,14 @@ Mockup HTML files are disposable. Delete them after the design is approved and i
 - **Called by `/lattice:synthesize`** when the synthesis proposes UI-facing features (optional — synthesize can flag "needs design" and defer to implement time)
 - **Can be called standalone** for design-only work ("redesign the PK exposure section")
 
+## Known Failure Modes
+
+1. **Shipping UI changes blind.** Cost of error discovery is high (commit, user review, rollback, redo). Screenshot the current state, mock the change in dev tools or HTML mockup, get approval BEFORE writing code. Steps 7-8 are not optional.
+
+2. **Mechanical rule compliance over analytical value.** Design rules exist to serve the toxicologist's analytical workflow. If following a design rule produces a result that makes data harder to interpret, the rule is being misapplied. Before any change, ask: "Does this help the toxicologist answer their question?"
+
+3. **Incidence data in continuous layouts.** Continuous endpoints (BW, LB) and incidence endpoints (MI, MA) need fundamentally different center panel layouts. Never shoehorn incidence data into dose-response chart frameworks. Reference: histopathology dose charts pattern for incidence.
+
 ## Rules
 
 - **No design from first principles.** Find the existing pattern first (frontend-ui-gate Rule 0). The design step determines WHAT goes WHERE. The UI gate determines HOW to build it.

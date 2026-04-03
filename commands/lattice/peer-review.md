@@ -199,6 +199,14 @@ If every finding is rated SOUND, the review must include an explicit section:
 
 The orchestrator will read this section and decide whether to accept or re-launch. All-SOUND reviews are the exception, not the default.
 
+## Known Failure Modes
+
+1. **Reviewing from memory.** The most common failure: reading the document once, forming an impression, then writing verdicts from that impression. Every finding must be grounded in a specific section/claim you can point to. Re-read the relevant section while writing each finding.
+
+2. **Accepting rationale because it sounds reasonable.** "We do X because Y" — your job is to challenge Y independently. Search for evidence that Y is wrong, incomplete, or only true under narrow conditions. The author's confidence is not evidence.
+
+3. **Stopping at the first issue.** Finding one FLAWED item and declaring the review done. Continue through ALL sections. The second and third issues are often more important than the first.
+
 ## Decision Log
 
 After completing the review, append to `.lattice/decisions.log`:
