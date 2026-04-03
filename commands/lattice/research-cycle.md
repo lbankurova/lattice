@@ -1,152 +1,86 @@
 ---
 name: research-cycle
-description: Orchestrate the full research → peer-review → incorporate → peer-review loop. Enter at any step.
+description: Research phase — produce, challenge, and validate research. Steps 1-7: research → R1 → incorporate → R2 → evaluate → distill → probe.
 ---
 
-You are orchestrating a research cycle. This skill runs a produce → review → incorporate → review loop that applies to ANY artifact (research doc, synthesis plan, implementation spec). Enter at any step, run forward from there.
+You are orchestrating the **research phase** of a topic. This cycle produces validated research — challenged by two rounds of peer review, checked for corpus coherence, and probed for cross-system impact.
 
-**Input:** A topic/doc path and optional `--from {step}`.
+**Input:** A topic. Auto-detects entry point from state. Accepts `--landscape`, `--novel`.
+
+**Output:** Validated research at `docs/_internal/research/{topic}.md`. Next: `/lattice:build-cycle {topic}`.
+
+---
 
 ## Execution Mode
 
-**Default: autonomous.** Run forward through steps without stopping for user input. The user invoked the cycle — that's the go signal. Stop ONLY at critical decision points (listed below).
-
-**Critical decision points (STOP and present options):**
+**Default: autonomous.** Stop ONLY at critical decision points:
 - Landscape branch selection (Step 1: user picks which branches to deep dive)
-- FLAWED findings that persist across both peer review rounds (Step 5: genuine disagreement)
-- Architect REJECT or SCIENCE-FLAG (Step 7.5: needs human judgment)
-- Probe BREAKS or SCIENCE-FLAG (Steps 6.5, 7.8: cross-system implications)
-- Validation degradation (if engine changes are involved)
+- FLAWED findings persisting across both peer review rounds (Step 5: genuine disagreement)
+- Probe BREAKS or SCIENCE-FLAG (Step 7: cross-system implications)
 
-**Everything else proceeds automatically:**
+Everything else proceeds automatically:
 - CONDITIONAL peer review findings → auto-accept and incorporate
-- SOUND peer review findings → note and proceed
-- Single FLAWED finding in R1 that R2 marks resolved → proceed
-- Architect PASS → proceed
-- Architect SIMPLIFY → apply the simplifications, re-gate once, proceed if PASS
-- Probe SAFE/PROPAGATES → proceed
-- Research validation (all SOUND/CONDITIONAL after R2) → proceed to synthesis
+- SOUND findings → note and proceed
+- Single FLAWED in R1 that R2 marks resolved → proceed
+- Distill audit results → informational, non-blocking
 
-**Log every auto-decision.** Append to `.lattice/decisions.log`:
+**Log every auto-decision** to `.lattice/decisions.log`:
 ```
 {timestamp}	research-cycle	AUTO-{action}	{topic}	step:{N}	{what was decided and why}
 ```
 
-The user can review auto-decisions in the log. If an auto-decision was wrong, the cycle can re-enter at the affected step.
-
 ---
 
-## State Tracking
+## State & Context
 
-On first invocation for a topic, create `.lattice/cycle-state/{topic}.yaml`:
+**State file:** `.lattice/cycle-state/{topic}.yaml` — create on first run, update after every step.
 
 ```yaml
 topic: {topic}
 started: {ISO timestamp}
-current_step: 1
+phase: research
+current_step: research.1
 completed: {}
-decisions: []
+checkpoints: {}
 ```
 
-**Update this file after every step completes.** This is the state machine — it prevents skipping steps and enables cross-session resume.
-
-**Gate rule:** Before executing Step N, verify that Step N-1 is marked completed in the state file. If it's not, either:
-1. The state file is stale (re-detect from file existence, same as auto-detection)
-2. A step was skipped — go back and run it
-
----
-
-## Entry Points
-
-Detect the right entry point from context, or use `--from`:
-
-| Entry | When to use | Starts at |
-|-------|-------------|-----------|
-| `--from research` | New topic, no existing doc | Step 1 → 2 → 3 → 4 → 5 → 6 → 6.5 |
-| `--from review` | Doc exists, needs peer review | Step 2 → 3 → 4 → 5 → 6 → 6.5 |
-| `--from incorporate` | Peer review done, needs incorporation | Step 3 → 4 → 5 → 6 → 6.5 |
-| `--from r2` | Feedback incorporated, needs Round 2 review | Step 4 → 5 → 6 → 6.5 |
-| `--from synthesize` | Research validated, needs synthesis | Step 7 → 7.5 → 7.8 → 8 → 9 → 10 → 11 |
-| `--from architect` | Synthesis done, needs architect gate | Step 7.5 → 7.8 → 8 → 9 → 10 → 11 |
-| `--from plan-review` | Architect passed, plan needs peer review | Step 8 → 9 → 10 → 11 |
-
-**Auto-detection:** If no `--from` flag, detect from:
-1. State file `.lattice/cycle-state/{topic}.yaml` — resume from `current_step`
-2. If no state file, detect from file existence:
-   - No `docs/_internal/research/{topic}.md` → `--from research`
-   - Research doc exists, no `peer-reviews/{topic}-review.md` → `--from review`
-   - `{topic}-review.md` exists, no "Peer Review Notes" section in research doc → `--from incorporate`
-   - Research doc has "Peer Review Notes" section, no `{topic}-review-r2.md` → `--from r2`
-   - `{topic}-review-r2.md` exists, no `docs/_internal/incoming/{topic}-synthesis.md` → `--from synthesize`
-   - Synthesis exists, no `peer-reviews/{topic}-architect-review.md` → `--from architect`
-   - Architect review exists, no `peer-reviews/{topic}-synthesis-review.md` → `--from plan-review`
-
-Also accepts:
-- `--landscape` or `--deep {branch}` for research tier
-- `--novel` to run Round 2 peer review in novel source mode
-
----
-
-## Context Discipline: Disk is Storage, Context is RAM
-
-The agent's context window will be compressed during long-running cycles. Do not rely on "remembering" file contents, decisions, or reasoning from earlier steps. Rely on disk.
-
-### Session start protocol
-
-Before running any step, read the decisions log (`.lattice/decisions.log`) if it exists. Scan for entries matching this topic. This prevents:
-- Re-trying approaches that already failed
-- Re-raising peer review findings that were already rejected with counter-evidence
-- Re-running probes on unchanged subsystems
-
-If the log shows previous failed attempts, acknowledge them and take a different approach.
-
-### Step pre-load protocol
-
-Before executing ANY step (not just session start), re-read the state that step depends on:
+**Context discipline — disk is storage, context is RAM.** Before EVERY step:
+1. Re-read the state file and decisions log for this topic
+2. Re-read the input that step depends on (see pre-load table below)
+3. After the step completes, write a checkpoint with key decisions, constraints, and output path
 
 | Step | Re-read before acting |
 |------|----------------------|
-| 1 (research) | Decisions log, existing research doc (if extending), knowledge files from domain map |
-| 2 (peer review R1) | Research doc (the input — don't rely on having read it earlier) |
-| 3 (incorporate) | Peer review file + decisions log for accept/reject decisions |
-| 4 (peer review R2) | Updated research doc + R1 review |
-| 5 (evaluate) | R1 and R2 review files |
-| 6 (summary + distill) | Research doc, review files |
-| 6.5 (probe) | Research doc, system manifest |
-| 7 (synthesize) | Research doc, review files, probe results |
-| 7.5 (architect) | Synthesis doc, guardrails |
-| 7.8 (probe) | Synthesis doc, system manifest |
-| 8-10 (plan reviews) | Synthesis doc, prior plan reviews |
+| 1 | Decisions log, existing research doc (if extending), knowledge files from domain map |
+| 2 | Research doc (the actual file — don't rely on context) |
+| 3 | Peer review file + decisions log for accept/reject decisions |
+| 4 | Updated research doc + R1 review |
+| 5 | R1 and R2 review files |
+| 6 | Research doc, review files |
+| 7 | Research doc, system manifest |
 
-This makes each step independently executable. If context compressed everything from Step 1 by the time you reach Step 7, you re-read what Step 7 needs — you don't fail silently because you "remember" something that was evicted.
-
-### Checkpoint protocol
-
-After completing each step, append a checkpoint to the cycle state file (`.lattice/cycle-state/{topic}.yaml`):
-
+**Checkpoint format** (append to cycle state after each step):
 ```yaml
 checkpoints:
-  step_1:
+  research.1:
     completed: {ISO timestamp}
-    key_decisions:
-      - "chose Hedges' g over Cohen's d — unequal group sizes in reference studies"
-      - "field avg_severity confirmed nullable (field-contracts.md line 47)"
-    constraints:
-      - "gLower threshold 0.3 is load-bearing — S05 and S11 both gate on it"
+    key_decisions: ["chose Hedges' g over Cohen's d — unequal groups"]
+    constraints: ["gLower 0.3 is load-bearing — S05 and S11 gate on it"]
     output: "docs/_internal/research/{topic}.md"
-    next_needs: "peer review needs the research doc path only — no context"
+    next_needs: "peer review needs the doc path only — no context"
 ```
 
-This captures REASONING, not just outcomes. When Step 7 re-reads the cycle state, it knows WHY Step 1 made its choices — not just THAT it completed.
+**Entry detection (no --from flags needed):**
+1. State file exists → resume from `current_step`
+2. No state file → detect from files:
+   - No `docs/_internal/research/{topic}.md` → Step 1
+   - Research doc exists, no `peer-reviews/{topic}-review.md` → Step 2
+   - Review exists, no "Peer Review Notes" section in research doc → Step 3
+   - "Peer Review Notes" exists, no `{topic}-review-r2.md` → Step 4
+   - R2 review exists → Step 5
+   - Research validated → **Done — run `/lattice:build-cycle {topic}`**
 
-**Write the checkpoint immediately after the step completes, before starting the next step.** If the session crashes between steps, the checkpoint survives.
-
----
-
-## Decision Prompt Format
-
-At critical decision points (STOP points only), present options:
-
+**Decision prompt format** (STOP points only):
 ```
 ---
 **Decision: [what needs deciding]**
@@ -162,100 +96,75 @@ Modifiers: [applicable flags like --novel, --deep, --landscape]
 
 ---
 
-## Research Loop (Steps 1-6.5)
+## Steps
 
 ### Step 1: Research
 
-The research skill's Step 0 (corpus load) runs first — it reads the decision log, existing research, knowledge files, peer reviews, and distillations to establish what's already known. This is non-negotiable. Research that restates existing corpus knowledge is wasted tokens for every downstream consumer (peer review, synthesis, implementation).
+The research skill's Step 0 (corpus load) runs first — reads decisions log, existing research, knowledge files, peer reviews, and distillations. Non-negotiable.
 
-**Gate check after research completes:** Verify the output contains an "Already Known" section at the top. If missing, the corpus load was skipped — send it back.
+Run `/lattice:research` on the topic. Write to `docs/_internal/research/{topic}.md`.
 
-Run `/lattice:research` on the topic. If a research doc already exists with unaddressed peer review findings, incorporate those first (Step 3).
-
-Write output to `docs/_internal/research/{topic}.md`.
+**Gate:** Output must contain an "Already Known" section. If missing, corpus load was skipped — send it back.
 
 **If `--landscape`:** Present branch table with coverage scores. **STOP — branch selection is a critical decision point.**
 
-```
----
-**Decision: Which branches to deep dive on?**
-
-1. Branches {N}, {M} *(recommended — {X}% combined coverage)*
-2. Branches {N}, {M}, {P} (adds {topic} at {Y}% coverage)
-3. All branches (comprehensive but token-heavy)
-4. Skip deep dives, proceed to peer review with landscape only
-5. Something else
----
-```
-
-**Update state:** `current_step: 2`, record research file in `completed.1_research`.
+Update state: `current_step: research.2`.
 
 ### Step 2: Peer Review — Round 1
 
-**Launch a separate agent. This is non-negotiable.** Use the Agent tool with a fresh agent. Do NOT review in the current context — the research rationale is in your context window and will cause confirmation bias.
+**Launch a separate agent. Non-negotiable.** Use the Agent tool with a fresh agent. Do NOT review in the current context — the research rationale is in your context window and will cause confirmation bias.
 
 Launch with:
 - **Prompt:** Full `/lattice:peer-review` skill instructions from `commands/lattice/peer-review.md`
 - **Input:** The doc path ONLY — no reasoning, no rationale, no context
 - **Output:** `docs/_internal/research/peer-reviews/{topic}-review.md`
 
-**Gate check on review output:** After the agent returns, read the review file and verify:
-1. It contains at least one finding rated CONDITIONAL or FLAWED. An all-SOUND review is suspicious — re-read the review. If it's genuinely substantive (detailed evidence for each SOUND rating), accept it. If it's shallow ("looks reasonable"), reject and re-launch with explicit instruction: "Your previous review found no issues. Look harder — specifically at assumptions (Section 2), failure modes (Section 4), and literature conflicts (Section 5)."
+**Gate check:** After the agent returns, read the review and verify:
+1. At least one finding rated CONDITIONAL or FLAWED. All-SOUND is suspicious — re-read. If genuinely substantive, accept. If shallow, re-launch with: "Look harder — specifically at assumptions, failure modes, and literature conflicts."
 2. Each finding has specific evidence, not just a verdict label.
-3. The review addresses at least 3 of 5 dimensions: assumptions, logic chain, alternatives, failure modes, literature.
+3. Review addresses at least 3 of 5 dimensions: assumptions, logic chain, alternatives, failure modes, literature.
 
-**Autonomous handling of findings:**
-- **SOUND** findings → note and proceed
-- **CONDITIONAL** findings → auto-accept (will incorporate in Step 3)
-- **FLAWED** findings → auto-accept for incorporation; if the FLAWED finding challenges a core premise of the research, flag it but still proceed to incorporation (the incorporation will address it; R2 will verify)
+**Auto-handle:** SOUND → note. CONDITIONAL → auto-accept. FLAWED → accept for incorporation.
 
-Log all auto-decisions to `.lattice/decisions.log`.
-
-**Update state:** `current_step: 3`, record review file in `completed.2_peer_review_r1`.
+Update state: `current_step: research.3`.
 
 ### Step 3: Incorporate Feedback
-
-**If entering from a previous session** (`--from incorporate`): read the peer review file AND the decisions log for this topic. If the log has accept/reject decisions from a prior session, use those. If not, present findings and **STOP** for user decisions.
 
 For each accepted finding:
 - **FLAWED:** Rewrite the affected section with corrected science
 - **CONDITIONAL:** Add evidence, narrow assumptions, or acknowledge limitations
-- **Plausible alternatives:** Add as acknowledged alternatives
+- **Rejected:** Note counter-evidence in a "Peer Review Notes" section
 
-For rejected findings: note counter-evidence in a "Peer Review Notes" section.
+The "Peer Review Notes" section is the content marker that incorporation happened.
 
-Update the doc. Mark revised sections. The "Peer Review Notes" section is the content marker that incorporation happened.
-
-**Update state:** `current_step: 4`, record in `completed.3_incorporate` with accepted/rejected lists.
+Update state: `current_step: research.4`.
 
 ### Step 4: Peer Review — Round 2
 
-**Launch a fresh separate agent** (not the Round 1 agent).
-
-**If `--novel` flag:** add `--novel` to force different sources than Round 1.
+**Fresh separate agent** (not the R1 agent). Add `--novel` if flagged.
 
 Launch with:
-- **Prompt:** Full `/lattice:peer-review` instructions (add `--novel` if flagged)
-- **Input:** Updated doc path AND Round 1 review path
+- **Input:** Updated doc path AND R1 review path
 - **Focus:** "Check revisions addressed R1 findings. Check for new issues from revisions. Don't re-raise addressed findings."
 - **Output:** `docs/_internal/research/peer-reviews/{topic}-review-r2.md`
 
-**Same gate check as Step 2** — verify structural quality of the review.
+Same gate check as Step 2.
 
-**Update state:** `current_step: 5`, record in `completed.4_peer_review_r2`.
+Update state: `current_step: research.5`.
 
 ### Step 5: Evaluate
 
-| Round 2 outcome | Action |
-|-----------------|--------|
+| R2 outcome | Action |
+|------------|--------|
 | All SOUND or CONDITIONAL | Validated — proceed autonomously to Step 6 |
 | New FLAWED on previously-SOUND | Likely bikeshedding — **STOP**, present both positions |
 | Same FLAWED both rounds | Genuine disagreement — **STOP**, present both with evidence |
 
-**Update state:** `current_step: 6`.
+Update state: `current_step: research.6`.
 
-### Step 6: Research Summary + Corpus Coherence
+### Step 6: Summary + Corpus Coherence
 
+Present research summary:
 ```
 ## Research Validated: {topic}
 
@@ -266,176 +175,44 @@ Launch with:
 **Unresolved:** [list or "none"]
 ```
 
-**Run `/lattice:distill --audit` scoped to this topic.** The distill audit checks whether the newly validated research contradicts or updates existing corpus knowledge. This catches:
-- New research that invalidates conclusions from prior research streams
-- Terminology or threshold changes that create inconsistencies across docs
-- Research that should update knowledge files (species profiles, methods index, etc.)
+Run `/lattice:distill --audit` scoped to this topic. If contradictions found, note in "Corpus Integration" section — these become build-cycle inputs.
 
-If distill finds contradictions: note them in the research doc's "Corpus Integration" section. These become inputs to synthesis (Step 7) — the build plan must resolve them.
+Proceed autonomously (distill results are informational, not blocking).
 
-**Proceed autonomously to Step 6.5** (no STOP needed — distill results are informational, not blocking).
+Update state: `current_step: research.7`.
 
-**Update state:** `current_step: 6.5`, record distill results.
+### Step 7: Probe
 
-### Step 6.5: Probe (cross-impact analysis)
-
-Run `/lattice:probe` on the validated research findings.
-
-Input: the research doc path + summary of key findings/decisions.
+Run `/lattice:probe` on the validated research findings. Input: research doc path + summary of key findings/decisions.
 
 | Probe result | Action |
 |---|---|
-| All SAFE/PROPAGATES | Proceed autonomously to synthesis |
-| Any BREAKS | **STOP** — present implications, synthesis must account for them |
-| Any SCIENCE-FLAG | **STOP** — present to user before synthesizing |
+| All SAFE/PROPAGATES | Research phase complete |
+| Any BREAKS | **STOP** — present implications, build plan must account for them |
+| Any SCIENCE-FLAG | **STOP** — present to user before proceeding |
 | Any STALE | Note for manifest update, non-blocking |
 
-**Update state:** `current_step: 7`, record probe results.
+Update state: `phase: research-complete, current_step: build.0`.
 
 ---
 
-## Synthesis Loop (Steps 7-11)
-
-### Step 7: Synthesize
-
-Run `/lattice:synthesize` on the validated research doc. Provide:
-- Research doc: `docs/_internal/research/{topic}.md`
-- Peer review R1: `docs/_internal/research/peer-reviews/{topic}-review.md` (if exists)
-- Peer review R2: `docs/_internal/research/peer-reviews/{topic}-review-r2.md` (if exists)
-- Distill audit results from Step 6 (if any contradictions found)
-- Probe results from Step 6.5 (if any PROPAGATES or BREAKS)
-
-Write output to `docs/_internal/incoming/{topic}-synthesis.md`.
-
-**Mandatory section gate.** After synthesis completes, verify these sections exist and contain substantive content (not just headers):
-1. Build Plan — has at least one feature with acceptance criteria
-2. Reuse Inventory (1a) — has at least one row in the search table
-3. Simplicity Rationale (1b) — has content (even if "no new abstractions")
-4. Test Strategy (1c) — has at least one row in the test table
-5. Research Gaps — has content (even if "none identified")
-6. Data Gaps — has content (even if "none identified")
-
-**If any section is missing or empty:** Do not proceed. Re-run synthesize with explicit instruction: "Your synthesis is missing section {X}. This is mandatory — the architect gate will reject without it."
-
-**Update state:** `current_step: 7.5`, record synthesis file.
-
-### Step 7.5: Architect Gate (automatic)
-
-**Launch a separate agent** with the architect-reviewer instructions (`agents/architect-reviewer.md`).
-
-Launch with:
-- **Prompt:** Full architect-reviewer agent instructions
-- **Input:** The synthesis doc path, the guardrails doc path (`docs/_internal/knowledge/code-quality-guardrails.md`), and the list of files the synthesis proposes to modify
-- **Mode:** "gate"
-- **No session context.**
-
-Handle the verdict:
-
-| Verdict | Action |
-|---------|--------|
-| **PASS** | Proceed autonomously |
-| **SIMPLIFY** | Auto-apply simplifications, re-gate once. If second gate is PASS, proceed. If still SIMPLIFY or worse, **STOP**. |
-| **REJECT** | **STOP** — present to user with alternative approach |
-| **SCIENCE-FLAG** | **STOP** — present flagged items, each needs explicit accept/reject |
-
-Write review to `docs/_internal/research/peer-reviews/{topic}-architect-review.md`.
-
-**Update state:** `current_step: 7.8`, record verdict.
-
-### Step 7.8: Probe (build plan impact check)
-
-Run `/lattice:probe` on the approved build plan.
-
-Input: the synthesis doc path. Probe reads proposed file changes and traces downstream impact.
-
-| Probe result | Action |
-|---|---|
-| All SAFE/PROPAGATES | Proceed autonomously to plan peer review |
-| Any BREAKS | Add broken subsystems to synthesis scope or flag as blocking. **STOP** if scope change is significant. |
-| Any SCIENCE-FLAG | **STOP** — present to user |
-
-**Update state:** `current_step: 8`, record probe results.
-
-### Step 8: Plan Review — Round 1
-
-**Launch a separate agent.** Same rules and gate checks as Step 2.
-
-Launch with:
-- **Prompt:** Full `/lattice:peer-review` instructions
-- **Input:** The synthesis doc path ONLY
-- **Output:** `docs/_internal/research/peer-reviews/{topic}-synthesis-review.md`
-
-**Same autonomous handling as Step 2:** auto-accept CONDITIONAL, incorporate FLAWED.
-
-**Update state:** `current_step: 9`.
-
-### Step 9: Incorporate Plan Feedback
-
-Same as Step 3 but on the synthesis doc.
-
-Update `docs/_internal/incoming/{topic}-synthesis.md`.
-
-**Update state:** `current_step: 10`.
-
-### Step 10: Plan Review — Round 2
-
-**Launch fresh separate agent.**
-
-Launch with:
-- **Input:** Updated synthesis doc AND Round 1 plan review
-- **Output:** `docs/_internal/research/peer-reviews/{topic}-synthesis-review-r2.md`
-
-**Same gate check and evaluation as Steps 4-5.** If genuine disagreement persists, **STOP**.
-
-**Update state:** `current_step: 11`.
-
-### Step 11: Cycle Complete
+## Research Phase Complete
 
 ```
-## Cycle Complete: {topic}
-
-**Research:** docs/_internal/research/{topic}.md (validated)
-**Synthesis:** docs/_internal/incoming/{topic}-synthesis.md (validated)
-**All reviews:** [list of review files]
-**Auto-decisions:** [count] (review in .lattice/decisions.log)
-
-### Build Plan — ready for implementation
-[summary of what to build]
-
-### Research Gaps — next /lattice:research cycle
-[list]
-
-### Data Gaps — backlog
-[list]
-
-Next: /lattice:implement docs/_internal/incoming/{topic}-synthesis.md
-```
-
-**Update state:** `current_step: complete`.
-
-Log to decisions.log:
-```
-{timestamp}	research-cycle	COMPLETED	{topic}	steps:1-11	{summary of key decisions}
+Research validated: {topic}
+Next: /lattice:build-cycle {topic}
 ```
 
 ---
 
 ## Key Rules
 
-1. **Peer review runs in a separate agent. No exceptions.** Self-review doesn't work — the rationale is in your context window. Use the Agent tool to launch a fresh agent every time. If you catch yourself starting to write review content without launching an agent, STOP.
-
-2. **Don't skip Round 2.** Even if Round 1 was clean, Round 2 validates the revisions and may find new issues.
-
+1. **Peer review runs in a separate agent. No exceptions.** Self-review doesn't work — the rationale is in your context window.
+2. **Don't skip Round 2.** Even if R1 was clean, R2 validates the revisions.
 3. **2 rounds max per artifact.** Unresolved → escalate to user. No Round 3.
-
 4. **All outputs persist to disk.** Terminal crashes lose nothing.
-
-5. **Gate checks are non-negotiable.** The peer review quality check (structural minimum) and synthesis section check (mandatory sections) are not optional. If output fails a gate, re-run the skill — do not proceed with substandard output.
-
-6. **Update state after every step.** The `.lattice/cycle-state/{topic}.yaml` file is the source of truth for where the cycle is. If the session crashes, the next session resumes from the recorded state.
-
-7. **Log every auto-decision.** The decisions log is the audit trail. If the user later asks "why did you accept that finding?" the answer must be in the log.
-
-8. **Distill is wired, not optional.** Step 6 runs `distill --audit`. This is what prevents new research from silently contradicting existing corpus. Skip it and you get inconsistent knowledge that breaks downstream synthesis.
-
-9. **Probe is wired, not optional.** Steps 6.5 and 7.8 run probe. This is what prevents build plans from ignoring cross-system implications. Skip it and you get implementations that break adjacent subsystems.
+5. **Gate checks are non-negotiable.** Peer review quality check and corpus load gate are not optional.
+6. **Update state after every step.** The cycle state file is the source of truth.
+7. **Log every auto-decision.** The decisions log is the audit trail.
+8. **Distill is wired, not optional** (Step 6). Prevents new research from contradicting existing corpus.
+9. **Probe is wired, not optional** (Step 7). Prevents build plans from ignoring cross-system implications.

@@ -18,36 +18,34 @@ LLM-assisted development framework for exploratory development of scientific app
 
 ## Workflow
 
-Research-driven development pipeline with built-in scientific rigor:
+Research-driven development pipeline split into three phase-scoped cycles:
 
 ```
-/lattice:prioritize          — what should we work on next? (value/merit ranking)
+/lattice:prioritize              -- what to work on next? (value/merit ranking)
        |
-/lattice:research            — landscape scan, then deep dive on selected branches
+/lattice:cycle {topic}           -- auto-detect phase, run next sub-cycle
        |
-/lattice:peer-review         — blind scientific challenge (2-round protocol)
-       |
-/lattice:synthesize          — ground research in codebase, produce build plan + gaps
-       |
-/lattice:probe               — cross-impact analysis (what else does this touch?)
-       |
-/lattice:peer-review         — challenge the implementation plan
-       |
-/lattice:design              — UI/UX design decisions (for frontend phases)
-       |
-/lattice:implement or spike  — build it (spec-driven or exploratory)
-       |
-/lattice:review              — quality gate with mandatory decision audit
-       |
-commit
+       v
+/lattice:research-cycle {topic}  -- RESEARCH: produce + peer review + validate
+       |  research -> R1 -> incorporate -> R2 -> evaluate -> distill -> probe
+       v
+/lattice:build-cycle {topic}     -- BUILD: synthesize + architect gate + plan review
+       |  synthesize -> architect -> probe -> plan R1 -> incorporate -> plan R2
+       v
+/lattice:ship-cycle {topic}      -- SHIP: design + implement + review + commit
+       |  implement (with /design per UI phase) -> review -> commit
+       v
+done
 
-/lattice:distill             — corpus-level reasoning (orthogonal — enter at any time)
+/lattice:distill                 -- corpus-level reasoning (orthogonal, any time)
        |
-       ├── --thesis <claim>  — evidence chain → peer-review → publication
-       ├── --adapt <target>  — domain transfer map → research gaps → synthesize
-       ├── --audit           — doc coherence check → regen-science / manual fix
-       └── <question>        — grounded answer from accumulated research
+       |-- --thesis <claim>      -- evidence chain -> peer-review -> publication
+       |-- --adapt <target>      -- domain transfer map -> research gaps
+       |-- --audit               -- doc coherence check -> regen-science
+       +-- <question>            -- grounded answer from accumulated research
 ```
+
+Each sub-cycle auto-detects its entry point within the phase from state — no `--from` flags needed. Phase transitions are explicit boundaries.
 
 See [WORKFLOW.md](WORKFLOW.md) for the full pipeline with peer review protocol, escalation rules, and gap routing.
 
@@ -64,10 +62,17 @@ See [WORKFLOW.md](WORKFLOW.md) for the full pipeline with peer review protocol, 
 |-------|---------|
 | `/lattice:distill` | Corpus-level reasoning — thesis construction, domain adaptation, doc coherence audit, grounded Q&A |
 
+### Cycles (orchestrators)
+| Skill | Purpose |
+|-------|---------|
+| `/lattice:cycle` | **Meta-orchestrator** — auto-detects phase from state, dispatches to right sub-cycle |
+| `/lattice:research-cycle` | **Research phase** — produce + peer review (2 rounds) + distill + probe |
+| `/lattice:build-cycle` | **Build phase** — synthesize + architect gate + probe + plan review (2 rounds) |
+| `/lattice:ship-cycle` | **Ship phase** — design + implement + review + commit |
+
 ### Research & Validation
 | Skill | Purpose |
 |-------|---------|
-| `/lattice:research-cycle` | **Orchestrator** — full research + peer review + architect gate + synthesis loop |
 | `/lattice:research` | First-principles gap analysis — landscape (Tier 1) + deep dive (Tier 2) |
 | `/lattice:peer-review` | Blind scientific challenge (separate agent) — standard + `--novel` mode |
 | `/lattice:synthesize` | Ground research in codebase — Build Plan + Reuse Inventory + Simplicity Rationale + Test Strategy + Gaps |
