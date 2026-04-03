@@ -11,6 +11,13 @@ You are the **implementation conductor**. You take a spec and deliver reviewed, 
 
 ## Phase 0: Load & Plan
 
+**Re-read state first (context discipline).** Do not rely on "remembering" the spec or decisions from earlier in the session:
+1. Cycle state (`.lattice/cycle-state/{topic}.yaml`) — checkpoint reasoning from research/synthesis steps
+2. Decisions log (`.lattice/decisions.log`) — prior attempts, known failures
+3. The spec file itself — re-read it fully, even if you think you know what it says
+
+Then proceed:
+
 1. **Read the spec fully.** Extract:
    - Build plan phases (numbered sections)
    - Acceptance criteria per phase

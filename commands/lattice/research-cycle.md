@@ -87,7 +87,11 @@ Also accepts:
 
 ---
 
-## Session Start Protocol
+## Context Discipline: Disk is Storage, Context is RAM
+
+The agent's context window will be compressed during long-running cycles. Do not rely on "remembering" file contents, decisions, or reasoning from earlier steps. Rely on disk.
+
+### Session start protocol
 
 Before running any step, read the decisions log (`.lattice/decisions.log`) if it exists. Scan for entries matching this topic. This prevents:
 - Re-trying approaches that already failed
@@ -95,6 +99,47 @@ Before running any step, read the decisions log (`.lattice/decisions.log`) if it
 - Re-running probes on unchanged subsystems
 
 If the log shows previous failed attempts, acknowledge them and take a different approach.
+
+### Step pre-load protocol
+
+Before executing ANY step (not just session start), re-read the state that step depends on:
+
+| Step | Re-read before acting |
+|------|----------------------|
+| 1 (research) | Decisions log, existing research doc (if extending), knowledge files from domain map |
+| 2 (peer review R1) | Research doc (the input — don't rely on having read it earlier) |
+| 3 (incorporate) | Peer review file + decisions log for accept/reject decisions |
+| 4 (peer review R2) | Updated research doc + R1 review |
+| 5 (evaluate) | R1 and R2 review files |
+| 6 (summary + distill) | Research doc, review files |
+| 6.5 (probe) | Research doc, system manifest |
+| 7 (synthesize) | Research doc, review files, probe results |
+| 7.5 (architect) | Synthesis doc, guardrails |
+| 7.8 (probe) | Synthesis doc, system manifest |
+| 8-10 (plan reviews) | Synthesis doc, prior plan reviews |
+
+This makes each step independently executable. If context compressed everything from Step 1 by the time you reach Step 7, you re-read what Step 7 needs — you don't fail silently because you "remember" something that was evicted.
+
+### Checkpoint protocol
+
+After completing each step, append a checkpoint to the cycle state file (`.lattice/cycle-state/{topic}.yaml`):
+
+```yaml
+checkpoints:
+  step_1:
+    completed: {ISO timestamp}
+    key_decisions:
+      - "chose Hedges' g over Cohen's d — unequal group sizes in reference studies"
+      - "field avg_severity confirmed nullable (field-contracts.md line 47)"
+    constraints:
+      - "gLower threshold 0.3 is load-bearing — S05 and S11 both gate on it"
+    output: "docs/_internal/research/{topic}.md"
+    next_needs: "peer review needs the research doc path only — no context"
+```
+
+This captures REASONING, not just outcomes. When Step 7 re-reads the cycle state, it knows WHY Step 1 made its choices — not just THAT it completed.
+
+**Write the checkpoint immediately after the step completes, before starting the next step.** If the session crashes between steps, the checkpoint survives.
 
 ---
 

@@ -33,7 +33,12 @@ If you catch yourself skipping a section or writing "N/A — not applicable" wit
 
 ## Step 0: Detect context
 
-Determine what kind of work you're reviewing:
+**Re-read state first (context discipline).** Do not rely on file contents or reasoning from earlier in the session:
+1. Cycle state (`.lattice/cycle-state/{topic}.yaml`) — if this implements from a spec, read the checkpoint decisions
+2. Decisions log (`.lattice/decisions.log`) — any known issues with this topic
+3. The changed files themselves — re-read via `git diff`, don't rely on memory of what you wrote
+
+Then determine what kind of work you're reviewing:
 
 1. Check `git diff --stat` and `git status` to see what changed
 2. Ask the user (if not obvious): **"Did this implement from a spec? If so, which file?"**

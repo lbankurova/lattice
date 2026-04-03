@@ -7,6 +7,16 @@ You are synthesizing research findings into an actionable implementation plan. Y
 
 **Input:** Path to a research document (from `/lattice:research`), e.g., `docs/_internal/research/historical-control-profiling.md`. If a peer review exists for this research, also read `docs/_internal/research/peer-reviews/{topic}-review.md` and incorporate accepted findings.
 
+## Step 0: Re-read State (context discipline)
+
+Do not rely on file contents or decisions "remembered" from earlier in the session. Context compression may have evicted them. Re-read from disk:
+
+1. **Cycle state** (`.lattice/cycle-state/{topic}.yaml`) — what steps completed, what decisions were made, what constraints are in play
+2. **Decisions log** (`.lattice/decisions.log`) — prior attempts on this topic, known failures to avoid
+3. **Guardrails** (`docs/_internal/knowledge/code-quality-guardrails.md`) — current complexity budgets and canonical patterns
+
+Then proceed to loading the research doc.
+
 ## Step 1: Load Research
 
 Read the research document fully. Extract:
