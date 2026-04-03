@@ -54,68 +54,84 @@ Output the top-level message and thread reply as two separate code blocks the us
 **Slack mrkdwn rules:**
 - Bold: `*text*` (single asterisk). Never use `**text**`.
 - Italic: `_text_` (single underscore).
-- Bullets: use `•` (U+2022). Never use `- `.
+- No bullet characters (`•`, `-`). Each item is its own line, no prefix.
 - Line breaks: single newline = same paragraph. Blank line = new block.
 - No `#` headers, no `---` rules, no `>` blockquotes in top-level messages.
 - No backtick-wrapped tags -- Slack renders monospace which looks odd for natural-language labels. Plain text only.
 
+**Top-level item format:**
+
+```
+PROJECT/tag: what the app can now do -- why it matters
+```
+
+- **Prefix:** `PROJECT/tag:` where tag is the primary coverage axis.
+- **Body:** what changed, phrased as capability. Keep it to ~15 words max -- the gist, not the details. Details belong in the thread reply.
+- **Suffix:** `-- why` after a double-hyphen separator. One short clause: analytical, regulatory, or strategic value -- not implementation detail.
+- Tags can be higher-level groupings when work spans multiple canonical axes (e.g. "scientific engines" for interpretation engine + statistical methods). Use canonical tags when the work fits one axis cleanly.
+- In-Progress items may omit the tag when work spans many axes: just `PROJECT: description`.
+
 **Top-level message:**
 
 ```
-<project_name>:
-*Done*
-• <theme> -- <coverage tag>
-• <theme> -- <coverage tag>
+*Done:*
+PROJECT/tag: description -- why
+PROJECT/tag: description -- why
 
-*Deferred*
-_(none this cycle)_  OR  • <item> -- <reason>
+*In-Progress:*
+PROJECT: description -- why
+PROJECT/tag: description -- why
 
-*In-Progress*
-• <item> -- <coverage tag>
-• <item> -- <coverage tag>
+*Plan:*
+PROJECT/tag: description -- why
+PROJECT/tag: description -- why
+Deferred: description -- reason
+
+*Misc*
+description
 ```
 
-- *Done*: themes from committed work. One line per theme, tagged.
-- *Deferred*: anything explicitly deferred this cycle with reason. Italic "(none this cycle)" if empty.
-- *In-Progress*: uncommitted work from `git diff --stat HEAD`. Tag each item.
+- *Done*: themes from committed work. One line per theme.
+- *In-Progress*: uncommitted work from `git diff --stat HEAD` and conversation context.
+- *Plan*: forward-looking -- what's coming next. Deferred items are lines here prefixed with "Deferred:".
+- *Misc*: non-product work (framework skills, tooling, workflow changes). Skip if empty.
 
 **Thread reply:**
+
+The thread adds information that is NOT in the top-level message. Never restate the theme description -- the reader already saw it. Thread content is strictly additive: specific commits, metrics, component names, technical decisions.
 
 ```
 --in details---
 
-*<Theme name> -- <coverage tag>*
-• <detail bullet>
-• <detail bullet>
-
-*<Theme name> -- <coverage tag>*
-• <detail bullet>
+*<Theme name>*
+• <commit-level detail not in top-level>
+• <metric, component name, or technical decision>
 
 *New in UI:*
-• <new chart/visualization name> -- what it shows
-• <new chart/visualization name> -- what it shows
+• <new component name> -- what it shows
 
 *Correctness*
-• <fix>
-• <fix>
+• <specific fix>
 ```
+
+Before writing each thread bullet, check: does the top-level already say this? If yes, skip it or go deeper. If no, include it.
 
 ### "New in UI" section rules
 
-Lists new visual components a user would actually see -- new chart types, new views, new panels. Identify by scanning commits for new React/framework components, chart implementations, or visualization additions. Each bullet names the component and says what it shows in plain language. Skip this section if no new UI components were added.
+Lists new visual components a user would actually see -- new chart types, new views, new panels. Each bullet names the component and says what it shows in plain language. Skip this section if no new UI were added.
 
-New UI items may also appear under their parent theme -- the "New in UI" section is a cross-cutting summary of what's visually new, not a replacement.
+**Redundancy rule:** If every new UI element is already covered by a theme above, skip "New in UI" entirely. Only include this section for orphan UI work that doesn't belong to any theme.
 
 ## Guardrails
 
 - Keep top-level message scannable -- one line per theme, no detail.
-- Thread reply under 200 words.
+- Thread reply under 150 words. Zero redundancy with top-level.
 - Max 4 themes in Done. If more, group related commits into higher-level themes.
 - Never mention commit counts, time spent, or speed of delivery.
 - Roadmap progress fractions (e.g., "~40% of spec") only for multi-phase epics.
 - Use `*bold*` for section headers (Slack mrkdwn), never `**markdown bold**`.
-- Use `•` (U+2022) for bullets, never `- `.
-- Use `--` (double hyphen) as separator between theme and tag, never em-dash (renders inconsistently across Slack clients).
+- Use `•` (U+2022) for bullets in thread reply only. No bullets in top-level.
+- Use `--` (double hyphen) as separator, never em-dash.
 
 ## After output
 
