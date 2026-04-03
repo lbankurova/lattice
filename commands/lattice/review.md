@@ -209,6 +209,18 @@ Check the changed files against this review checklist:
 - [ ] Bundle size not regressed (baseline: 1,223 KB)
 - [ ] No unnecessary re-renders (missing `useMemo`/`useCallback` on expensive ops)
 
+### Coverage Facts (if engine files changed)
+
+If any engine/analytical files are in the changeset (backend `services/analysis/`, `generator/`, frontend `src/lib/` scoring/classification/syndrome files), regenerate coverage facts:
+
+```bash
+cd C:/pg/pcc && backend/venv/Scripts/python.exe scripts/generate-coverage-facts.py
+```
+
+This updates `docs/_internal/help/coverage-facts.md` and `docs/_internal/help/coverage-manifest.json`. Stage both files with the commit — they document what the system can now do.
+
+If the regenerated coverage-facts.md shows new capabilities (new domains, species, methods) that aren't reflected in `docs/_internal/help/wiki_sendex_coverage.md`, flag: `WIKI STALE — coverage-facts.md has [new capability] not in wiki`. The wiki update is manual but the staleness should be visible.
+
 ---
 
 ## Step 4: Docs & MANIFEST update (all work)

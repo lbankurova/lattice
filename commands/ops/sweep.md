@@ -94,6 +94,26 @@ If `docs/_internal/research/INDEX.md` exists:
 
 Report: `Research: {N} docs — {A} validated, {B} active, {C} dormant, {D} orphaned`
 
+## Step 7: Coverage Facts Freshness
+
+If `scripts/generate-coverage-facts.py` exists (project has coverage tracking):
+
+1. **Check coverage-facts.md age.** Read the generation timestamp from `docs/_internal/help/coverage-manifest.json` (field: `generated_at` or `commit`). Compare against latest engine file commits:
+   ```bash
+   git log -1 --format="%H" -- backend/services/analysis/ backend/generator/ frontend/src/lib/
+   ```
+   If engine files have been committed since the last coverage-facts generation, flag: `COVERAGE STALE — engine files changed since last generation.`
+
+2. **Regenerate if stale.** Run:
+   ```bash
+   cd $REPO_ROOT && backend/venv/Scripts/python.exe scripts/generate-coverage-facts.py
+   ```
+   Stage the updated files.
+
+3. **Cross-check wiki.** If `docs/_internal/help/wiki_sendex_coverage.md` exists, scan for `[CF §N]` references. For each section header in coverage-facts.md, check if the wiki has a corresponding `[CF §N]` reference. Flag sections with no wiki reference as: `WIKI GAP — coverage-facts §{N} ({section name}) not referenced in wiki.`
+
+Report: `Coverage: {current|stale|regenerated}, wiki gaps: {N}`
+
 ## Output
 
 Write a sweep report and record the timestamp:
@@ -107,6 +127,7 @@ incoming/:     {active} active, {archived} archived, {backlinks updated} ROADMAP
 MANIFEST:      {current} current, {stale} stale
 decisions.log: {entries} entries
 Research:      {validated} validated, {active} active
+Coverage:      {current|regenerated}, wiki gaps: {N}
 
 Actions taken: {list of archives, count fixes, stale flags, ROADMAP updates}
 ```
