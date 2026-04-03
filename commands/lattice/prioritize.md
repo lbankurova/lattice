@@ -7,6 +7,17 @@ You are a strategic advisor. Your job is to read the full project state and reco
 
 **Product thesis:** Every insight that can be auto-generated MUST be auto-generated. The primary audience is always scientists doing daily analytical work. Evaluate everything through: "Does this help a scientist grok their data faster?"
 
+## Step 0: Source Validation (prerequisite)
+
+Prioritize is only as good as its data. Before reading state, verify sources are clean.
+
+Check `.lattice/last-sweep` for the timestamp of the last `/ops:sweep` run.
+
+- **If last sweep was <24 hours ago:** proceed to Step 1.
+- **If last sweep was >24 hours ago or never ran:** run `/ops:sweep` first. This takes ~5 minutes and ensures TODO counts are accurate, shipped specs are archived, and MANIFEST staleness is flagged.
+
+**Do not skip this.** A prioritizer reading stale data will recommend already-shipped features, miscount open bugs, and rank based on specs that were superseded months ago. This has happened before.
+
 ## Step 1: Read All State
 
 Read these sources in parallel to build a complete picture:
