@@ -1,6 +1,6 @@
 ---
 name: sweep
-description: Garbage collection for project state — validate and clean TODO.md, incoming/, MANIFEST.md, decisions.log. Prerequisite for /lattice:prioritize.
+description: Garbage collection for project state — validate and clean TODO.md, ROADMAP.md, incoming/, MANIFEST.md, decisions.log. Prerequisite for /lattice:prioritize.
 ---
 
 You are running a state sweep — validating and cleaning all project index files so downstream skills (especially `/lattice:prioritize`) read accurate data.
@@ -8,6 +8,8 @@ You are running a state sweep — validating and cleaning all project index file
 **Input:** None. Reads all index files automatically.
 
 This is mechanical work — recount, cross-reference, archive. Not analytical. Target: 5 minutes, not 30.
+
+**Every step is mandatory.** A partial sweep is what causes prioritize to give bad recommendations — one stale index poisons the ranking. Sweep everything or sweep nothing.
 
 ## Step 1: TODO.md Recount
 
@@ -25,11 +27,30 @@ Also flag:
 - Open bugs older than 60 days without activity (might be stale or already fixed)
 - Items marked as resolved but missing commit hash (incomplete resolution)
 
-## Step 2: incoming/ Spec Audit
+## Step 2: ROADMAP.md Cross-Reference
+
+ROADMAP is the highest-impact index for prioritization accuracy. `/lattice:prioritize` reads it first. Stale ROADMAP entries directly cause bad recommendations (e.g., recommending features that already shipped).
+
+Read `docs/_internal/ROADMAP.md`. For each item:
+
+1. **Check linked specs.** If the item references `Spec: incoming/X.md`:
+   - Does `incoming/X.md` still exist? → item is active
+   - Was it moved to `incoming/archive/`? → item is **done but unmarked** — flag it
+   - Does the file not exist at all? → orphaned reference — flag it
+
+2. **Check git log.** Search recent commits for the item's key terms. If substantial implementation commits exist but the item is still marked "Open", flag as **done but unmarked**.
+
+3. **Check for items with no spec and no commits.** These are either aspirational (fine) or forgotten (flag for review).
+
+**For every "done but unmarked" item:** Mark it with strikethrough or "Done" status + the commit hash or archive reference. Don't leave it for the next sweep.
+
+Report: `ROADMAP: {N} items — {A} active, {B} done (newly marked), {C} orphaned`
+
+## Step 3: incoming/ Spec Audit + ROADMAP Backlink
 
 Read `docs/_internal/incoming/`. For each `.md` file:
 
-1. **Check git log** for commits referencing this spec (search for the filename or key terms from the spec title)
+1. **Check git log** for commits referencing this spec
 2. **Check ROADMAP.md** for entries linking to this spec
 3. **Classify:**
 
@@ -40,9 +61,11 @@ Read `docs/_internal/incoming/`. For each `.md` file:
 | **Active** | No implementation found, spec is still relevant | Keep, verify it has a ROADMAP entry (rule 12) |
 | **Stale** | >90 days old, no ROADMAP entry, no recent references | Move to `incoming/archive/` with "stale" note |
 
-Report: `incoming/: {N} specs — {A} active, {B} archived (implemented), {C} archived (stale)`
+**After archiving:** For every spec just archived, scan ROADMAP for entries that reference it (`Spec: incoming/{filename}`). If found and still marked active, update the ROADMAP entry to reflect the archive (mark done, add archive reference). This is the cross-reference that was missing — archiving specs without updating ROADMAP leaves prioritize reading "Open" items that are actually shipped.
 
-## Step 3: MANIFEST.md Staleness Check
+Report: `incoming/: {N} specs — {A} active, {B} archived (implemented), {C} archived (stale). ROADMAP backlinks updated: {D}`
+
+## Step 4: MANIFEST.md Staleness Check
 
 Read `docs/_internal/MANIFEST.md`. For each tracked asset:
 
@@ -52,24 +75,14 @@ Read `docs/_internal/MANIFEST.md`. For each tracked asset:
 
 Report: `MANIFEST: {N} assets — {A} current, {B} stale`
 
-## Step 4: decisions.log Maintenance
+## Step 5: decisions.log Maintenance
 
-Read `.lattice/decisions.log`. 
+Read `.lattice/decisions.log`.
 
 1. Count total entries
 2. If >200 entries: archive entries older than 90 days to `.lattice/decisions-archive-{date}.log`
 3. Check for duplicate entries (same skill + context + outcome within 1 hour)
 4. Report: `decisions.log: {N} entries ({M} active, {K} archived)`
-
-## Step 5: ROADMAP.md Cross-Reference
-
-Read `docs/_internal/ROADMAP.md`. For each item:
-
-1. Check if linked spec exists (if `Spec: incoming/X.md` is referenced, does the file exist or was it archived?)
-2. Check if item is marked done — if so, verify the spec was archived
-3. Check if item has no linked spec but matching work exists in recent commits
-
-Report: `ROADMAP: {N} items — {A} active, {B} done, {C} orphaned (no spec or commits)`
 
 ## Step 6: Research INDEX.md
 
@@ -89,13 +102,13 @@ Write a sweep report and record the timestamp:
 SWEEP REPORT — {ISO date}
 ===========================
 TODO.md:       {open} open, {resolved} resolved {fixes applied}
-incoming/:     {active} active, {archived} archived
+ROADMAP:       {active} active, {done} done (newly marked), {orphaned} orphaned
+incoming/:     {active} active, {archived} archived, {backlinks updated} ROADMAP backlinks
 MANIFEST:      {current} current, {stale} stale
 decisions.log: {entries} entries
-ROADMAP:       {active} active, {done} done, {orphaned} orphaned
 Research:      {validated} validated, {active} active
 
-Actions taken: {list of archives, count fixes, stale flags}
+Actions taken: {list of archives, count fixes, stale flags, ROADMAP updates}
 ```
 
 Write timestamp to `.lattice/last-sweep`:
@@ -105,13 +118,15 @@ echo "{ISO timestamp}" > .lattice/last-sweep
 
 Append to decisions log:
 ```
-{timestamp}	sweep	COMPLETED	all-indexes	todo:{open}/{resolved} incoming:{active}/{archived} manifest:{current}/{stale}	{one-line summary}
+{timestamp}	sweep	COMPLETED	all-indexes	todo:{open}/{resolved} roadmap:{active}/{done}/{orphaned} incoming:{active}/{archived} manifest:{current}/{stale}	{one-line summary}
 ```
 
 ## Rules
 
+- **Every step is mandatory.** No skipping, no "low priority." A partial sweep is worse than no sweep — it gives false confidence that state is clean.
 - **Don't delete anything.** Archive to `incoming/archive/`. Stale items may have context that's useful later.
 - **Don't change spec content.** Only move files and update index summaries.
+- **Always backlink.** When archiving a spec, always check ROADMAP for references and update them. This is the cross-reference that prevents "Open" items from pointing to shipped work.
 - **Be conservative on "implemented" classification.** If you're not sure a spec was fully implemented, keep it as active. A false archive hides work that's not done.
 - **Fix counts mechanically.** Don't re-interpret TODO items — just count strikethroughs and commit hashes.
 - **This is fast.** If it's taking more than 10 minutes, you're reading too deeply. Skim, count, cross-reference, move on.
