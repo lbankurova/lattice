@@ -120,11 +120,33 @@ The canonical workflow for research-driven development of scientific apps.
                           │
                           ▼
 ┌─────────────────────────────────────────────────────────────────────┐
+│  BUG FIX LOOP (parallel track — enter from any bug report)          │
+│                                                                     │
+│  1. Read full module (rule 10a-c)                                   │
+│  2. State root cause hypothesis                                     │
+│  3. Write failing test FIRST                                        │
+│  4. Fix the bug                                                     │
+│  5. /ops:bug-stress           ◄── mandatory post-fix QC             │
+│       │  classify pattern (10 families)                             │
+│       │  search same pattern in downstream subsystems               │
+│       │  fix all instances found (not just the one)                 │
+│       │  grow oracle (add tests, expand validation)                 │
+│       ▼                                                             │
+│  6. /ops:check + validation ratchet (if engine files)               │
+│  7. /lattice:review ──► commit                                      │
+│                                                                     │
+│  3+ bugs in same pattern family ──► extract pattern test suite      │
+│                                                                     │
+└─────────────────────────────────────────────────────────────────────┘
+                          │
+                          ▼
+┌─────────────────────────────────────────────────────────────────────┐
 │  FEEDBACK LOOP                                                      │
 │                                                                     │
 │  Research gaps from synthesis ──► next /lattice:research-cycle       │
 │  Data gaps from synthesis ──► TODO.md or data acquisition           │
 │  Coverage gaps ──► validation reference cards                       │
+│  Bug patterns ──► .lattice/bug-patterns.md (3+ = test suite)       │
 │  /lattice:daily-update ──► Slack                                    │
 │                                                                     │
 └─────────────────────────────────────────────────────────────────────┘
@@ -344,6 +366,7 @@ Every auto-decision is logged. The user can audit after the fact and re-enter at
 | `/lattice:spec-from-code` | Reverse-engineer spec from spike | Implementation | `incoming/{feature}.md` |
 | `/lattice:review` | Quality gate + commit | Changed files | Commit (if passes) |
 | `/lattice:ux-designer` | Design audit | View or component | Audit report |
+| `/ops:bug-stress` | Post-fix pattern search + oracle growth | Changed files or bug description | Stress report + tests |
 | `/lattice:daily-update` | Slack update from commits | (reads git log) | Formatted message |
 | `/lattice:pause-work` | Session handoff | Current state | `.continue-here.md` |
 | `/lattice:resume-work` | Restore session | `.continue-here.md` | Restored context |
