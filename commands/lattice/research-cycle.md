@@ -121,6 +121,10 @@ Modifiers: [applicable flags like --novel, --deep, --landscape]
 
 ### Step 1: Research
 
+The research skill's Step 0 (corpus load) runs first — it reads the decision log, existing research, knowledge files, peer reviews, and distillations to establish what's already known. This is non-negotiable. Research that restates existing corpus knowledge is wasted tokens for every downstream consumer (peer review, synthesis, implementation).
+
+**Gate check after research completes:** Verify the output contains an "Already Known" section at the top. If missing, the corpus load was skipped — send it back.
+
 Run `/lattice:research` on the topic. If a research doc already exists with unaddressed peer review findings, incorporate those first (Step 3).
 
 Write output to `docs/_internal/research/{topic}.md`.

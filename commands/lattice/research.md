@@ -21,6 +21,34 @@ Research operates in two tiers to avoid boiling the ocean:
 
 **The user controls depth.** The landscape recommends, the user decides. Never auto-expand all branches.
 
+## Step 0: Corpus Load (runs before EVERY research — landscape or deep dive)
+
+Before writing anything, load what the project already knows about this topic. This prevents restating existing knowledge and focuses research on what's genuinely new.
+
+**Read these sources in order:**
+
+1. **Decision log** (`.lattice/decisions.log`) — check for prior research attempts on this topic. What was tried? What failed? What was validated? Don't repeat failed approaches.
+
+2. **Existing research** (`docs/_internal/research/`) — is there already a landscape or deep dive on this topic or an overlapping topic? Read it. Your job is to EXTEND it, not rewrite it.
+
+3. **Knowledge files** — consult the domain knowledge map (`.claude/rules/domain-knowledge-map.md`). For the topic at hand, which knowledge files are relevant? Read them. Everything in species-profiles.md, methods-index.md, vehicle-profiles.md, etc. is ALREADY KNOWN — don't research it again.
+
+4. **Peer reviews** (`docs/_internal/research/peer-reviews/`) — if prior peer reviews exist for related topics, read the findings. These contain validated challenges and known limitations that your research should build on, not rediscover.
+
+5. **Distill corpus check** — if `/lattice:distill` has produced prior analyses on this topic (check `docs/_internal/research/distillations/`), read them. Distill synthesizes across the full corpus — its conclusions are stronger than any single research doc.
+
+**After loading, write a 3-5 line "Already Known" section at the top of your research output:**
+
+```
+## Already Known
+- [topic X] is covered in species-profiles.md (rat, dog thresholds)
+- [topic Y] was researched in {prior-research-doc} — validated through R2
+- [topic Z] was attempted in {date} — failed because {reason from decisions.log}
+- This research focuses on: [what's NOT covered by the above]
+```
+
+**The density rule:** If a paragraph in your research restates something from the "Already Known" sources, delete it and add a reference instead. Every paragraph must contain NEW information — a gap, finding, citation, or edge case not in the existing corpus. Background that's already documented is padding.
+
 ## Foundational Framing
 
 **Product thesis:** Every insight that can be auto-generated MUST be auto-generated. The primary audience is always scientists (toxicologists, pharmacologists, biostatisticians) doing daily analytical work — not regulatory writers doing milestone deliverables. When evaluating any gap or proposal, ask: "Does this help a scientist grok their data faster?"
