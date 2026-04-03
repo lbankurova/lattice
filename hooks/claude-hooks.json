@@ -19,6 +19,16 @@
     ],
     "PostToolUse": [
       {
+        "matcher": "Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); if [ -n \"$REPO_ROOT\" ] && [ -f \"$REPO_ROOT/scripts/context-meter.sh\" ]; then bash \"$REPO_ROOT/scripts/context-meter.sh\"; fi'",
+            "_comment": "Context pressure meter. Tracks cumulative file reads per session. Warns at 80K tokens (HIGH) and 150K tokens (CRITICAL). Reset .lattice/session-context to 0 at session start."
+          }
+        ]
+      },
+      {
         "matcher": "Write|Edit",
         "hooks": [
           {
