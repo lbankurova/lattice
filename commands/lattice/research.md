@@ -153,6 +153,24 @@ Write the research document to `docs/_internal/research/{topic}.md`. If a file f
 
 After writing, update `docs/_internal/research/INDEX.md` with the new or updated entry.
 
+## NEVER STOP
+
+If your gap analysis found fewer than 5 gaps, you have not looked hard enough. Go back and:
+- Re-search each source category from Phase 1 — did you actually check conferences? Working groups? Small repos?
+- Look for what practitioners COMPLAIN about, not just what the literature says is missing
+- Check adjacent domains — how do clinical trials handle this? How does environmental tox? Cross-pollination finds gaps that single-domain research misses
+- Ask "what would a scientist WISH they could do with this data that no tool currently supports?"
+- Check the audience bias (Phase 3b) — are you proposing features for the obvious user while ignoring daily analytical workflows?
+
+The goal is not to produce a document. The goal is to find every gap between current practice and what a scientist needs. If the field is mature and truly well-served, that should be surprising — document WHY it's well-served, because that's useful knowledge too.
+
+## Decision Log
+
+After completing research, append to `.lattice/decisions.log`:
+```
+{timestamp}	research	{tier: landscape|deep}	{topic}	branches:{count} gaps:{count} proposals:{count}	{one-line summary}
+```
+
 ## Constraints
 
 - **Never reference current codebase capabilities.** This skill produces pure research. `/synthesize` handles the codebase mapping.

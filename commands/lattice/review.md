@@ -235,6 +235,11 @@ When ALL checks pass:
 1. Tell the user: **"All checks pass. Ready to commit. Here's what changed: [file list + summary]. Shall I commit?"**
 2. If user approves, create the commit
 3. After committing, run `git status` to verify
+4. Clear enforcement markers: `rm -f .lattice/engine-changed .lattice/validation-compared 2>/dev/null`
+5. Append to `.lattice/decisions.log`:
+   ```
+   {timestamp}	review	{PASS|FAIL}	{commit hash}	files:{count} deviations:{count} deferred:{count}	{one-line summary}
+   ```
 
 ---
 
@@ -266,3 +271,4 @@ Update `.claude/roles/review-notes.md` with:
 11. **Accepting "data exists but isn't wired" as a deferral.** If the data is in the pipeline and the function is in the codebase, connecting them is work — not a dependency. Apply the deferral litmus test.
 12. **Skipping the architect review for spikes.** Spikes are the MOST likely to introduce accidental complexity because they skip spec ceremony. The architect check is mandatory.
 13. **Proceeding past SCIENCE-FLAG without user acknowledgment.** Science flags are hard stops. The user must explicitly accept or reject each one.
+14. **Accepting audit-recommended refactors at face value.** When the architect review proposes extractions or splits, verify the pain point yourself before including it as an action item. Read the code — a long file with clean sub-components needs no action. A refactoring recommendation that doesn't survive "what specific problem does this solve?" should be downgraded to informational, not listed as a required fix.

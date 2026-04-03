@@ -82,6 +82,7 @@ Rules:
 - **Config options must justify variability.** "Might change later" is not justification. "Varies per study type, set in study_preferences.json" is.
 - **New types must justify their existence.** If an existing type covers 90% of the need, extend it. Don't create a parallel hierarchy.
 - **If the table is empty, say so.** "No new abstractions — all work extends existing patterns" is a valid and good answer.
+- **Refactoring proposals must survive the pain-point test.** Before proposing an extraction or split: (a) read the actual code — a long file with well-extracted sub-components may need no action; (b) state the specific problem the refactor solves (duplication that drifts, untestable logic, blocks another change); (c) "the metric gets smaller" is not a problem. If the existing structure is already good enough, say so and move on. Marginal extractions waste implementation time and introduce risk for no real gain.
 
 **Missing = incomplete synthesis.** The architect gate will reject a synthesis without simplicity rationale.
 
@@ -148,3 +149,10 @@ The build plan section is a standard incoming spec — subject to ROADMAP intake
 - **Research gaps are not deferrals.** A research gap means "we need to learn more before deciding." A deferral means "we decided not to do it." Research gaps get a next `/lattice:research` cycle. Deferrals require user approval (rule 14).
 - **Six mandatory sections.** The synthesis output must contain: (1) Build Plan, (1a) Reuse Inventory, (1b) Simplicity Rationale, (1c) Test Strategy, (2) Research Gaps, (3) Data & Coverage Gaps. Missing any section = incomplete synthesis. The `/lattice:architect` gate will reject it.
 - **Science preservation.** When proposing to simplify, refactor, or restructure existing code, state what analytical output changes. If any output changes, flag it explicitly in the build plan — the architect gate checks for this.
+
+## Decision Log
+
+After completing synthesis, append to `.lattice/decisions.log`:
+```
+{timestamp}	synthesize	COMPLETED	{topic}	plan_items:{count} reuse:{count} new:{count} research_gaps:{count} data_gaps:{count}	{one-line summary}
+```

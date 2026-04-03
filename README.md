@@ -29,13 +29,24 @@ Research-driven development pipeline with built-in scientific rigor:
        |
 /lattice:synthesize          — ground research in codebase, produce build plan + gaps
        |
+/lattice:probe               — cross-impact analysis (what else does this touch?)
+       |
 /lattice:peer-review         — challenge the implementation plan
        |
-/lattice:spike or spec-driven — build it
+/lattice:design              — UI/UX design decisions (for frontend phases)
+       |
+/lattice:implement or spike  — build it (spec-driven or exploratory)
        |
 /lattice:review              — quality gate with mandatory decision audit
        |
 commit
+
+/lattice:distill             — corpus-level reasoning (orthogonal — enter at any time)
+       |
+       ├── --thesis <claim>  — evidence chain → peer-review → publication
+       ├── --adapt <target>  — domain transfer map → research gaps → synthesize
+       ├── --audit           — doc coherence check → regen-science / manual fix
+       └── <question>        — grounded answer from accumulated research
 ```
 
 See [WORKFLOW.md](WORKFLOW.md) for the full pipeline with peer review protocol, escalation rules, and gap routing.
@@ -48,6 +59,11 @@ See [WORKFLOW.md](WORKFLOW.md) for the full pipeline with peer review protocol, 
 | `/lattice:prioritize` | Read all project state, recommend next actions ranked by scientist value |
 | `/lattice:daily-update` | Generate Slack-formatted update from recent commits |
 
+### Knowledge
+| Skill | Purpose |
+|-------|---------|
+| `/lattice:distill` | Corpus-level reasoning — thesis construction, domain adaptation, doc coherence audit, grounded Q&A |
+
 ### Research & Validation
 | Skill | Purpose |
 |-------|---------|
@@ -55,12 +71,15 @@ See [WORKFLOW.md](WORKFLOW.md) for the full pipeline with peer review protocol, 
 | `/lattice:research` | First-principles gap analysis — landscape (Tier 1) + deep dive (Tier 2) |
 | `/lattice:peer-review` | Blind scientific challenge (separate agent) — standard + `--novel` mode |
 | `/lattice:synthesize` | Ground research in codebase — Build Plan + Reuse Inventory + Simplicity Rationale + Test Strategy + Gaps |
+| `/lattice:probe` | Cross-impact analysis — trace implications through system manifest (targeted, `--integrity`, `--safety`) |
 
 ### Build & Quality
 | Skill | Purpose |
 |-------|---------|
 | `/lattice:architect` | Architecture quality gate — audit code, gate specs, enforce science preservation |
-| `/lattice:spike` | Exploratory implementation with pre-write discipline |
+| `/lattice:design` | UI/UX design step — placement, technology, layout decisions between synthesize and implement |
+| `/lattice:implement` | Autonomous spec implementation — phase-by-phase conductor with design gates and final audit |
+| `/lattice:spike` | Exploratory implementation with pre-write discipline (no spec ceremony) |
 | `/lattice:spec-from-code` | Reverse-engineer spec from successful spike |
 | `/lattice:review` | Quality gate — architect review + decision audit + deferral litmus test + four-dimension trace |
 | `/lattice:ux-designer` | Datagrok design system compliance audit |
@@ -71,9 +90,23 @@ See [WORKFLOW.md](WORKFLOW.md) for the full pipeline with peer review protocol, 
 | `/lattice:pause-work` | Context handoff for next session |
 | `/lattice:resume-work` | Restore context from handoff |
 
+## Enforcement Layer
+
+The framework enforces quality through constraints, not just instructions:
+
+| Mechanism | What it does | How it enforces |
+|-----------|-------------|-----------------|
+| **Validation ratchet** (`scripts/validation-ratchet.sh`) | Compares analytical scores before/after changes | Pre-commit hook blocks if engine changed without ratchet |
+| **Decision log** (`.lattice/decisions.log`) | Persistent experiment memory across sessions | Agents read at session start — prevents re-trying failures |
+| **Structural quality gates** | Checks peer review depth, synthesis sections, probe results | Orchestrator re-launches skill if output fails gate |
+| **Claude Code hooks** (`hooks/claude-hooks.json`) | Test-first, engine-change tracking, co-author block | Mechanical — agent cannot skip |
+| **Autonomous execution** | Research cycle runs without human until critical decisions | Stops only on: genuine disagreements, SCIENCE-FLAG, REJECT, validation degradation |
+
+See [WORKFLOW.md](WORKFLOW.md) for full enforcement layer documentation.
+
 ## Hard Rules (CLAUDE.md)
 
-14 process rules that apply to every task:
+15 process rules that apply to every task:
 
 | # | Rule | Why |
 |---|------|-----|
@@ -104,6 +137,12 @@ Built into `/lattice:peer-review`:
 - **`--novel` mode** — forces different sources than Round 1. Prioritizes last 2-3 years, preprints, conference proceedings, small repos. Low-citation is a feature.
 - **Tier-aware** — auto-detects landscape vs deep dive vs implementation plan and adapts review structure.
 
+Built into `/lattice:distill`:
+
+- **Evidence tiering** — every claim is tagged: decided (strongest), peer-reviewed (strong), unreviewed (provisional), or cross-document inference (flagged explicitly). Prevents mixing certainty levels.
+- **Contradiction detection** — when corpus documents disagree, both positions are presented with evidence. No silent resolution.
+- **Freshness check** — before citing a research stream's conclusions, checks REGISTRY for current status. Dormant/superseded conclusions are flagged.
+
 ## Scaffold (scaffold/)
 
 Templates for new projects:
@@ -122,9 +161,11 @@ Templates for new projects:
 1. Copy `CLAUDE.md` to project root — adapt paths, add project-specific design decisions
 2. Copy `commands/lattice/` to `.claude/commands/lattice/`
 3. Copy `scaffold/docs/` to your project's `docs/`
-4. Copy `hooks/pre-commit` to `.git/hooks/pre-commit`
-5. Merge `hooks/claude-hooks.json` into `.claude/settings.json`
-6. Create `.claude/rules/domain-knowledge-map.md` — topic-to-file lookup for your domain
+4. Copy `scaffold/.lattice/` to `.lattice/` — state directory for enforcement layer
+5. Copy `scripts/validation-ratchet.sh` to `scripts/` — adapt for your validation suite
+6. Copy `hooks/pre-commit` to `.git/hooks/pre-commit`
+7. Merge `hooks/claude-hooks.json` into `.claude/settings.json` — replace `PIPELINE_MODULES_PATTERN` and `ENGINE_FILES_PATTERN` with your project's regexes
+8. Create `.claude/rules/domain-knowledge-map.md` — topic-to-file lookup for your domain
 
 ### Existing project
 Cherry-pick what you need. CLAUDE.md rules are the foundation — everything else builds on them.

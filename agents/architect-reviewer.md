@@ -126,6 +126,12 @@ Evidence: [why]
 Suggested action: [specific refactor] or [leave alone — domain logic]
 ```
 
+**Critical: findings are hypotheses, not instructions.** Before recommending an extraction or split:
+- Check whether sub-components are already properly extracted (long file ≠ bad file)
+- Verify the proposed extraction solves an actual problem (duplication, testability, blocks other work) — not just "the metric gets smaller"
+- Quantify payoff: extracting 90 lines from 1800 is marginal; deduplicating 800 lines across modes is real
+- A well-organized long file with clear sections and extracted sub-components may need no action
+
 #### 2. Pattern Violations
 
 Scan for the accidental complexity patterns table above. Report each with file:line reference and specific fix.

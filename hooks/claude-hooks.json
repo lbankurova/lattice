@@ -8,6 +8,11 @@
             "type": "command",
             "command": "bash -c 'staged=$(git diff --cached --name-only 2>/dev/null); if echo \"$staged\" | grep -qE \"PIPELINE_MODULES_PATTERN\"; then if ! echo \"$staged\" | grep -qE \"\\.(test|spec)\\.\"; then echo \"PIPELINE MODULE CHANGED WITHOUT TESTS. Staged pipeline files:\"; echo \"$staged\" | grep -E \"PIPELINE_MODULES_PATTERN\"; echo \"\"; echo \"Commit checklist requires: write the failing test FIRST for these modules.\"; echo \"Stage a test file, or use git commit with --no-verify if you have a reason.\"; exit 1; fi; fi'",
             "_comment": "Replace PIPELINE_MODULES_PATTERN with a regex matching your project's data pipeline modules. Example for SENDEX: (classification|findings_|derive-summaries|cross-domain-syndromes|syndrome-interpretation|findings-rail-engine|recovery-classification|finding-nature|protective-signal|lab-clinical-catalog)"
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); if [ -f \"$REPO_ROOT/.lattice/engine-changed\" ]; then if [ ! -f \"$REPO_ROOT/.lattice/validation-compared\" ]; then echo \"ENGINE FILES WERE MODIFIED but validation ratchet was not run.\"; echo \"\"; echo \"Run: bash scripts/validation-ratchet.sh auto\"; echo \"Or:  bash scripts/validation-ratchet.sh compare  (if you already regenerated)\"; echo \"\"; echo \"This ensures analytical behavior changes are detected and documented.\"; echo \"If validation degrades, the ratchet will tell you what changed and why.\"; exit 1; fi; fi'",
+            "_comment": "Enforce validation ratchet when engine files changed. The .lattice/engine-changed marker is set by the PostToolUse engine-change hook. The .lattice/validation-compared marker is set by validation-ratchet.sh compare. Both are cleared after commit."
           }
         ]
       }
@@ -23,10 +28,24 @@
           {
             "type": "command",
             "command": "bash -c 'FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | grep -oP '\"file_path\"\\s*:\\s*\"\\K[^\"]+' 2>/dev/null || echo \"$CLAUDE_FILE_PATH\" 2>/dev/null); if [ -n \"$FILE\" ] && [ -f \"$FILE\" ]; then REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); if [ -n \"$REPO_ROOT\" ] && [ -f \"$REPO_ROOT/scripts/complexity-check.sh\" ]; then bash \"$REPO_ROOT/scripts/complexity-check.sh\" \"$FILE\"; fi; fi'",
-            "_comment": "Post-edit complexity spot-check. Runs complexity-check.sh on the edited file. Advisory warnings only — non-zero exit injects a warning into the agent context."
+            "_comment": "Post-edit complexity spot-check. Advisory warnings only."
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | grep -oP '\"file_path\"\\s*:\\s*\"\\K[^\"]+' 2>/dev/null || true); if echo \"$FILE\" | grep -qE \"ENGINE_FILES_PATTERN\"; then REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); mkdir -p \"$REPO_ROOT/.lattice\"; touch \"$REPO_ROOT/.lattice/engine-changed\"; rm -f \"$REPO_ROOT/.lattice/validation-compared\" 2>/dev/null; echo \"ENGINE FILE MODIFIED: $(basename $FILE)\"; echo \"Validation ratchet will be required before commit.\"; echo \"Run: bash scripts/validation-ratchet.sh auto\"; fi'",
+            "_comment": "Engine change detection — sets marker that triggers pre-commit validation gate. Replace ENGINE_FILES_PATTERN with your project's engine file regex. Advisory message but the PreToolUse commit hook is the enforcer."
           }
         ]
       }
     ]
+  },
+  "_setup": {
+    "_comment": "Customize these patterns for your project:",
+    "PIPELINE_MODULES_PATTERN": "Regex for data pipeline modules that require test-first discipline",
+    "ENGINE_FILES_PATTERN": "Regex for engine/analytical files that require validation ratchet",
+    "example_sendex": {
+      "PIPELINE_MODULES_PATTERN": "(classification|findings_|derive-summaries|cross-domain-syndromes|syndrome-interpretation|findings-rail-engine|recovery-classification|finding-nature|protective-signal|lab-clinical-catalog)",
+      "ENGINE_FILES_PATTERN": "(classification\\.py|findings_pipeline\\.py|statistics\\.py|view_dataframes\\.py|domain_stats\\.py|scores_and_rules\\.py|findings-rail-engine\\.ts|derive-summaries\\.ts|cross-domain-syndromes\\.ts|endpoint-confidence\\.ts|finding-nature\\.ts|organ-weight-normalization\\.ts|syndrome-interpretation\\.ts|g-lower\\.ts)"
+    }
   }
 }
