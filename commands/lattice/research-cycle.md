@@ -7,7 +7,7 @@ You are orchestrating the **research phase** of a topic. This cycle produces val
 
 **Input:** A topic. Auto-detects entry point from state. Accepts `--landscape`, `--novel`.
 
-**Output:** Validated research at `docs/_internal/research/{topic}.md`. Next: `/lattice:build-cycle {topic}`.
+**Output:** Validated research at `docs/_internal/research/{topic}.md`. Next: `/lattice:blueprint-cycle {topic}`.
 
 ---
 
@@ -78,7 +78,7 @@ checkpoints:
    - Review exists, no "Peer Review Notes" section in research doc → Step 3
    - "Peer Review Notes" exists, no `{topic}-review-r2.md` → Step 4
    - R2 review exists → Step 5
-   - Research validated → **Done — run `/lattice:build-cycle {topic}`**
+   - Research validated → **Done — run `/lattice:blueprint-cycle {topic}`**
 
 **Decision prompt format** (STOP points only):
 ```
@@ -175,7 +175,7 @@ Present research summary:
 **Unresolved:** [list or "none"]
 ```
 
-Run `/lattice:distill --audit` scoped to this topic. If contradictions found, note in "Corpus Integration" section — these become build-cycle inputs.
+Run `/lattice:distill --audit` scoped to this topic. If contradictions found, note in "Corpus Integration" section — these become blueprint-cycle inputs.
 
 Proceed autonomously (distill results are informational, not blocking).
 
@@ -192,7 +192,7 @@ Run `/lattice:probe` on the validated research findings. Input: research doc pat
 | Any SCIENCE-FLAG | **STOP** — present to user before proceeding |
 | Any STALE | Note for manifest update, non-blocking |
 
-Update state: `phase: research-complete, current_step: build.0`.
+Update state: `phase: research-complete, current_step: blueprint.0`.
 
 ---
 
@@ -200,7 +200,7 @@ Update state: `phase: research-complete, current_step: build.0`.
 
 ```
 Research validated: {topic}
-Next: /lattice:build-cycle {topic}
+Next: /lattice:blueprint-cycle {topic}
 ```
 
 ---
