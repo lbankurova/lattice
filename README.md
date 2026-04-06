@@ -29,10 +29,10 @@ Research-driven development pipeline split into three phase-scoped cycles:
 /lattice:research-cycle {topic}  -- RESEARCH: produce + peer review + validate
        |  research -> R1 -> incorporate -> R2 -> evaluate -> distill -> probe
        v
-/lattice:build-cycle {topic}     -- BUILD: synthesize + architect gate + plan review
+/lattice:blueprint-cycle {topic} -- BLUEPRINT: synthesize + architect gate + plan review
        |  synthesize -> architect -> probe -> plan R1 -> incorporate -> plan R2
        v
-/lattice:ship-cycle {topic}      -- SHIP: design + implement + review + commit
+/lattice:build-cycle {topic}     -- BUILD: design + implement + review + commit
        |  implement (with /design per UI phase) -> review -> commit
        v
 done
@@ -67,8 +67,8 @@ See [WORKFLOW.md](WORKFLOW.md) for the full pipeline with peer review protocol, 
 |-------|---------|
 | `/lattice:cycle` | **Meta-orchestrator** — auto-detects phase from state, dispatches to right sub-cycle |
 | `/lattice:research-cycle` | **Research phase** — produce + peer review (2 rounds) + distill + probe |
-| `/lattice:build-cycle` | **Build phase** — synthesize + architect gate + probe + plan review (2 rounds) |
-| `/lattice:ship-cycle` | **Ship phase** — design + implement + review + commit |
+| `/lattice:blueprint-cycle` | **Blueprint phase** — synthesize + architect gate + probe + plan review (2 rounds) |
+| `/lattice:build-cycle` | **Build phase** — design + implement + review + commit |
 
 ### Research & Validation
 | Skill | Purpose |

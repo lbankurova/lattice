@@ -8,8 +8,8 @@ The canonical workflow for research-driven development of scientific apps.
 /lattice:prioritize                        -- what should I work on?
 /lattice:cycle {topic}                     -- auto-detect phase, run next sub-cycle
 /lattice:research-cycle {topic}            -- research phase: produce + peer review + validate
-/lattice:build-cycle {topic}               -- build phase: synthesize + architect gate + plan review
-/lattice:ship-cycle {topic}                -- ship phase: design + implement + review + commit
+/lattice:blueprint-cycle {topic}           -- blueprint phase: synthesize + architect gate + plan review
+/lattice:build-cycle {topic}               -- build phase: design + implement + review + commit
 /lattice:probe {change}                    -- cross-impact analysis (targeted, --integrity, --safety)
 /lattice:architect audit {path}            -- ad-hoc architecture audit
 /lattice:architect gate {spec}             -- pre-implementation architecture gate
@@ -68,7 +68,7 @@ The canonical workflow for research-driven development of scientific apps.
                           |
                           v
 +---------------------------------------------------------------------------+
-|  BUILD CYCLE (/lattice:build-cycle)                                       |
+|  BLUEPRINT CYCLE (/lattice:blueprint-cycle)                               |
 |  Prerequisite: research-complete                                          |
 |                                                                           |
 |  Step 1: /lattice:synthesize             <-- build plan + gaps           |
@@ -87,7 +87,7 @@ The canonical workflow for research-driven development of scientific apps.
 |  Step 6: /lattice:peer-review            <-- fresh agent, R2             |
 |       v                                                                   |
 |  Step 7: build plan complete                                              |
-|       |-- Build plan --> ready for ship phase                             |
+|       |-- Build plan --> ready for build phase                            |
 |       |-- Research gaps --> next /lattice:research-cycle                   |
 |       +-- Data gaps --> TODO.md                                           |
 |                                                                           |
@@ -95,8 +95,8 @@ The canonical workflow for research-driven development of scientific apps.
                           |
                           v
 +---------------------------------------------------------------------------+
-|  SHIP CYCLE (/lattice:ship-cycle)                                         |
-|  Prerequisite: build-complete (or direct spec path)                       |
+|  BUILD CYCLE (/lattice:build-cycle)                                       |
+|  Prerequisite: blueprint-complete (or direct spec path)                   |
 |                                                                           |
 |  Step 1: /lattice:implement {spec}       <-- autonomous phase-by-phase   |
 |       |  Phase 0: load & plan                                             |
@@ -107,7 +107,7 @@ The canonical workflow for research-driven development of scientific apps.
 |       v                                                                   |
 |  Step 2: /lattice:review                 <-- if not already run          |
 |       v                                                                   |
-|  Step 3: ship complete                                                    |
+|  Step 3: build complete                                                   |
 |       |                                                                   |
 |       v                                                                   |
 |  commit                                                                   |
@@ -188,9 +188,9 @@ The three cycles form a pipeline with explicit boundaries. `/lattice:cycle` auto
 | From | To | Transition |
 |------|-----|-----------|
 | (start) | Research | New topic with no existing artifacts |
-| Research complete | Build | Validated research exists, no synthesis |
-| Build complete | Ship | Validated build plan exists |
-| Ship complete | Done | Code committed |
+| Research complete | Blueprint | Validated research exists, no synthesis |
+| Blueprint complete | Build | Validated build plan exists |
+| Build complete | Done | Code committed |
 
 Each sub-cycle auto-detects its entry point within the phase — no `--from` flags needed.
 
@@ -201,8 +201,8 @@ All three cycles share `.lattice/cycle-state/{topic}.yaml`:
 ```yaml
 topic: {topic}
 started: {ISO timestamp}
-phase: research | research-complete | build | build-complete | ship | complete
-current_step: research.3  # or build.2, ship.1, etc.
+phase: research | research-complete | blueprint | blueprint-complete | build | complete
+current_step: research.3  # or blueprint.2, build.1, etc.
 completed:
   research.1: {timestamp}
   research.2: {timestamp}
@@ -384,8 +384,8 @@ Every auto-decision is logged. The user can audit after the fact and re-enter at
 | `/lattice:distill` | Corpus-level reasoning | Question/claim + mode flag | `distillations/{topic}-*.md` |
 | `/lattice:cycle` | **Meta-orchestrator** — auto-detect phase, dispatch | Topic | Runs next sub-cycle |
 | `/lattice:research-cycle` | **Research phase** — produce + peer review + validate | Topic | Validated research doc |
-| `/lattice:build-cycle` | **Build phase** — synthesize + architect gate + plan review | Topic | Validated build plan |
-| `/lattice:ship-cycle` | **Ship phase** — design + implement + review + commit | Topic or spec path | Committed code |
+| `/lattice:blueprint-cycle` | **Blueprint phase** — synthesize + architect gate + plan review | Topic | Validated build plan |
+| `/lattice:build-cycle` | **Build phase** — design + implement + review + commit | Topic or spec path | Committed code |
 | `/lattice:research` | First-principles gap analysis | Topic | `research/{topic}.md` |
 | `/lattice:peer-review` | Blind scientific challenge | Any document, optional `--novel` | `peer-reviews/{topic}-review.md` |
 | `/lattice:synthesize` | Ground research in codebase | Research doc path | `incoming/{topic}-synthesis.md` |
