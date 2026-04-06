@@ -350,8 +350,18 @@ Mechanical enforcement — the agent cannot skip these:
 | **Co-author block** | Write/Edit containing "Co-Authored-By" | Blocks the edit |
 | **Engine change marker** | Write/Edit to engine files | Sets `.lattice/engine-changed`, clears comparison marker |
 | **Complexity advisory** | Write/Edit any file | Non-blocking complexity warnings |
+| **Context meter** | Read any file | Tracks cumulative reads, warns at 80K (HIGH) and 150K (CRITICAL) tokens |
 
-### 5. Autonomous Execution Model
+### 5. Separate Agent Definitions (`agents/`)
+
+Skills that require independent review context launch dedicated agents with no access to the orchestrator's reasoning:
+
+| Agent | Used by | Model | Why separate |
+|-------|---------|-------|-------------|
+| `architect-reviewer` | `/lattice:architect`, `/lattice:review` | (default) | Architecture audit must not see implementation rationale — prevents confirmation bias |
+| `post-impl-reviewer` | `/lattice:review` | sonnet | Spec-vs-code trace must not see design trade-offs — finds mismatches the author would rationalize |
+
+### 6. Autonomous Execution Model
 
 All three cycles run autonomously by default. They stop only at critical decision points:
 
@@ -387,7 +397,10 @@ Every auto-decision is logged. The user can audit after the fact and re-enter at
 | `/lattice:spec-from-code` | Reverse-engineer spec from spike | Implementation | `incoming/{feature}.md` |
 | `/lattice:review` | Quality gate + commit | Changed files | Commit (if passes) |
 | `/lattice:ux-designer` | Design audit | View or component | Audit report |
+| `/ops:check` | Lightweight mid-implementation sanity check | (reads build + engine state) | PASS/FAIL per check |
 | `/ops:bug-stress` | Post-fix pattern search + oracle growth | Changed files or bug description | Stress report + tests |
+| `/ops:explore-data` | Explore generated study data | Question, optional study scope | Data exploration answer |
+| `/ops:impact` | Pre-change impact analysis | Function, file, or module | Consumer trace + blast radius |
 | `/ops:sweep` | State garbage collection | (reads all indexes) | Cleaned indexes |
 | `/lattice:daily-update` | Slack update from commits | (reads git log) | Formatted message |
 | `/lattice:pause-work` | Session handoff | Current state | `.continue-here.md` |

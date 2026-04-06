@@ -89,6 +89,15 @@ See [WORKFLOW.md](WORKFLOW.md) for the full pipeline with peer review protocol, 
 | `/lattice:review` | Quality gate — architect review + decision audit + deferral litmus test + four-dimension trace |
 | `/lattice:ux-designer` | Datagrok design system compliance audit |
 
+### Ops (commands/ops/)
+| Skill | Purpose |
+|-------|---------|
+| `/ops:check` | Lightweight "did I break anything?" — build + validation sanity check without full `/review` ceremony |
+| `/ops:bug-stress` | Post-fix pattern search — classify bug, search downstream, grow oracle |
+| `/ops:explore-data` | Explore generated study data — answer questions about what the engine actually produces |
+| `/ops:impact` | Pre-change impact analysis — trace all downstream consumers of a function, file, or module |
+| `/ops:sweep` | State garbage collection — validate and clean TODO.md, ROADMAP.md, incoming/, MANIFEST.md, decisions.log |
+
 ### Session
 | Skill | Purpose |
 |-------|---------|
@@ -104,10 +113,20 @@ The framework enforces quality through constraints, not just instructions:
 | **Validation ratchet** (`scripts/validation-ratchet.sh`) | Compares analytical scores before/after changes | Pre-commit hook blocks if engine changed without ratchet |
 | **Decision log** (`.lattice/decisions.log`) | Persistent experiment memory across sessions | Agents read at session start — prevents re-trying failures |
 | **Structural quality gates** | Checks peer review depth, synthesis sections, probe results | Orchestrator re-launches skill if output fails gate |
-| **Claude Code hooks** (`hooks/claude-hooks.json`) | Test-first, engine-change tracking, co-author block | Mechanical — agent cannot skip |
+| **Claude Code hooks** (`hooks/claude-hooks.json`) | Test-first, engine-change tracking, co-author block, context meter | Mechanical — agent cannot skip |
+| **Context pressure meter** (`scripts/context-meter.sh`) | Tracks cumulative file reads, warns at 80K/150K tokens | PostToolUse hook on Read — advisory warnings |
 | **Autonomous execution** | Research cycle runs without human until critical decisions | Stops only on: genuine disagreements, SCIENCE-FLAG, REJECT, validation degradation |
 
 See [WORKFLOW.md](WORKFLOW.md) for full enforcement layer documentation.
+
+## Agents (agents/)
+
+Separate-agent definitions launched by skills that require independent review context:
+
+| Agent | Launched by | Purpose |
+|-------|------------|---------|
+| `architect-reviewer` | `/lattice:architect`, `/lattice:review` | Architecture audit + science preservation gate — runs without implementation context |
+| `post-impl-reviewer` | `/lattice:review` | Spec-vs-code evidence trace — finds mismatches without seeing design rationale |
 
 ## Hard Rules (CLAUDE.md)
 
@@ -159,18 +178,30 @@ Templates for new projects:
 - `docs/_internal/research/INDEX.md` — research file inventory with status tracking
 - `docs/_internal/reference/` — UI casing, interactivity rule
 - `docs/_internal/design-system/` — Datagrok platform design system (5 docs)
+- `.lattice/` — framework state directory (decisions log, validation baseline, cycle state)
+- `.claude/rules/frontend-ui-gate.md` — frontend UI enforcement rules (viewport budget, label audit, interaction consistency)
 
 ## Setup
 
-### New project
+### New project (automated)
+```bash
+bash scripts/sync-skills.sh <project-root>
+```
+Copies `commands/lattice/`, `commands/ops/`, and `agents/` to `<project>/.claude/`. Then complete the manual steps below.
+
+### New project (manual)
 1. Copy `CLAUDE.md` to project root — adapt paths, add project-specific design decisions
 2. Copy `commands/lattice/` to `.claude/commands/lattice/`
-3. Copy `scaffold/docs/` to your project's `docs/`
-4. Copy `scaffold/.lattice/` to `.lattice/` — state directory for enforcement layer
-5. Copy `scripts/validation-ratchet.sh` to `scripts/` — adapt for your validation suite
-6. Copy `hooks/pre-commit` to `.git/hooks/pre-commit`
-7. Merge `hooks/claude-hooks.json` into `.claude/settings.json` — replace `PIPELINE_MODULES_PATTERN` and `ENGINE_FILES_PATTERN` with your project's regexes
-8. Create `.claude/rules/domain-knowledge-map.md` — topic-to-file lookup for your domain
+3. Copy `commands/ops/` to `.claude/commands/ops/`
+4. Copy `agents/` to `.claude/agents/`
+5. Copy `scaffold/docs/` to your project's `docs/`
+6. Copy `scaffold/.lattice/` to `.lattice/` — state directory for enforcement layer
+7. Copy `scaffold/.claude/rules/` to `.claude/rules/` — frontend UI gate and other rules
+8. Copy `scripts/validation-ratchet.sh` to `scripts/` — adapt for your validation suite
+9. Copy `scripts/context-meter.sh` to `scripts/` — context pressure tracking
+10. Copy `hooks/pre-commit` to `.git/hooks/pre-commit`
+11. Merge `hooks/claude-hooks.json` into `.claude/settings.json` — replace `PIPELINE_MODULES_PATTERN` and `ENGINE_FILES_PATTERN` with your project's regexes
+12. Create `.claude/rules/domain-knowledge-map.md` — topic-to-file lookup for your domain
 
 ### Existing project
 Cherry-pick what you need. CLAUDE.md rules are the foundation — everything else builds on them.
