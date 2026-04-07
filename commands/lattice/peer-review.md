@@ -207,12 +207,36 @@ The orchestrator will read this section and decide whether to accept or re-launc
 
 3. **Stopping at the first issue.** Finding one FLAWED item and declaring the review done. Continue through ALL sections. The second and third issues are often more important than the first.
 
+## Persist Gaps
+
+Peer review discovers gaps that the original research missed — broken assumptions, untested failure modes, missing literature, alternative hypotheses that need investigation. **Persist them before logging.**
+
+For each CONDITIONAL or FLAWED finding that implies additional research or data is needed:
+
+1. **Research gap** (the finding raises a question that needs investigation):
+   - **Read** `docs/_internal/research/REGISTRY.md`
+   - Append to the reviewed topic's stream `open-questions`, or create a new stream if the gap is outside that topic's scope
+   - Set `source: "peer-review/{topic}"`
+
+2. **Data gap** (the finding identifies missing validation data, species coverage, or test cases):
+   - **Read** `docs/_internal/TODO.md`
+   - Append: `- [ ] **DATA-GAP: {title}** — from peer review of {topic}. {what's missing}. [Area: {relevant}]`
+
+Not every finding is a gap — SOUND findings and confirmed limitations don't need routing. But CONDITIONAL findings that say "sound IF {assumption} holds" imply the assumption needs verification (= research gap), and FLAWED findings that say "wrong because {missing data}" imply data needs (= data gap).
+
 ## Decision Log
 
 After completing the review, append to `.lattice/decisions.log`:
 ```
 {timestamp}	peer-review	{overall verdict}	{topic}	findings:{count} FLAWED:{count} CONDITIONAL:{count} SOUND:{count}	{one-line summary}
 ```
+
+## Web Source Access
+
+When fetching sources for literature checks (Section 5, especially `--novel` mode), follow the **Web Source Access Protocol** in CLAUDE.md. Key points:
+- On 403/429/captcha: log to `.lattice/blocked-urls.log` and retry via Playwright MCP browser
+- Never silently skip a blocked URL — log it even if browser retry also fails
+- In `--novel` mode, blocked niche sources are especially costly — these are the sources most likely to be behind paywalls or rate-limited
 
 ## Constraints
 

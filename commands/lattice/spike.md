@@ -56,12 +56,21 @@ Write the code. Keep it minimal — answer the question, don't build the full fe
 
 - `npm run build` must pass
 - `npm test` must pass (you may skip writing NEW tests during a spike, but existing tests must not break)
-- If the change is visual, state: "Visual verification required by user."
+- If the change is visual and Playwright MCP is available, run a visual smoke test (navigate, console errors, not-blank). Otherwise state: "Visual verification required by user."
 
-### 5. Report
+### 5. Report and persist gaps
 
 Tell the user:
 - **What you built** (files changed, approach taken)
 - **What you learned** (does the approach work?)
 - **What's missing** (what would need to happen to make this production-ready?)
 - **Recommendation:** keep and formalize (→ `/spec-from-code`) or discard and try a different approach
+
+**Persist gaps even though doc lifecycle is suspended.** Spikes discover gaps that are invisible elsewhere — the whole point is exploring unknown territory. If the spike is discarded, these gaps are the only artifact that survives.
+
+For each "what's missing" item:
+- **Research gap** (needs investigation) → append to `docs/_internal/research/REGISTRY.md` with `source: "spike/{topic}"`
+- **Data gap** (missing data/coverage) → append to `docs/_internal/TODO.md` with `[Area: {relevant}]`
+- **Implementation gap** (known limitation, deferred wiring) → append to `docs/_internal/TODO.md`
+
+Gap persistence is the ONE doc lifecycle step that is NOT suspended during spikes.

@@ -67,7 +67,21 @@ Write the spec to `docs/_internal/incoming/` using this structure:
 ...
 ```
 
-### 4. ROADMAP intake (rule 12)
+### 4. Identify and persist gaps
+
+Reading an implementation after-the-fact reveals gaps that weren't visible during the spike:
+- Missing edge case handling (what happens with empty data? N=1? Missing fields?)
+- Assumptions baked into the code that need research validation
+- Data coverage holes (works for rat but not dog, works for BW but not LB)
+- Hardcoded values that should come from configuration or domain knowledge
+
+For each gap found:
+- **Research gap** → append to `docs/_internal/research/REGISTRY.md` with `source: "spec-from-code/{feature}"`
+- **Data/implementation gap** → append to `docs/_internal/TODO.md` with `[Area: {relevant}]`
+
+Also add these gaps to the spec's verification checklist as known limitations.
+
+### 5. ROADMAP intake (rule 12)
 
 Before presenting the spec, classify and track it:
 
@@ -81,11 +95,11 @@ Before presenting the spec, classify and track it:
 
 Present the ROADMAP update alongside the spec for user confirmation.
 
-### 5. Present for review
+### 6. Present for review
 
 Show the user the generated spec AND the ROADMAP entry. They may adjust either before `/review` runs.
 
-### 6. Next step
+### 7. Next step
 
 After the spec is finalized:
 - Run `/review` — it will detect the spec and run the full evidence trace

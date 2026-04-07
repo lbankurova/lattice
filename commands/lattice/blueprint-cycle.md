@@ -32,11 +32,35 @@ Everything else proceeds automatically:
 
 ---
 
+## Topic Lock
+
+**Acquire the WIP lock before doing any work:**
+
+```bash
+bash scripts/acquire-topic-lock.sh {topic} "blueprint-cycle"
+```
+
+If exit code 1 (lock held by another agent), **STOP immediately** — show the lock holder info and tell the user. Do not proceed.
+
+**Release the lock** when the blueprint phase completes (end of Step 7).
+
+**Heartbeat:** After every state file update (`current_step` change), refresh the lock:
+```bash
+touch .lattice/cycle-lock/{topic}/meta 2>/dev/null
+```
+
+---
+
 ## State & Context
 
 Continues the state file from research-cycle: `.lattice/cycle-state/{topic}.yaml`.
 
 **Prerequisite check:** Before starting, verify `phase` is `research-complete` (or `current_step` >= `blueprint.0`). If research hasn't been validated, tell the user: "Research phase not complete. Run `/lattice:research-cycle {topic}` first."
+
+**Revision-checked writes.** The state file has a `revision: N` field. Before every write:
+1. Re-read the file, check `revision` matches what you last read
+2. If match: write with `revision: N+1`
+3. If mismatch: **STOP** — "State file modified by another agent (expected revision {N}, found {M})."
 
 **Context discipline — disk is storage, context is RAM.** Before EVERY step:
 1. Re-read the state file and decisions log for this topic
@@ -55,7 +79,7 @@ Continues the state file from research-cycle: `.lattice/cycle-state/{topic}.yaml
 
 **Entry detection (no flags needed):**
 1. State file `current_step` starts with `blueprint` → resume from that step
-2. No build state → detect from files:
+2. No blueprint state → detect from files:
    - No `docs/_internal/incoming/{topic}-synthesis.md` → Step 0
    - Synthesis exists, no `peer-reviews/{topic}-architect-review.md` → Step 2
    - Architect passed, no build-plan probe recorded → Step 3
@@ -188,6 +212,15 @@ Update state: `current_step: blueprint.7`.
 
 ### Step 7: Build Plan Complete
 
+**Verify gap persistence.** Before declaring the build plan complete:
+
+1. **Read `docs/_internal/research/REGISTRY.md`** — confirm every research gap from the synthesis Section 2 has an entry or is covered by an existing stream's `open-questions`. If any are missing, write them now.
+2. **Read `docs/_internal/TODO.md`** — confirm every data gap from the synthesis Section 3 has an entry. If any are missing, write them now.
+
+Gaps that exist only in the synthesis document are not persisted — the synthesis gets archived after implementation. The registry and TODO.md survive.
+
+Then produce the summary:
+
 ```
 ## Build Plan Validated: {topic}
 
@@ -199,16 +232,21 @@ Update state: `current_step: blueprint.7`.
 ### Ready for implementation
 [summary of build plan]
 
-### Research Gaps -- next /lattice:research-cycle
-[list]
+### Research Gaps (persisted to REGISTRY.md)
+[list with stream IDs]
 
-### Data Gaps -- TODO.md
-[list]
+### Data Gaps (persisted to TODO.md)
+[list with item IDs]
 
 Next: /lattice:build-cycle {topic}
 ```
 
 Update state: `phase: blueprint-complete, current_step: build.0`.
+
+**Release the topic lock:**
+```bash
+bash scripts/release-topic-lock.sh {topic}
+```
 
 Log to decisions.log:
 ```
@@ -228,3 +266,4 @@ Log to decisions.log:
 7. **All outputs persist to disk.**
 8. **Update state after every step.**
 9. **Log every auto-decision.**
+10. **Topic lock is mandatory.** Acquire before work, release on completion, heartbeat on every checkpoint.

@@ -8,7 +8,7 @@ The canonical workflow for research-driven development of scientific apps.
 /lattice:prioritize                        -- what should I work on?
 /lattice:cycle {topic}                     -- auto-detect phase, run next sub-cycle
 /lattice:research-cycle {topic}            -- research phase: produce + peer review + validate
-/lattice:blueprint-cycle {topic}           -- blueprint phase: synthesize + architect gate + plan review
+/lattice:blueprint-cycle {topic}            -- blueprint phase: synthesize + architect gate + plan review
 /lattice:build-cycle {topic}               -- build phase: design + implement + review + commit
 /lattice:probe {change}                    -- cross-impact analysis (targeted, --integrity, --safety)
 /lattice:architect audit {path}            -- ad-hoc architecture audit
@@ -86,7 +86,7 @@ The canonical workflow for research-driven development of scientific apps.
 |       v                                                                   |
 |  Step 6: /lattice:peer-review            <-- fresh agent, R2             |
 |       v                                                                   |
-|  Step 7: build plan complete                                              |
+|  Step 7: blueprint complete                                               |
 |       |-- Build plan --> ready for build phase                            |
 |       |-- Research gaps --> next /lattice:research-cycle                   |
 |       +-- Data gaps --> TODO.md                                           |
@@ -103,9 +103,12 @@ The canonical workflow for research-driven development of scientific apps.
 |       |  Phase 1-N: for each phase with new UI:                           |
 |       |    /lattice:design   <-- placement, technology, layout            |
 |       |    then implement, then /ops:check                                |
-|       |  Phase N+1: full /lattice:review                                  |
+|       |  Phase N+1: implementation audit (deviations, decisions, gaps)     |
 |       v                                                                   |
-|  Step 2: /lattice:review                 <-- if not already run          |
+|  Step 2: /lattice:review                 <-- always runs (quality gate)  |
+|       |  architect review (separate agent)                                |
+|       |  decision audit (separate agent -- merit enforcement)             |
+|       |  requirement trace (separate agent for spec work)                 |
 |       v                                                                   |
 |  Step 3: build complete                                                   |
 |       |                                                                   |
@@ -277,7 +280,7 @@ Your call: {what decision is needed}
 
 1. **CHANGES** — what changed
 2. **ARCHITECT REVIEW** — complexity and science preservation (separate agent)
-3. **DECISION AUDIT** — merit evaluation (rules 13-14) + deferral litmus test
+3. **DECISION AUDIT** — merit evaluation (separate agent — rules 13-14 enforcement) + deferral litmus test
 4. **REQUIREMENT TRACE** — four-dimension check (WHAT/WHEN/UNLESS/HOW)
 5. **MECHANICAL CHECKS** — build, lint, tests
 6. **DOCS UPDATE** — MANIFEST, specs, TODO
@@ -350,18 +353,8 @@ Mechanical enforcement — the agent cannot skip these:
 | **Co-author block** | Write/Edit containing "Co-Authored-By" | Blocks the edit |
 | **Engine change marker** | Write/Edit to engine files | Sets `.lattice/engine-changed`, clears comparison marker |
 | **Complexity advisory** | Write/Edit any file | Non-blocking complexity warnings |
-| **Context meter** | Read any file | Tracks cumulative reads, warns at 80K (HIGH) and 150K (CRITICAL) tokens |
 
-### 5. Separate Agent Definitions (`agents/`)
-
-Skills that require independent review context launch dedicated agents with no access to the orchestrator's reasoning:
-
-| Agent | Used by | Model | Why separate |
-|-------|---------|-------|-------------|
-| `architect-reviewer` | `/lattice:architect`, `/lattice:review` | (default) | Architecture audit must not see implementation rationale — prevents confirmation bias |
-| `post-impl-reviewer` | `/lattice:review` | sonnet | Spec-vs-code trace must not see design trade-offs — finds mismatches the author would rationalize |
-
-### 6. Autonomous Execution Model
+### 5. Autonomous Execution Model
 
 All three cycles run autonomously by default. They stop only at critical decision points:
 
@@ -397,10 +390,7 @@ Every auto-decision is logged. The user can audit after the fact and re-enter at
 | `/lattice:spec-from-code` | Reverse-engineer spec from spike | Implementation | `incoming/{feature}.md` |
 | `/lattice:review` | Quality gate + commit | Changed files | Commit (if passes) |
 | `/lattice:ux-designer` | Design audit | View or component | Audit report |
-| `/ops:check` | Lightweight mid-implementation sanity check | (reads build + engine state) | PASS/FAIL per check |
 | `/ops:bug-stress` | Post-fix pattern search + oracle growth | Changed files or bug description | Stress report + tests |
-| `/ops:explore-data` | Explore generated study data | Question, optional study scope | Data exploration answer |
-| `/ops:impact` | Pre-change impact analysis | Function, file, or module | Consumer trace + blast radius |
 | `/ops:sweep` | State garbage collection | (reads all indexes) | Cleaned indexes |
 | `/lattice:daily-update` | Slack update from commits | (reads git log) | Formatted message |
 | `/lattice:pause-work` | Session handoff | Current state | `.continue-here.md` |

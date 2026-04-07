@@ -122,7 +122,7 @@ Topics needing more investigation before building. For each:
 - **Suggested sources** — from the original research's source map
 - **Priority** — based on how many build plan items depend on the answer
 
-Routes to: next `/lattice:research` cycle
+**Persisted in Step 5** to `docs/_internal/research/REGISTRY.md`.
 
 ### Section 3: Data & Coverage Gaps
 
@@ -133,9 +133,41 @@ Missing data, species, study types, methods needing validation. For each:
 - **Blocking?** — prevents implementation or is a known limitation?
 - **Acquisition path** — how to get the missing data
 
-Routes to: `docs/_internal/TODO.md` or dedicated backlog
+**Persisted in Step 5** to `docs/_internal/TODO.md`.
 
-## Step 5: Peer Review Readiness
+## Step 5: Persist Gaps
+
+The synthesis identified Research Gaps (Section 2) and Data Gaps (Section 3). These must be written to their persistent destinations NOW — not "routed to" later.
+
+### Research gaps → Research Registry
+
+For each research gap in Section 2, **append or update** `docs/_internal/research/REGISTRY.md`:
+
+```yaml
+{gap-id}:
+  status: researching
+  conclusion: "{one-line description of what needs answering}"
+  touches-subsystems: [{affected subsystems}]
+  affects: [{related stream IDs}]
+  depends-on: [{blocking streams}]
+  open-questions: ["{the research question}"]
+  source: "synthesize/{topic}"
+  doc: null  # no research doc yet
+```
+
+If the gap relates to an existing stream, update that stream's `open-questions` instead of creating a new entry.
+
+### Data gaps → TODO.md
+
+For each data gap in Section 3, **append** to `docs/_internal/TODO.md`:
+
+```
+- [ ] **DATA-GAP: {short title}** — {what's missing}. Impact: {consequence}. Acquisition: {how to get it}. Source: `{topic}-synthesis.md`. [Area: {relevant area}]
+```
+
+**The gap is not logged until it's written to disk.** Mentioning it in the synthesis document is necessary but not sufficient — the synthesis is an incoming spec that gets archived after implementation. The registry and TODO.md are the durable homes.
+
+## Step 6: Peer Review Readiness
 
 Flag scientific/method decisions in the build plan that should be challenged:
 

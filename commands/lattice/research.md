@@ -192,6 +192,36 @@ If your gap analysis found fewer than 5 gaps, you have not looked hard enough. G
 
 The goal is not to produce a document. The goal is to find every gap between current practice and what a scientist needs. If the field is mature and truly well-served, that should be surprising — document WHY it's well-served, because that's useful knowledge too.
 
+## Persist Gaps
+
+After writing the research document and before logging, persist all discovered gaps:
+
+### Research gaps → REGISTRY.md
+
+For each gap identified in Phase 2 (and Phase 2b uniformity assumptions) that represents an open question needing further investigation:
+
+1. **Read** `docs/_internal/research/REGISTRY.md`
+2. If the gap relates to an existing stream, append to that stream's `open-questions`
+3. If it's a new topic, add a new stream entry:
+   ```yaml
+   {gap-id}:
+     status: researching
+     conclusion: "{one-line description}"
+     touches-subsystems: [{if known from source mapping}]
+     open-questions: ["{the research question}"]
+     source: "research/{topic}"
+     doc: "docs/_internal/research/{topic}.md"
+   ```
+
+### Data gaps → TODO.md
+
+For each gap in Phase 2 that is a missing data problem (species coverage, validation data, HCD, study types):
+
+1. **Read** `docs/_internal/TODO.md`
+2. Append: `- [ ] **DATA-GAP: {title}** — {what's missing}. Impact: {consequence}. Source: research/{topic}. [Area: {relevant}]`
+
+**Research discovers gaps. If those gaps exist only in the research document, they're invisible to prioritization (`/lattice:prioritize`), sweep (`/ops:sweep`), and future sessions. The registry and TODO.md are the durable routing layer.**
+
 ## Decision Log
 
 After completing research, append to `.lattice/decisions.log`:
@@ -210,6 +240,13 @@ These patterns have caused real failures in past research runs. Check yourself a
 3. **Coverage claims without scope qualification.** "95% of FDA submissions" vs "95% of repeat-dose tox" are very different claims. Always qualify coverage percentages with the specific scope they apply to.
 
 4. **Frequency-only prioritization.** Usage frequency alone doesn't determine value. One failed IND submission = program death (years, hundreds of millions). When ranking by value, consider impact-per-instance alongside frequency.
+
+## Web Source Access
+
+When fetching external sources (Phase 1 source mapping, Phase 2 gap analysis), follow the **Web Source Access Protocol** in CLAUDE.md. Key points:
+- On 403/429/captcha: log to `.lattice/blocked-urls.log` and retry via Playwright MCP browser
+- Never silently skip a blocked URL — log it even if browser retry also fails
+- Note blocked sources in the output: `SOURCE BLOCKED: {url} — {what we expected to find}`
 
 ## Constraints
 

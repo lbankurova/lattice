@@ -7,6 +7,7 @@ Datagrok is a data analytics platform. The goal is for users to fully **grok** t
 1. **Every insight that can be auto-generated MUST be auto-generated.** The system computes what it can. Users review conclusions, not raw data. If a human is manually deriving something the engine could compute, that's a missing feature.
 2. **The primary audience is always scientists.** Toxicologists, pharmacologists, biostatisticians — the people who understand the data and need to act on it. Regulatory writers, program managers, and other consumers are secondary. Design for the scientist's daily analytical workflow first; export/reporting/compliance features serve the scientist's output needs, not the other way around.
 3. **Analytical use > regulatory use.** Scientists make Go/No-Go decisions at every program meeting. Regulatory submissions happen once per milestone. Build for the high-frequency analytical use case; regulatory deliverables are a view on the same data, not a separate system.
+4. **At small N, the value is honest uncertainty — not statistical power.** Non-rodent studies (dog, NHP, rabbit) typically have N=3-5 per group. At these sample sizes, LOO becomes bimodal, kappa estimates are unstable, R-squared is meaningless, and HCD comparisons have 25-35% false-alarm rates. These are not bugs to fix — they are the physics of small samples. The system's value at small N is communicating what CAN'T be concluded reliably, which no other tool does. Never design a feature that hides or papers over small-N limitations. Surface them honestly: show confidence qualifiers, flag fragile estimates, distinguish "no signal" from "insufficient power to detect." A scientist who knows their NOAEL is fragile makes better decisions than one who doesn't.
 
 This thesis informs research (`/lattice:research`), synthesis (`/lattice:synthesize`), and all architectural decisions. When evaluating a feature proposal, ask: "Does this help a scientist grok their data faster?" If not, it's either a supporting feature or out of scope.
 
@@ -77,6 +78,135 @@ cd <project>/frontend && npm test         # Vitest
 14. **No unprompted deferrals.** Never defer a feature, capability, or design element to a "later phase" or "future work" unless (a) there is a real technical dependency that blocks it now, or (b) the user has explicitly decided to defer it. "It would be simpler to do later" or "this can be added in a follow-up" are not valid reasons. If an agent believes deferral is warranted, it must state the specific blocking dependency — not effort — and get user approval before deferring.
 
 15. **Science preservation gate.** Code cleanup, refactoring, or "simplification" that changes scientific or analytical behavior is not a cleanup — it's a functional change. Before simplifying domain logic: (a) identify what analytical output would change for any input data; (b) if any output changes, flag it as SCIENCE-FLAG — do not proceed without scientist review; (c) distinguish accidental complexity (bad code — simplify) from essential complexity (domain rules encoded in code — protect). Lint exemptions on domain-critical code (`# noqa: C901`, `// eslint-disable complexity`) must carry a comment explaining why the complexity is load-bearing. Bare exemptions are defects. The `code-quality-guardrails.md` file lists domain-critical modules — consult it before refactoring.
+
+## Agent Disciplines
+
+16. **Check after editing, before moving on.** After completing a batch of related edits, run `/ops:check` (build + imports + engine-change detection) before starting the next task. Don't wait for `/lattice:review`.
+
+17. **Impact analysis before touching shared code.** Before modifying shared library files (`lib/`, `services/analysis/`, or any export consumed by 3+ files), run `/ops:impact` on the target first. Know what breaks before you edit.
+
+18. **Verify empirical claims against actual data — mandatory at three gates.** When a spec, plan, or acceptance criterion makes an empirical claim about data behavior (counts, ranges, cardinalities, "X drops to Y", "≤ N rows", "shows the fragile subjects", "matches the chart"), that claim MUST be verified against the generated data at three gates: (a) when the spec is written — synthesis must show data evidence for any numeric assertion; (b) during `/lattice:implement` Phase D (Phase acceptance) — each empirical criterion is run against the actual generated output and the observed value recorded in the audit before the criterion is marked PASS; (c) during `/lattice:review` Step 3 — the review independently re-runs the check as a fixture-style test and flags divergence. Tools: `/ops:explore-data`, a Python one-liner against the generated JSON, or a fixture-based unit test loaded from real generated output. **Mirror-pattern tests do NOT satisfy this rule** — they test code-vs-spec, not code-vs-reality. A mirror test will pass even when the spec's empirical claim is wrong about the actual data. Fixture tests that load real generated output ARE the satisfactory form. When answering "does the engine produce X?" or "what value does Y have?", run `/ops:explore-data` against the generated output. Don't infer from code — read the output.
+
+19. **Frontend UI gate (mandatory for all frontend work).** Read the project's `frontend-ui-gate.md` rule file before writing any UI code. Core principle: find the existing working pattern and copy it — never design from scratch when a reference exists. Every new chart, table, panel, or interaction must match an existing approved instance. Strip pass is mandatory after building.
+
+## Concurrent Sessions
+
+When multiple agents work in parallel terminals on the same repo:
+
+- **Code files** — agents work on different files, no conflict. Business as usual.
+- **Shared state files** (REGISTRY.md, TODO.md, ROADMAP.md, MANIFEST.md, decisions.log) — ALL agents modify these during gap persistence and commit. Concurrent writes cause overwrites.
+
+### Commit Lock
+
+Before committing, agents acquire `.lattice/commit.lock` (atomic mkdir). While held, no other agent can commit. The merge-shared-state script refreshes shared files from git HEAD (picking up other agents' commits) and re-applies local additions.
+
+```bash
+# Acquire (polls every 30s if held, 5min stale threshold, 10min timeout)
+bash scripts/acquire-lock.sh "my-topic" --poll
+
+# Refresh shared files from HEAD, merge local additions
+bash scripts/merge-shared-state.sh
+
+# ... stage and commit ...
+
+# Release
+bash scripts/release-lock.sh
+```
+
+**Rules:**
+- Lock is acquired at commit time only, not during normal execution. Agents write to shared files freely during their work.
+- Always release the lock after commit — even if the commit fails.
+- If you see `STALE LOCK` warnings, another agent crashed without releasing. The script auto-recovers after 5 minutes.
+- `/lattice:review` Step 7 handles locking automatically. Other skills that commit should follow the same pattern.
+
+### Topic WIP Lock
+
+Prevents two agents from working on the same topic concurrently. Each sub-cycle (research, blueprint, build) acquires a per-topic lock at entry and releases it on completion. The cycle dispatcher also checks the lock before dispatching.
+
+```bash
+# Acquire (fails immediately if held by another agent, 30min stale threshold)
+bash scripts/acquire-topic-lock.sh {topic} "research-cycle"
+
+# Heartbeat — touch after every checkpoint update to prevent stale detection
+touch .lattice/cycle-lock/{topic}/meta 2>/dev/null
+
+# Release
+bash scripts/release-topic-lock.sh {topic}
+```
+
+**Rules:**
+- Lock is acquired at cycle entry, released at cycle completion.
+- Same holder can re-acquire (re-entrant) — refreshes the timestamp.
+- After every `current_step` state update, touch the lock metadata to keep the heartbeat fresh.
+- Stale threshold is 30 minutes. If an agent crashes, the lock auto-recovers.
+- If the lock is held (exit code 1), the agent must STOP and inform the user — never proceed.
+- To manually release a stuck lock: `bash scripts/release-topic-lock.sh {topic}`
+
+### Task Deduplication
+
+The cycle dispatcher (`/lattice:cycle`) checks the decisions log for recent COMPLETED entries for the same topic+phase before dispatching. If a matching completion was logged within the last 2 hours, it refuses to start (unless `--force` is specified). This catches the "pasted the same command twice" scenario.
+
+### Revision-Checked State Mutations
+
+Every cycle-state YAML file has a `revision: N` field (integer, starts at 1). The protocol:
+1. Read the state file, note the `revision` value
+2. Do work for the step
+3. Before writing, re-read the file and check `revision` still matches
+4. If match: write with `revision: N+1`
+5. If mismatch: STOP — another agent modified the file
+
+This prevents lost updates when two agents hold valid context but one overwrites the other's checkpoint. Complementary to the topic lock (which prevents concurrent starts, while revision checks prevent concurrent writes).
+
+### Cycle Health Audit
+
+`/ops:sweep` Step 9 scans cycle-state files and lock dirs for anomalies:
+- Stale active cycles (no checkpoint progress in >24h)
+- Unlocked active cycles (phase is active but no lock held)
+- Orphaned locks (lock exists but no state file, or state says complete)
+- Missing revision fields (legacy files — auto-fixed)
+- Timestamp inconsistencies
+
+Orphaned and stale locks are auto-released during sweep.
+
+## Web Source Access Protocol
+
+Research skills (research, peer-review, distill) fetch external sources. Many academic and regulatory sites return 403/429/captcha errors for programmatic access. **Silently skipping blocked sources is a research gap — the source may contain the critical finding.**
+
+### Step 1: Attempt WebFetch/WebSearch
+
+Use the standard tools first. If the fetch succeeds, proceed normally.
+
+### Step 2: On 403/429/blocked — log and retry via browser
+
+If a URL returns 403, 429, captcha, or any access-denied response:
+
+1. **Log the URL** to `.lattice/blocked-urls.log` (append, TSV):
+   ```
+   {timestamp}	{skill}	{url}	{http status or error}	{topic}	{why needed — 1 line}
+   ```
+
+2. **Retry via Playwright MCP browser** if available:
+   ```
+   browser_navigate → url
+   browser_wait_for → networkidle or specific selector
+   browser_snapshot → extract text content
+   ```
+   Many sites serve content to real browsers but block programmatic fetches. The Playwright browser has a real Chrome user-agent and executes JavaScript.
+
+3. **If browser also fails** (site requires login, institutional access, or is genuinely down):
+   - Log the failure in `blocked-urls.log` with status `BROWSER-FAILED`
+   - Note in the research output: `SOURCE BLOCKED: {url} — {what we expected to find}. Needs manual access.`
+   - Continue research with other sources — don't let one blocked URL stall the entire research
+
+### Step 3: Periodic follow-up
+
+`/ops:sweep` checks `blocked-urls.log` for URLs that were never successfully accessed. These represent potential research gaps.
+
+### Rules
+
+- **Never silently skip a 403.** Every blocked URL must appear in the log. A source that was important enough to search for is important enough to record when it can't be reached.
+- **Browser retry is automatic, not optional.** If Playwright MCP is configured and the URL was blocked, retry via browser before moving on.
+- **Don't retry the same URL more than twice** (once WebFetch, once browser). After two failures, log and continue.
 
 ## Commit & Review
 

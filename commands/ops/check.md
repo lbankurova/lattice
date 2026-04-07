@@ -47,6 +47,16 @@ print('Core imports OK')
 "
 ```
 
+### 5. Visual smoke test (frontend changes only)
+
+If `git diff --name-only` includes frontend files (`.tsx`, `.ts` under `src/`, `.css`), and Playwright MCP is available:
+
+1. **`browser_navigate`** to the app URL (default `http://localhost:5173`)
+2. **`browser_console_messages`** — check for JavaScript errors
+3. **`browser_snapshot`** — verify the page rendered (not blank, no error boundary)
+
+If the dev server isn't running or Playwright MCP isn't configured, report: `Visual: SKIPPED — dev server not running` and continue. This check is best-effort during mid-implementation — the full visual verification happens in `/lattice:review` Step 3b.
+
 ## Output format
 
 ```
@@ -56,6 +66,7 @@ Build:    PASS / FAIL
 Python:   PASS / FAIL
 Imports:  PASS / FAIL
 Engine:   No engine files changed / ENGINE FILES MODIFIED — run /regen-validation
+Visual:   PASS / FAIL / SKIPPED — [reason]
 ```
 
 If everything passes, say: **"All clear. Continue working or run /lattice:review when ready to commit."**

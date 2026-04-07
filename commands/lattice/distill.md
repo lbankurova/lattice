@@ -400,9 +400,34 @@ Distill produces analysis that feeds into existing pipeline skills:
 | Audit results | `/lattice:research` | If audit reveals the research itself has gaps |
 | Grounded answer | Any skill or standalone | Inform decisions across the project |
 
+## Persist Gaps (all modes)
+
+Every distill mode can identify gaps — unanswered questions (default mode Step 3), missing validation (thesis Step 5), transfer gaps (adapt Step 4), stale/contradicting docs (audit Step 3). **Persist them before presenting results.**
+
+### Research gaps → REGISTRY.md
+
+For each gap that requires further investigation:
+1. **Read** `docs/_internal/research/REGISTRY.md`
+2. If the gap relates to an existing stream, append to that stream's `open-questions`
+3. If it's a new topic, add a new stream with `source: "distill/{mode}/{topic}"`
+
+### Data/doc gaps → TODO.md
+
+For each gap that is a missing data problem or a documentation staleness issue:
+1. **Read** `docs/_internal/TODO.md`
+2. Append with appropriate tag: `[Area: {relevant}]`
+
+**Mode-specific guidance:**
+- **Default:** "Notes gaps" (Step 3) — persist each noted gap
+- **Thesis:** "Gap Analysis" (Step 5) — persist each missing validation/comparison/theory item
+- **Adapt:** "Gap Analysis" (Step 4) — persist each gap with `source: "distill/adapt/{target}"`
+- **Audit:** All high/medium-severity issues → TODO.md entries (not optional — mandatory)
+
+Distill reasons across the corpus. Its gap discoveries are often the highest-quality signals because they come from cross-document analysis, not single-document review. Losing them is especially costly.
+
 ## Constraints
 
-1. **Corpus is the primary source.** Unlike `/lattice:research` (which goes external), distill reasons from internal accumulated knowledge. Reference external sources only when corpus files cite them — don't introduce new external claims.
+1. **Corpus is the primary source.** Unlike `/lattice:research` (which goes external), distill reasons from internal accumulated knowledge. Reference external sources only when corpus files cite them — don't introduce new external claims. When you do follow an external citation from the corpus, follow the **Web Source Access Protocol** in CLAUDE.md (log 403s, retry via browser).
 
 2. **Distinguish evidence tiers.** Always mark whether a claim comes from: decided research (strongest), peer-reviewed research (strong), unreviewed research (provisional), or inference across documents (your synthesis — flag explicitly).
 
@@ -415,3 +440,5 @@ Distill produces analysis that feeds into existing pipeline skills:
 6. **Intellectual honesty.** A thesis with INSUFFICIENT evidence is more valuable than one that overstates its case. An adaptation plan that says "this doesn't transfer" saves more time than one that forces a fit. State what the evidence actually supports.
 
 7. **Freshness check.** Before citing a research file's conclusions, check REGISTRY for its current status. A dormant or superseded stream's conclusions may no longer be the project's position. Note the status when citing.
+
+8. **Code claims require code evidence.** When distill asserts "the code does X" or "the code doesn't do Y" — in any mode — the claim MUST include a `file:line` reference from actually reading the code. Do not infer code behavior from documentation, type signatures, or reasoning about what code "should" do. Read the function. Cite the line. This is non-negotiable: a prior distill thesis fabricated a gap claiming enforcement was missing when the code clearly implemented it (GAP-208). Peer review caught the fabrication, but the correct fix is to prevent it. If you cannot verify a code claim by reading the file, state: "UNVERIFIED — inferred from [source], not confirmed in code."

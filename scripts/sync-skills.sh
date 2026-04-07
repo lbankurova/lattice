@@ -56,5 +56,20 @@ if [ -d "$FRAMEWORK_ROOT/agents" ]; then
     echo "  agents:  $count agents"
 fi
 
+# Sync scripts (lock, merge, validation ratchet, etc.)
+SCRIPTS_DIR="$TARGET/scripts"
+mkdir -p "$SCRIPTS_DIR"
+count=0
+for f in "$FRAMEWORK_ROOT"/scripts/*.sh; do
+    basename=$(basename "$f")
+    # Don't overwrite sync-skills.sh in target (it's framework-only)
+    if [ "$basename" = "sync-skills.sh" ]; then
+        continue
+    fi
+    cp "$f" "$SCRIPTS_DIR/"
+    count=$((count + 1))
+done
+echo "  scripts: $count scripts"
+
 echo ""
-echo "Synced to $TARGET/.claude/"
+echo "Synced to $TARGET"

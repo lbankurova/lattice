@@ -98,7 +98,21 @@ Check if the validation suite (ground truth studies) exercises this edge case:
 - If yes: note which study covers it
 - If no: consider whether a new assertion should be added to an existing study's reference card
 
-## Step 6: Log and report
+## Step 6: Persist systemic gaps
+
+If the pattern search (Step 3) found the same bug in 3+ subsystems, this is a **systemic gap** — a pattern family that the test suite and code review process failed to catch across the codebase.
+
+1. **Read `docs/_internal/TODO.md`** — append:
+   ```
+   - [ ] **PATTERN-GAP: {family} in {N} subsystems** — {description of the systemic pattern}. Found via bug-stress on S{XX}. Instances: {file:line list}. [Area: {relevant}]
+   ```
+
+2. If the pattern suggests a deeper research question (e.g., "species-variance bugs in 5 modules suggest species-specific thresholds need systematic review"):
+   - **Read `docs/_internal/research/REGISTRY.md`** — add or update a stream with `source: "bug-stress/{pattern-family}"`
+
+Bug-stress finds systemic weaknesses. Persisting them ensures `/lattice:prioritize` and `/ops:sweep` can track and route them.
+
+## Step 7: Log and report
 
 Append to `.lattice/decisions.log`:
 ```

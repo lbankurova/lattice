@@ -23,7 +23,7 @@ The review MUST produce ALL of these named sections in its output. A missing sec
 2. **ARCHITECT REVIEW** — complexity and science preservation check (separate agent)
 3. **DECISION AUDIT** — merit-based evaluation of every architectural/method decision
 4. **REQUIREMENT TRACE** — four-dimension check (WHAT/WHEN/UNLESS/HOW) — adapted to context
-5. **MECHANICAL CHECKS** — build, lint, tests, code quality
+5. **MECHANICAL CHECKS** — build, lint, tests, code quality, VISUAL check (Playwright), and DATA check (fixture against generated JSON for any empirical claim in the spec). Both VISUAL and DATA sub-checks must appear for frontend work.
 6. **DOCS UPDATE** — MANIFEST, specs, TODO
 7. **VERDICT** — pass/fail with evidence
 
@@ -71,36 +71,24 @@ Include the architect's report in the ARCHITECT REVIEW output section. If the ar
 
 ## Step 1: Decision Audit (ALL work — produces DECISION AUDIT section)
 
-For every architectural or method decision in the changed code, evaluate:
+**Launch a separate agent** with the decision-auditor instructions (`agents/decision-auditor.md`).
 
-| Decision | Merit Rationale | Alternatives Considered | Deferrals |
-|----------|----------------|------------------------|-----------|
-| [what was decided] | [why this approach is scientifically/product-correct] | [what else was possible] | [anything deferred — with blocking reason or user approval] |
+The decision auditor is independent — it evaluates decisions without implementation context, preventing the confirmation bias of self-assessment. This is the enforcement mechanism for rules 13 (merit-driven) and 14 (no unprompted deferrals).
 
-**Check against rules 13-14:**
-- **Rule 13 (merit-driven):** Was every decision evaluated on scientific correctness and product value? If an easier-but-less-correct approach was chosen, flag it as FAIL.
-- **Rule 14 (no unprompted deferrals):** Was anything deferred to "later" or "future work"? If yes, apply the **deferral litmus test:**
+Launch with:
+- **Prompt:** Full decision-auditor agent instructions
+- **Input:** (1) Spec path (if spec work), (2) changed file list (`git diff --name-only`), (3) full diff, (4) implement audit table (if available from `/lattice:implement`)
+- **No implementation context.** Do not include design rationale, conversation history, or decision notes.
 
-### Deferral Litmus Test
+| Auditor verdict | Review action |
+|-----------------|---------------|
+| **PASS** | Include report in DECISION AUDIT section, continue |
+| **FAIL: EFFORT-BIASED** | **STOP** — present flagged decisions to user. Fix before continuing. |
+| **FAIL: UNPROMPTED-DEFERRAL** | **STOP** — present deferrals to user. Either do the work now or get explicit approval to defer. |
+| **FAIL: SILENT-DROP** | **STOP** — present dropped requirements. Either implement or get explicit approval to defer. |
+| **INSUFFICIENT-RATIONALE** | Present to user for clarification. If user provides rationale, continue. If not, treat as EFFORT-BIASED. |
 
-For every deferral, ask: **"Can this be done now, in this session, with no external blocker?"**
-
-| Reason given | Valid deferral? | Why |
-|-------------|----------------|-----|
-| "Data exists but isn't wired through yet" | **NO** — wiring is just work, not a blocker | Do the wiring now |
-| "The function exists but isn't called from here" | **NO** — adding a call is just work | Add the call now |
-| "Would need a small refactor to support this" | **NO** — a small refactor is just work | Do it now |
-| "Needs data from an API that doesn't exist yet" | **YES** — external dependency | Document what's needed |
-| "Requires user decision on which approach" | **YES** — blocked on human input | Escalate to user |
-| "Depends on another module shipping first" | **MAYBE** — is it in this PR? | If yes, not a deferral. If no, check why not. |
-
-The pattern to catch: **"the capability exists in the codebase but isn't connected to this feature."** That's wiring work, not a dependency. If the data is in the pipeline, the function is in the codebase, and the only missing piece is threading it through — that's a task for this session, not a deferral.
-
-**For bug fixes:** The "decision" is the root cause hypothesis. Was it formed by reading the full module (rule 10), or by guessing at the error line?
-
-**For spikes:** The "decisions" are the approach bullets from rule 11's pre-write protocol. Were they stated? Do they hold up?
-
-This step catches: effort-biased shortcuts, silent scope reductions, and "we'll do it properly later" patterns.
+Include the auditor's full report in the DECISION AUDIT output section.
 
 ---
 
@@ -223,6 +211,124 @@ If the regenerated coverage-facts.md shows new capabilities (new domains, specie
 
 ---
 
+## Step 3b: Visual Verification + Data Verification (frontend changes — produces VISUAL CHECK + DATA CHECK in MECHANICAL CHECKS)
+
+**Trigger:** Skip this step if the changeset contains NO frontend files (`.tsx`, `.ts` under `src/`, `.css`). Otherwise BOTH the visual verification and the data verification are **mandatory** — do not defer to the user.
+
+The two checks answer different questions:
+- **Visual verification (Playwright):** "did the page render without errors?" — catches crashes, blank states, missing DOM.
+- **Data verification (fixture against generated JSON):** "does the data say the page SHOULD have content?" — catches spec claims that don't match reality.
+
+Visual alone is not sufficient. A chart that renders an empty SVG passes the visual check but fails the user. Data verification is what catches that.
+
+Use the Playwright MCP tools for visual and Python/fixture tests for data.
+
+### Prerequisites
+
+- Frontend dev server running (default: `http://localhost:5173`)
+- Backend running (default: `http://localhost:8000`) if views need data
+- Playwright MCP server configured in `.mcp.json`
+- Generated JSON exists at `backend/generated/{study}/unified_findings.json` for at least one representative study
+
+If prerequisites aren't met, attempt to detect them:
+1. `browser_navigate` to the app URL — if it fails on first attempt, retry ONCE. If second attempt fails, state: `VISUAL: SKIPPED — Playwright unreachable after retry` and fall back to data verification. Do NOT mark the review blocked on first failure.
+2. If only the backend is down, views may show loading/error states — note this in the output, don't count it as a UI failure.
+3. Data verification requires generated JSON only — it can run without the dev server or Playwright. If Playwright fails, data verification is still mandatory.
+
+### Step 1: Map changes to views
+
+Read the changed frontend files and determine which view(s) / route(s) they affect. Examples:
+- `FindingsView.tsx` changed → navigate to the Findings view
+- `DoseResponseChartPanel.tsx` changed → navigate to a view that renders it
+- `severity-colors.ts` changed → check multiple views (shared utility)
+- `lib/` utility changed → check the primary consumer
+
+If you can't determine the route, navigate to the app root and verify it loads.
+
+### Step 2: Navigate and screenshot
+
+For each affected view:
+
+1. **`browser_navigate`** to the view URL
+2. **`browser_console_messages`** — check for JavaScript errors. Errors originating from changed files = FAIL.
+3. **`browser_take_screenshot`** — save for user review. State the screenshot path in output.
+4. **`browser_snapshot`** (accessibility tree) — verify:
+   - The view rendered (not blank, not stuck on loading spinner, not showing error boundary)
+   - Key data elements are present (tables have rows, charts have content, rails have items)
+   - No `undefined`, `NaN`, `[object Object]` visible in data displays
+
+### Step 3: Interaction smoke test
+
+If the changeset modifies **click handlers, hover behavior, selection logic, or toggle/filter state**:
+
+1. Identify the primary interaction the change affects
+2. Execute it via `browser_click` or `browser_hover`
+3. Take a second screenshot or snapshot — verify the expected response occurred (panel updated, selection changed, tooltip appeared, series toggled)
+
+Skip this step if the change is purely presentational (styling, labels, layout).
+
+### Step 4: Multi-view check (shared code only)
+
+If the changed file is consumed by 3+ views (utilities in `lib/`, shared components):
+- Navigate to at least 2 different views that use the changed code
+- Verify both render correctly
+
+### Step 5: Data verification (mandatory for spec work with empirical claims — CLAUDE.md rule 18)
+
+For every numeric/cardinality claim in the spec's acceptance criteria, re-run the check against the actual generated JSON. This is INDEPENDENT of visual verification — Playwright tells you "did it render", data verification tells you "should it have content at all". Run both.
+
+**When to run this:**
+- The spec contains any claim of the form "count is X", "≤ N rows", "shows the fragile subjects", "matches the chart", or similar cardinality/content assertion.
+- Any time Playwright is unavailable — data verification is the mandatory fallback, not SKIPPED.
+- Any review of frontend code that consumes generated output (findings, analytics, scoring).
+
+**How to run it:**
+1. Identify every empirical claim in the spec. Copy the exact wording.
+2. For each claim, load the relevant `backend/generated/{study}/unified_findings.json` (or other generated file) and compute the actual value.
+3. Compare observed vs expected. Cite both.
+4. If the observed value doesn't match, flag as `DATA: FAIL — spec says X, observed Y` and block the commit until resolved.
+
+**Forms of data verification that satisfy this step:**
+
+- A fixture-based test that loads real generated output (preferred — runs in CI going forward). See `frontend/tests/loo-sensitivity-pane-logic.test.ts` "PointCross BW data fixture" describe block for the pattern.
+- A Python one-liner recorded in the review output: `backend/venv/Scripts/python.exe -c "import json; ..."` with the actual printed value shown.
+- `/ops:explore-data` with the specific question from the spec.
+
+**Forms that do NOT satisfy this step:**
+
+- Mirror-pattern unit tests (they test code-vs-spec, not code-vs-reality).
+- "I read the code and it looks right" — the bug that motivated this rule shipped with correct-looking code.
+- "The build passes" — build catches type/syntax errors, not empirical mismatches.
+- "Playwright rendered the page without console errors" — a blank chart has no console errors.
+
+### Output
+
+Append to the MECHANICAL CHECKS section:
+
+```
+VISUAL: PASS — [view name(s)] render correctly, no console errors, [N] interactions verified
+VISUAL: FAIL — [specific issue: console error in X / blank render / broken interaction]
+VISUAL: SKIPPED — [reason: no frontend changes / Playwright unreachable after retry]
+
+DATA: PASS — [N] empirical claims verified against generated JSON
+  - "{exact spec quote}" → observed {value}, cited {file:line or command}
+  - ...
+DATA: FAIL — [spec claim X] says {expected}, observed {actual} in {file}
+DATA: SKIPPED — [reason: no empirical claims in spec / no generated JSON for verification]
+```
+
+Include screenshot path(s) so the user can inspect the visual. Include the cited JSON path and observed values for data verification. A VISUAL FAIL does not auto-block the review. A DATA FAIL DOES auto-block — empirical mismatch with the spec's claim is a scientific correctness issue, not a cosmetic one.
+
+### Anti-patterns
+
+**Do not treat "Visual verification required by user" as an acceptable output when Playwright MCP is available.** That phrasing is a legacy escape hatch from before agents had browser access. If the MCP tools are available and the dev server is running, USE THEM. Only fall back to user verification when the tools genuinely cannot be used (server down, MCP not configured). On first failure, retry ONCE before giving up.
+
+**Do not mark VISUAL: SKIPPED without also running data verification.** Playwright unreachable is not a reason to skip everything. Data verification requires only the generated JSON and a Python interpreter, both of which are always available in this environment.
+
+**Do not substitute mirror tests for data verification.** Mirror tests pass when code matches spec text; data verification catches the spec-vs-reality gap. They are complementary, not alternatives. The loo-display-scoping cycle (2026-04-07) had 20 passing mirror tests AND shipped an empty chart because nobody ran the spec's count claim against real data.
+
+---
+
 ## Step 4: Docs & MANIFEST update (all work)
 
 1. Read `docs/_internal/MANIFEST.md`
@@ -235,7 +341,9 @@ If the regenerated coverage-facts.md shows new capabilities (new domains, specie
 
 ---
 
-## Step 5: Gap resolution (spec work only)
+## Step 5: Gap resolution and persistence (all work)
+
+### 5a: Spec gaps (spec work only)
 
 For each FAIL from Step 2:
 - Create a todo item with: spec section reference, which dimension failed, exact spec quote, code's actual behavior, file:line reference
@@ -244,19 +352,52 @@ For each FAIL from Step 2:
 
 Present the complete requirement trace to the user. This is the evidence table, not a summary. The user reviews and confirms or challenges each verdict.
 
+### 5b: Persist all discovered gaps (all work)
+
+During the review you may have identified research gaps, data gaps, or implementation gaps — from the architect review, the requirement trace, the reuse audit, or the visual verification. **Persist them now.**
+
+1. **Read `docs/_internal/research/REGISTRY.md`** — for each research gap (needs investigation before deciding), add a new stream or append to an existing stream's `open-questions`. Set `source: "review/{commit-or-topic}"`.
+2. **Read `docs/_internal/TODO.md`** — for each data gap or implementation gap, append with appropriate `[Area:]` tag.
+3. **If the implementation phase already logged gaps (implement.md Step E)**, verify they're still in REGISTRY.md and TODO.md — don't duplicate, but confirm they weren't lost.
+
+**Include a gap summary in the review output:**
+
+```
+GAPS PERSISTED:
+- [N] research gaps → REGISTRY.md
+- [N] data/impl gaps → TODO.md
+- [N] gaps already logged by implementation (verified)
+```
+
+If no gaps were found, state: `GAPS: None identified.` This is informational — zero gaps is a valid outcome, not a missing section.
+
 ---
 
 ## Step 7: Commit gate (all work)
 
 When ALL checks pass:
 1. Tell the user: **"All checks pass. Ready to commit. Here's what changed: [file list + summary]. Shall I commit?"**
-2. If user approves, create the commit
-3. After committing, run `git status` to verify
-4. Clear enforcement markers: `rm -f .lattice/engine-changed .lattice/validation-compared 2>/dev/null`
+2. If user approves, **acquire the commit lock and merge shared state:**
+   ```bash
+   bash scripts/acquire-lock.sh "{topic-or-branch}" --poll
+   bash scripts/merge-shared-state.sh
+   ```
+   The lock ensures only one agent commits at a time. `merge-shared-state.sh` refreshes shared files (REGISTRY.md, TODO.md, MANIFEST.md, decisions.log, ROADMAP.md) from git HEAD — incorporating changes committed by other agents while this review was running — then re-applies your local additions on top.
+   
+   If `merge-shared-state.sh` reports conflicts (rare), inspect the conflict markers and resolve them before staging.
+
+3. Stage files, create the commit
+4. After committing, **release the lock and clean up:**
+   ```bash
+   bash scripts/release-lock.sh
+   rm -f .lattice/engine-changed .lattice/validation-compared 2>/dev/null
+   ```
 5. Append to `.lattice/decisions.log`:
    ```
    {timestamp}	review	{PASS|FAIL}	{commit hash}	files:{count} deviations:{count} deferred:{count}	{one-line summary}
    ```
+
+**If the commit fails for any reason, release the lock immediately** (`bash scripts/release-lock.sh`). A held lock blocks all other agents from committing. Never leave a lock held after an error.
 
 ---
 
@@ -275,15 +416,15 @@ Update `.claude/roles/review-notes.md` with:
 
 ## Anti-patterns
 
-1. **Skipping the Decision Audit.** "No architectural decisions were made" is almost never true. A bug fix chose a root cause hypothesis. A spike chose an approach. A feature chose a data flow. If you wrote code, you made decisions. Audit them.
+1. **Skipping the Decision Audit.** "No architectural decisions were made" is almost never true. A bug fix chose a root cause hypothesis. A spike chose an approach. A feature chose a data flow. If you wrote code, you made decisions. The decision auditor agent evaluates them independently.
 2. **Skipping the four-dimension trace for non-spec work.** "There's no spec to trace against" is not an excuse. Trace against the code's own intent — read each function, verify it does what it claims, check edge cases. The four dimensions (WHAT/WHEN/UNLESS/HOW) apply to all code.
 3. **Reviewing your own code.** The implementer has confirmation bias. Step 1b requires an independent agent for spec work.
 4. **Writing PASS from memory.** Re-read both the spec and the code. Every time.
 5. **Paraphrasing the spec.** Copy the exact words.
 6. **Checking WHAT but not HOW.** Both must pass.
-7. **Treating build+tests as behavioral verification.** They don't tell you the chart is oriented correctly.
+7. **Treating build+tests as behavioral verification.** They don't tell you the chart is oriented correctly. When Playwright MCP is available, use it — Step 3b exists for this reason.
 8. **Feeding implementation context to the review agent.** Spec path + changed file list only.
-9. **Writing "N/A" on the Decision Audit.** Rules 13-14 always apply. Every change has decisions. Find them.
+9. **Self-assessing the Decision Audit.** The decision auditor runs as a separate agent specifically to prevent confirmation bias. Never evaluate your own decisions — launch the agent.
 10. **Producing a review without all 7 mandatory output sections.** An incomplete review is not a review.
 11. **Accepting "data exists but isn't wired" as a deferral.** If the data is in the pipeline and the function is in the codebase, connecting them is work — not a dependency. Apply the deferral litmus test.
 12. **Skipping the architect review for spikes.** Spikes are the MOST likely to introduce accidental complexity because they skip spec ceremony. The architect check is mandatory.

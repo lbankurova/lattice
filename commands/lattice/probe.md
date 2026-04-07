@@ -132,6 +132,31 @@ This skill is called:
 - **By `/ops:impact`** as the analytical engine (ops:impact is the lightweight entry point, probe is the full analysis)
 - **Before commits** via `--safety` mode
 
+## Persist Findings
+
+Probe findings are cross-system implications. If they only exist in the probe report (which is inline output), they vanish after the session. **Persist non-SAFE findings before reporting.**
+
+### BREAKS and SCIENCE-FLAG → REGISTRY.md + TODO.md
+
+For each BREAKS or SCIENCE-FLAG finding:
+
+1. **Read** `docs/_internal/research/REGISTRY.md`
+   - If the broken subsystem has an active research stream, append the implication to its `open-questions`
+   - If not, create a new stream with `status: researching`, `source: "probe/{input-description}"`
+2. **Read** `docs/_internal/TODO.md`
+   - Append: `- [ ] **PROBE: {subsystem} {BREAKS|SCIENCE-FLAG}** — {what breaks and why}. Fix: {suggested fix}. Source: probe on {input}. [Area: {relevant}]`
+
+### STALE → TODO.md
+
+For each STALE finding:
+- Append to `docs/_internal/TODO.md`: `- [ ] **MANIFEST-STALE: {connection}** — {what's stale}. [Area: Architecture]`
+
+### PROPAGATES → informational only
+
+PROPAGATES findings are handled correctly by the consumer — no persistence needed. They appear in the report for context.
+
+Probe is called from research-cycle (Step 7), blueprint-cycle (Step 3), `/ops:impact`, and ad-hoc. In ALL contexts, findings must be persisted. The caller may be autonomous and may not surface findings to the user.
+
 ## Rules
 
 - **Read the manifest, don't guess.** The adjacency graph is the source of truth for what connects to what. Don't infer connections from file names or intuition.

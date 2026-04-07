@@ -6,13 +6,23 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'staged=$(git diff --cached --name-only 2>/dev/null); if echo \"$staged\" | grep -qE \"PIPELINE_MODULES_PATTERN\"; then if ! echo \"$staged\" | grep -qE \"\\.(test|spec)\\.\"; then echo \"PIPELINE MODULE CHANGED WITHOUT TESTS. Staged pipeline files:\"; echo \"$staged\" | grep -E \"PIPELINE_MODULES_PATTERN\"; echo \"\"; echo \"Commit checklist requires: write the failing test FIRST for these modules.\"; echo \"Stage a test file, or use git commit with --no-verify if you have a reason.\"; exit 1; fi; fi'",
-            "_comment": "Replace PIPELINE_MODULES_PATTERN with a regex matching your project's data pipeline modules. Example for SENDEX: (classification|findings_|derive-summaries|cross-domain-syndromes|syndrome-interpretation|findings-rail-engine|recovery-classification|finding-nature|protective-signal|lab-clinical-catalog)"
+            "command": "bash -c 'LOCK_DIR=\".lattice/commit.lock\"; if [ -d \"$LOCK_DIR\" ]; then LOCK_META=\"\"; if [ -f \"$LOCK_DIR/meta\" ]; then LOCK_META=$(cat \"$LOCK_DIR/meta\"); fi; LOCK_AGE=0; if [ -f \"$LOCK_DIR/meta\" ]; then LOCK_TIME=$(stat -c %Y \"$LOCK_DIR/meta\" 2>/dev/null || stat -f %m \"$LOCK_DIR/meta\" 2>/dev/null || echo 0); NOW=$(date +%s); LOCK_AGE=$((NOW - LOCK_TIME)); fi; if [ \"$LOCK_AGE\" -gt 300 ]; then echo \"WARNING: Stale commit lock (${LOCK_AGE}s old). Forcing removal.\"; rm -rf \"$LOCK_DIR\"; else echo \"BLOCKED: Another agent is committing. Lock held by:\"; echo \"$LOCK_META\"; echo \"\"; echo \"Wait for the lock to be released, or run: bash scripts/acquire-lock.sh your-topic --poll\"; echo \"Lock age: ${LOCK_AGE}s (auto-expires at 300s)\"; exit 1; fi; fi'",
+            "_comment": "Commit lock. BLOCKS if another agent holds .lattice/commit.lock. Auto-expires stale locks >5min."
           },
           {
             "type": "command",
-            "command": "bash -c 'REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); if [ -f \"$REPO_ROOT/.lattice/engine-changed\" ]; then if [ ! -f \"$REPO_ROOT/.lattice/validation-compared\" ]; then echo \"ENGINE FILES WERE MODIFIED but validation ratchet was not run.\"; echo \"\"; echo \"Run: bash scripts/validation-ratchet.sh auto\"; echo \"Or:  bash scripts/validation-ratchet.sh compare  (if you already regenerated)\"; echo \"\"; echo \"This ensures analytical behavior changes are detected and documented.\"; echo \"If validation degrades, the ratchet will tell you what changed and why.\"; exit 1; fi; fi'",
-            "_comment": "Enforce validation ratchet when engine files changed. The .lattice/engine-changed marker is set by the PostToolUse engine-change hook. The .lattice/validation-compared marker is set by validation-ratchet.sh compare. Both are cleared after commit."
+            "command": "bash -c 'staged=$(git diff --cached --name-only 2>/dev/null); changed=$(git diff --name-only 2>/dev/null); all=\"$staged $changed\"; HAS_RESEARCH=false; if echo \"$all\" | grep -qE \"(research/[^/]+\\.md|incoming/.*synthesis|peer-reviews/)\"; then HAS_RESEARCH=true; fi; if [ \"$HAS_RESEARCH\" = true ]; then HAS_GAPS=false; if echo \"$staged\" | grep -qE \"(REGISTRY\\.md|TODO\\.md)\"; then HAS_GAPS=true; fi; if [ \"$HAS_GAPS\" = false ]; then echo \"WARNING: Research/synthesis/review files changed but REGISTRY.md and TODO.md are not staged.\"; echo \"\"; echo \"Did you persist discovered gaps? Every skill that discovers gaps must write them to:\"; echo \"  - docs/_internal/research/REGISTRY.md (research gaps)\"; echo \"  - docs/_internal/TODO.md (data/implementation gaps)\"; echo \"\"; echo \"If no gaps were found, this is OK -- proceed with the commit.\"; fi; fi'",
+            "_comment": "Gap persistence reminder. WARNS (non-blocking) when research/synthesis files changed but gap files not staged."
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'staged=$(git diff --cached --name-only 2>/dev/null); if echo \"$staged\" | grep -qE \"PIPELINE_MODULES_PATTERN\"; then if ! echo \"$staged\" | grep -qE \"\\.(test|spec)\\.\"; then echo \"PIPELINE MODULE CHANGED WITHOUT TESTS. Staged pipeline files:\"; echo \"$staged\" | grep -E \"PIPELINE_MODULES_PATTERN\"; echo \"\"; echo \"Commit checklist requires: write the failing test FIRST for these modules.\"; echo \"Stage a test file, or use git commit with --no-verify if you have a reason.\"; exit 1; fi; fi'",
+            "_comment": "Pipeline test-first. BLOCKS if pipeline modules staged without test files. Replace PIPELINE_MODULES_PATTERN."
+          },
+          {
+            "type": "command",
+            "command": "bash -c 'REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); if [ -f \"$REPO_ROOT/.lattice/engine-changed\" ]; then if [ ! -f \"$REPO_ROOT/.lattice/validation-compared\" ]; then echo \"ENGINE FILES WERE MODIFIED but validation ratchet was not run.\"; echo \"\"; echo \"Run: bash scripts/validation-ratchet.sh auto\"; echo \"\"; echo \"This ensures analytical behavior changes are detected and documented.\"; exit 1; fi; fi'",
+            "_comment": "Validation ratchet. BLOCKS if engine files changed without running ratchet."
           }
         ]
       }
@@ -24,7 +34,7 @@
           {
             "type": "command",
             "command": "bash -c 'REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); if [ -n \"$REPO_ROOT\" ] && [ -f \"$REPO_ROOT/scripts/context-meter.sh\" ]; then bash \"$REPO_ROOT/scripts/context-meter.sh\"; fi'",
-            "_comment": "Context pressure meter. Tracks cumulative file reads per session. Warns at 80K tokens (HIGH) and 150K tokens (CRITICAL). Reset .lattice/session-context to 0 at session start."
+            "_comment": "Context pressure meter. Advisory."
           }
         ]
       },
@@ -33,17 +43,18 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash -c 'if echo \"$CLAUDE_TOOL_INPUT\" | grep -q \"Co-Authored-By\"; then echo \"BLOCKED: CLAUDE.md rule 5 -- never add Claude as co-author.\"; exit 1; fi'"
+            "command": "bash -c 'if echo \"$CLAUDE_TOOL_INPUT\" | grep -q \"Co-Authored-By\"; then echo \"BLOCKED: CLAUDE.md rule 5 -- never add Claude as co-author.\"; exit 1; fi'",
+            "_comment": "Co-author block. BLOCKS."
           },
           {
             "type": "command",
             "command": "bash -c 'FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | grep -oP '\"file_path\"\\s*:\\s*\"\\K[^\"]+' 2>/dev/null || echo \"$CLAUDE_FILE_PATH\" 2>/dev/null); if [ -n \"$FILE\" ] && [ -f \"$FILE\" ]; then REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); if [ -n \"$REPO_ROOT\" ] && [ -f \"$REPO_ROOT/scripts/complexity-check.sh\" ]; then bash \"$REPO_ROOT/scripts/complexity-check.sh\" \"$FILE\"; fi; fi'",
-            "_comment": "Post-edit complexity spot-check. Advisory warnings only."
+            "_comment": "Complexity spot-check. Advisory."
           },
           {
             "type": "command",
-            "command": "bash -c 'FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | grep -oP '\"file_path\"\\s*:\\s*\"\\K[^\"]+' 2>/dev/null || true); if echo \"$FILE\" | grep -qE \"ENGINE_FILES_PATTERN\"; then REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); mkdir -p \"$REPO_ROOT/.lattice\"; touch \"$REPO_ROOT/.lattice/engine-changed\"; rm -f \"$REPO_ROOT/.lattice/validation-compared\" 2>/dev/null; echo \"ENGINE FILE MODIFIED: $(basename $FILE)\"; echo \"Validation ratchet will be required before commit.\"; echo \"Run: bash scripts/validation-ratchet.sh auto\"; fi'",
-            "_comment": "Engine change detection — sets marker that triggers pre-commit validation gate. Replace ENGINE_FILES_PATTERN with your project's engine file regex. Advisory message but the PreToolUse commit hook is the enforcer."
+            "command": "bash -c 'FILE=$(echo \"$CLAUDE_TOOL_INPUT\" | grep -oP '\"file_path\"\\s*:\\s*\"\\K[^\"]+' 2>/dev/null || true); if echo \"$FILE\" | grep -qE \"ENGINE_FILES_PATTERN\"; then REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null); mkdir -p \"$REPO_ROOT/.lattice\"; touch \"$REPO_ROOT/.lattice/engine-changed\"; rm -f \"$REPO_ROOT/.lattice/validation-compared\" 2>/dev/null; echo \"ENGINE FILE MODIFIED: $(basename $FILE)\"; echo \"Validation ratchet will be required before commit.\"; fi'",
+            "_comment": "Engine change detection. Sets marker consumed by pre-commit hook. Replace ENGINE_FILES_PATTERN."
           }
         ]
       }

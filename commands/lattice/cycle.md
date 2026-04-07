@@ -17,6 +17,34 @@ You are the **cycle dispatcher**. You determine which phase a topic is in and ru
 
 ## Dispatch Logic
 
+### 0. Deduplication + Topic Lock
+
+**Step 0a: Check for recent completion.** Before doing anything, scan the decisions log for this topic:
+
+```bash
+grep -P "COMPLETED\t{topic}" .lattice/decisions.log | tail -5
+```
+
+If there's a COMPLETED entry for the **same phase** that would be dispatched (e.g., `build-cycle COMPLETED {topic}`), and it was logged within the last 2 hours, **STOP and warn**:
+
+> "Topic `{topic}` was already completed by {skill} at {timestamp}. Are you sure you want to re-run? If yes, re-invoke with `--force`."
+
+This catches the "pasted the same command twice" scenario — the most common cause of duplicate work.
+
+**Step 0b: Acquire topic lock.** If dedup passes (or `--force` was specified):
+
+```bash
+bash scripts/acquire-topic-lock.sh {topic} "cycle"
+```
+
+If the lock is held by another agent (exit code 1), **STOP immediately**:
+
+> "Topic `{topic}` is currently being worked on by another agent."
+> [show lock holder info from output]
+> "Wait for the other agent to finish, or force-release with: `bash scripts/release-topic-lock.sh {topic}`"
+
+If the lock was acquired (exit 0), proceed. The lock will be released when the sub-cycle completes.
+
 ### 1. Check state file
 
 Read `.lattice/cycle-state/{topic}.yaml`:
@@ -45,11 +73,11 @@ Read `.lattice/cycle-state/{topic}.yaml`:
 
 When a sub-cycle completes, present the next phase boundary:
 
-- **Research complete →** "Research validated. Start blueprinting? (`/lattice:blueprint-cycle {topic}`)"
-- **Blueprint complete →** "Build plan validated. Ready to build? (`/lattice:build-cycle {topic}`)"
-- **Build complete →** "Done."
+- **Research complete →** "Research validated. Start blueprint? (`/lattice:blueprint-cycle {topic}`)"
+- **Blueprint complete →** "Blueprint validated. Ready to build? (`/lattice:build-cycle {topic}`)"
+- **Build complete →** "Done." Release topic lock: `bash scripts/release-topic-lock.sh {topic}`
 
-Phase transitions are explicit boundaries — ask before crossing. The user may want to review, adjust scope, or pause between phases.
+Phase transitions are explicit boundaries — ask before crossing. The user may want to review, adjust scope, or pause between phases. The topic lock is held across phase transitions within the same conversation.
 
 ## Usage
 

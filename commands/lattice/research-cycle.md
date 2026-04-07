@@ -31,6 +31,28 @@ Everything else proceeds automatically:
 
 ---
 
+## Topic Lock
+
+**Acquire the WIP lock before doing any work:**
+
+```bash
+bash scripts/acquire-topic-lock.sh {topic} "research-cycle"
+```
+
+If exit code 1 (lock held by another agent), **STOP immediately** — show the lock holder info and tell the user. Do not proceed.
+
+**Release the lock** when the research phase completes (end of Step 7b):
+```bash
+bash scripts/release-topic-lock.sh {topic}
+```
+
+**Heartbeat:** After every state file update (`current_step` change), refresh the lock to prevent stale detection:
+```bash
+touch .lattice/cycle-lock/{topic}/meta 2>/dev/null
+```
+
+---
+
 ## State & Context
 
 **State file:** `.lattice/cycle-state/{topic}.yaml` — create on first run, update after every step.
@@ -40,9 +62,19 @@ topic: {topic}
 started: {ISO timestamp}
 phase: research
 current_step: research.1
+revision: 1
 completed: {}
 checkpoints: {}
 ```
+
+**Revision-checked writes.** Every state file has a `revision: N` field (integer, starts at 1). The protocol:
+1. **Read** the state file, note the `revision` value (e.g., `revision: 3`)
+2. **Do your work** for the step
+3. **Before writing**, re-read the state file and check that `revision` still matches what you read in step 1
+4. **If it matches**, write the update with `revision: 4` (increment by 1)
+5. **If it doesn't match**, another agent modified the file — **STOP**, report the conflict: "State file modified by another agent (expected revision {N}, found {M}). Aborting to prevent data loss."
+
+On **new state file creation**, set `revision: 1`. Every write increments unconditionally.
 
 **Context discipline — disk is storage, context is RAM.** Before EVERY step:
 1. Re-read the state file and decisions log for this topic
@@ -192,14 +224,38 @@ Run `/lattice:probe` on the validated research findings. Input: research doc pat
 | Any SCIENCE-FLAG | **STOP** — present to user before proceeding |
 | Any STALE | Note for manifest update, non-blocking |
 
-Update state: `phase: research-complete, current_step: blueprint.0`.
+Update state: `phase: research-complete, current_step: build.0`.
 
 ---
+
+### Step 7b: Verify Gap Persistence
+
+Before declaring research complete, verify all gaps from the cycle are persisted:
+
+1. **Read `docs/_internal/research/REGISTRY.md`** — confirm gaps from:
+   - Research (Phase 2 gap analysis, Phase 2b uniformity assumptions)
+   - Peer review R1 and R2 (CONDITIONAL/FLAWED findings implying gaps)
+   - Distill audit (if contradictions found in Step 6)
+   - Probe (BREAKS/SCIENCE-FLAG findings from Step 7)
+   
+   If any gap was mentioned in research/review output but has no REGISTRY entry, write it now.
+
+2. **Read `docs/_internal/TODO.md`** — confirm data gaps from research and probe STALE findings are logged.
+
+**Gaps discovered during research are the INPUTS to blueprint-cycle prioritization. If they're not in REGISTRY.md and TODO.md, the build plan will be built without them.**
+
+Update state: `current_step: research.complete`.
+
+**Release the topic lock:**
+```bash
+bash scripts/release-topic-lock.sh {topic}
+```
 
 ## Research Phase Complete
 
 ```
 Research validated: {topic}
+Gaps persisted: {N} research (REGISTRY.md), {N} data (TODO.md)
 Next: /lattice:blueprint-cycle {topic}
 ```
 
@@ -216,3 +272,4 @@ Next: /lattice:blueprint-cycle {topic}
 7. **Log every auto-decision.** The decisions log is the audit trail.
 8. **Distill is wired, not optional** (Step 6). Prevents new research from contradicting existing corpus.
 9. **Probe is wired, not optional** (Step 7). Prevents build plans from ignoring cross-system implications.
+10. **Topic lock is mandatory.** Acquire before work, release on completion, heartbeat on every checkpoint. Prevents duplicate concurrent work on the same topic.

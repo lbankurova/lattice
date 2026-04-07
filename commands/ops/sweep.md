@@ -114,6 +114,64 @@ If `scripts/generate-coverage-facts.py` exists (project has coverage tracking):
 
 Report: `Coverage: {current|stale|regenerated}, wiki gaps: {N}`
 
+## Step 8: Blocked URLs
+
+If `.lattice/blocked-urls.log` exists:
+
+1. **Count entries** by status (initial 403, BROWSER-FAILED, success)
+2. **Flag unresolved URLs** — entries that were never successfully accessed (no subsequent success entry for the same URL)
+3. **Report with topic context:** `{N} blocked URLs — {M} unresolved. Topics affected: {list}`
+
+Unresolved blocked URLs are potential research gaps — a source the agent needed but couldn't access.
+
+Report: `Blocked URLs: {N} total, {M} unresolved`
+
+## Step 9: Cycle State Health Audit
+
+Scan `.lattice/cycle-state/` and `.lattice/cycle-lock/` for anomalies. This catches stale work, orphaned locks, and inconsistent state that the topic lock and revision checks can't prevent alone.
+
+### 9a: Stale In-Progress Cycles
+
+For each YAML file in `.lattice/cycle-state/`:
+
+1. Read the file. If `phase` is active (`research`, `blueprint`, `building`):
+   - Check the most recent checkpoint timestamp. If no checkpoint has been updated in **>24 hours**, flag: `STALE CYCLE: {topic} — phase:{phase}, last checkpoint: {timestamp} ({N} hours ago)`
+   - Check if a topic lock exists at `.lattice/cycle-lock/{topic}/`. If the lock is missing but phase is active, flag: `UNLOCKED ACTIVE CYCLE: {topic} — phase:{phase} but no lock held. May be abandoned.`
+
+2. If `phase` is `complete`: verify a `COMPLETED` entry exists in the decisions log for this topic. If not, flag: `UNLOGGED COMPLETION: {topic} — state says complete but no decisions.log entry.`
+
+### 9b: Orphaned Topic Locks
+
+For each directory in `.lattice/cycle-lock/`:
+
+1. Check if a matching state file exists at `.lattice/cycle-state/{topic}.yaml`
+2. If no state file: `ORPHANED LOCK: {topic} — lock exists but no cycle state file.`
+3. If state file exists and `phase` is `complete`: `STALE LOCK: {topic} — cycle complete but lock not released.`
+4. Check lock age from metadata. If >30 minutes with no matching recent checkpoint update: `STALE LOCK: {topic} — lock held {N} minutes, no recent progress.`
+
+**Auto-fix orphaned and stale locks:**
+```bash
+bash scripts/release-topic-lock.sh {topic}
+```
+
+### 9c: Revision Gaps
+
+For each active cycle state file, check:
+- `revision` field exists (if missing, add `revision: 1` — legacy file)
+- `revision` is a positive integer
+- Flag any file where `revision` is missing: `MISSING REVISION: {topic} — no revision field. Added revision: 1.`
+
+### 9d: Timestamp Consistency
+
+For each state file with checkpoints, verify:
+- Each checkpoint's `completed` timestamp is after the previous step's
+- `started` is before all checkpoint timestamps
+- If `phase: complete`, a `completed` timestamp exists at the top level
+
+Flag any violations: `TIMESTAMP ERROR: {topic} — {description}`
+
+Report: `Cycle health: {active} active, {complete} complete, {stale} stale, {orphaned locks} orphaned locks, {fixed} auto-fixed`
+
 ## Output
 
 Write a sweep report and record the timestamp:
@@ -128,8 +186,10 @@ MANIFEST:      {current} current, {stale} stale
 decisions.log: {entries} entries
 Research:      {validated} validated, {active} active
 Coverage:      {current|regenerated}, wiki gaps: {N}
+Blocked URLs:  {total} total, {unresolved} unresolved
+Cycle health:  {active} active, {complete} complete, {stale} stale, {orphaned locks} orphaned, {fixed} auto-fixed
 
-Actions taken: {list of archives, count fixes, stale flags, ROADMAP updates}
+Actions taken: {list of archives, count fixes, stale flags, ROADMAP updates, lock cleanups}
 ```
 
 Write timestamp to `.lattice/last-sweep`:
@@ -139,7 +199,7 @@ echo "{ISO timestamp}" > .lattice/last-sweep
 
 Append to decisions log:
 ```
-{timestamp}	sweep	COMPLETED	all-indexes	todo:{open}/{resolved} roadmap:{active}/{done}/{orphaned} incoming:{active}/{archived} manifest:{current}/{stale}	{one-line summary}
+{timestamp}	sweep	COMPLETED	all-indexes	todo:{open}/{resolved} roadmap:{active}/{done}/{orphaned} incoming:{active}/{archived} manifest:{current}/{stale} cycles:{active}/{stale}/{orphaned-locks}	{one-line summary}
 ```
 
 ## Rules

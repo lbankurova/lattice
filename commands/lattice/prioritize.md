@@ -33,8 +33,13 @@ Read these sources in parallel to build a complete picture:
 
 ### Research State
 - `docs/_internal/research/INDEX.md` — research status (active, stubs, absorbed)
+- `docs/_internal/research/REGISTRY.md` — stream status, open questions, cross-stream dependencies
 - `docs/_internal/research/peer-reviews/` — pending peer review findings to incorporate
 - Check for landscape docs with unexpanded branches
+
+### Cross-Reference Analysis
+- `docs/_internal/research/distillations/*cross-reference*` or `*todo-cross-reference*` — if a recent cross-reference distillation exists, read it. These contain dependency chains, cascade-fix opportunities, shared root causes, contradictions, and priority impact assessments that are invisible when reading TODO/REGISTRY/ROADMAP independently. A cross-reference analysis from `/lattice:distill` is the single highest-value input to prioritization because it reveals which items unblock others and which fixes cascade.
+- If no cross-reference exists and TODO.md has >15 open items: recommend running one before prioritizing. State: "Consider running `/lattice:distill` on recent TODO items first — dependency chains and cascade-fix opportunities may change the priority order."
 
 ### Validation State
 - `docs/validation/summary.md` — missed signals, design mismatches, gaps
@@ -62,10 +67,13 @@ For each item, assess:
 
 1. **Scientist value** — how much does this help a scientist grok their data daily? (High / Medium / Low)
 2. **Coverage impact** — how many studies, species, or study types does this affect? (Broad / Narrow / Niche)
-3. **Dependency chain** — does anything else need this first? Is this blocking other work?
-4. **Staleness risk** — will this get harder or less relevant if delayed?
+3. **Dependency chain** — does anything else need this first? Is this blocking other work? If a cross-reference analysis exists, use its dependency chains — they're more reliable than ad-hoc inference.
+4. **Cascade potential** — does fixing this item resolve or partially resolve other items? Cross-reference analyses identify these explicitly. A doc sweep that resolves 6 items ranks higher than a feature that resolves 1, even if the feature has higher individual scientist value.
+5. **Staleness risk** — will this get harder or less relevant if delayed?
 
 **Do NOT evaluate effort.** Rule 13 — merit only. The question is "should we do this?" not "can we do this quickly?"
+
+**Wave grouping.** When items share a root cause or can be resolved in a single focused session, group them as a "wave" with a collective priority. This prevents interleaving unrelated work when batch processing would be faster. Cross-reference analyses typically identify waves explicitly.
 
 ## Step 4: Recommend
 

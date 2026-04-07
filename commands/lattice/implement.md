@@ -80,7 +80,9 @@ Write the code. Follow all CLAUDE.md rules. Key ones:
 
 ### Step C: Check
 
-Run `/ops:check` (build + Python syntax + import smoke test + engine-change detection).
+Run `/ops:check` (build + Python syntax + import smoke test + engine-change detection + visual smoke test).
+
+`/ops:check` includes a visual smoke test when frontend files changed and Playwright MCP is available. If you see `Visual: FAIL`, fix the rendering issue before moving on — don't accumulate visual regressions across phases.
 
 - **If check passes:** Move to next phase.
 - **If check fails:** Fix the issue. Re-check. **Circuit breaker: 3 attempts per phase.** If 3 fixes fail, stop and surface to user with the error and your hypotheses.
@@ -89,20 +91,42 @@ Run `/ops:check` (build + Python syntax + import smoke test + engine-change dete
 
 Verify acceptance criteria from the spec for this phase. If a criterion can be tested programmatically (e.g., "computeGLower(2.0, 5, 5, 0.80) returns value within 0.05 of..."), test it now. Log results.
 
-## Phase N+1: Quality Gate
+**Empirical claim verification (CLAUDE.md rule 18).** For every acceptance criterion that makes a numeric or cardinality claim about data behavior — examples: "count drops to ≤ 2", "shows N rows", "matches the chart", "subject appears on days 8, 15", "ratio < 0.8 on the driving pairwise" — you MUST run that claim against the actual generated `unified_findings.json` before marking the criterion PASS. Acceptable forms:
 
-After all phases complete:
+1. A Python one-liner: `backend/venv/Scripts/python.exe -c "import json; data = json.load(open('backend/generated/{study}/unified_findings.json')); ..."`
+2. A fixture-based test that loads the real file (see `frontend/tests/loo-sensitivity-pane-logic.test.ts` "PointCross BW data fixture" describe block for the pattern)
+3. `/ops:explore-data` against the same JSON
 
-### Step A: Full review
+**Record the actual observed value in the audit**, not just PASS/FAIL. Example:
+```
+Criterion: "brown dot count ≤ 2 on PointCross BW D15 main mode"
+Observed: 0 dots (python script run 2026-04-07; verified against
+  backend/generated/PointCross/unified_findings.json — 27/29 BW findings
+  have loo_influential_subject ratio in 0.94-0.97 range)
+Verdict: PASS (within bound)
+```
 
-Run the **full `/lattice:review` protocol** — all 7 mandatory sections. This is not optional and not abbreviated.
+**Mirror-pattern tests do NOT satisfy this.** A mirror test passes when implementation matches spec text; it cannot catch a spec that is wrong about the data. If you are writing a mirror test for a criterion that makes an empirical claim, you must ALSO add a fixture test that loads real generated output.
 
-The review's independent agent (Step 1b) MUST be adversarial:
-- It receives the spec and changed files with NO implementation context
-- Its job is to **find every mismatch, gap, and deviation**
-- It should actively try to break the implementation, not confirm it
+**If the criterion cannot be verified (e.g., data not generated yet, fixture missing)** — flag it as `UNVERIFIED-EMPIRICAL` in the deviations table. Do NOT silently pass. Unverified empirical claims are blockers, not footnotes.
 
-### Step B: Compile the audit
+This rule exists because the loo-display-scoping cycle (2026-04-07) shipped an empty chart on PointCross BW. The spec's literal filter expression matched zero subjects on real data, but nobody queried the data — the build passed, the tests passed, all three review agents validated code-vs-spec, and the bug was caught visually by the user post-commit. Empirical claims die in contact with data; catch the disconnect here, at the last moment you can fix it cheaply.
+
+### Step E: Log discovered gaps
+
+During implementation you often discover gaps that weren't in the spec — missing data for edge cases, research questions about domain behavior, untested assumptions. **Log them immediately, not at the end.**
+
+- **Research gap** (needs investigation before deciding): append to `docs/_internal/research/REGISTRY.md` as a new stream or `open-questions` entry on an existing stream. Set `source: "implement/{spec-name}/phase-{N}"`.
+- **Data gap** (missing data, species coverage, validation): append to `docs/_internal/TODO.md` with `[Area: {relevant}]` tag.
+- **Implementation gap** (code TODO, known limitation, deferred wiring): append to `docs/_internal/TODO.md` and add to the DEFERRED table in the final audit.
+
+**A gap mentioned in conversation or in the audit table but not written to REGISTRY.md or TODO.md is a gap that will be forgotten next session.** The audit is ephemeral — the registry and TODO survive.
+
+## Phase N+1: Implementation Audit
+
+After all phases complete, compile the audit. **Do NOT run `/lattice:review` here** — the build-cycle runs review as a separate step with full 7-section output. Implement's job ends at the audit table.
+
+### Step A: Compile the audit
 
 Produce a single audit table the user can scan:
 
@@ -130,14 +154,21 @@ DEFERRED (requires user approval per rule 14):
 | [if any] | [real dependency] | [what to do] |
 
 VALIDATION: {needed / not needed / ran with results}
+
+GAPS DISCOVERED DURING IMPLEMENTATION:
+| Gap | Type | Persisted to | Phase |
+|-----|------|-------------|-------|
+| [description] | research / data / implementation | REGISTRY.md / TODO.md | {N} |
 ```
 
-### Step C: Surface to user
+If the GAPS table is empty, write "None discovered." If it has entries, verify each one was actually written to its destination — read REGISTRY.md and TODO.md to confirm.
 
-Present the audit. Ask:
-**"Implementation complete. {N} deviations, {M} justified. Review the audit above — approve, challenge, or redirect?"**
+### Step B: Surface to user
 
-This is the FIRST time the user needs to engage since Phase 0.
+Present the audit. State:
+**"Implementation complete. {N} deviations, {M} justified. Proceeding to `/lattice:review` for the full quality gate."**
+
+This is the FIRST time the user needs to engage since Phase 0. The audit is informational — review is the actual gate.
 
 ## Session Start
 
@@ -153,7 +184,7 @@ Before beginning implementation, read `.lattice/decisions.log` if it exists. Che
 - **Phase failures escalate, not cascade.** If Phase 3 fails, don't abandon Phases 4-5 if they're independent. Implement what you can, report what failed.
 - **The audit is the contract.** Every deviation, decision, and deferral must appear in the audit table. If it's not in the table, the user can't review it. Omission is a defect.
 - **No silent scope reduction.** If you can't implement something from the spec, it goes in the DEFERRED table with a real blocking reason — not quietly dropped.
-- **Commit only after user approval.** The audit is presented before committing. The user may want changes.
+- **Do not commit.** Implement produces the audit; build-cycle runs `/lattice:review` which handles the commit gate.
 - **Run validation ratchet when engine files change.** If any phase modifies engine/analytical files, run `bash scripts/validation-ratchet.sh auto` after that phase's `/ops:check`. Don't wait until the end — catch regressions early so they can be fixed in the same phase.
 
 ## Decision Log

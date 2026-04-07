@@ -33,4 +33,4 @@ Run every item before committing changes that alter system or view behavior. Eve
 
 **Data pipeline bug fix protocol:** Write the failing test FIRST, then apply the fix, then confirm all tests pass. Non-negotiable for any data transformation, classification, or scoring module.
 
-**Agent verification boundaries:** Agents verify logic (`npm test`, `npm run build`, grep-based static checks). Agents do NOT verify visuals. If a change affects rendering, state: "Visual verification required by user."
+**Visual verification (frontend changes):** When the changeset includes frontend files and Playwright MCP is available, agents MUST verify visuals — navigate to affected views, check for console errors, take a screenshot, and verify the page renders. See `/lattice:review` Step 3b for the full protocol. Only fall back to "Visual verification required by user" when Playwright MCP is genuinely unavailable (not configured, dev server down).
