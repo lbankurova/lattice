@@ -197,17 +197,47 @@ Check the changed files against this review checklist:
 - [ ] Bundle size not regressed (baseline: 1,223 KB)
 - [ ] No unnecessary re-renders (missing `useMemo`/`useCallback` on expensive ops)
 
-### Coverage Facts (if engine files changed)
+### Doc Regeneration (mandatory — runs every review, not "if applicable")
 
-If any engine/analytical files are in the changeset (backend `services/analysis/`, `generator/`, frontend `src/lib/` scoring/classification/syndrome files), regenerate coverage facts:
+Six generators exist. All run unconditionally. If output hasn't changed, there's nothing to stage. If it has, the diff is the evidence that docs were stale.
+
+**Step A: Backend-derived docs** (run if ANY backend file changed):
 
 ```bash
 cd C:/pg/pcc && backend/venv/Scripts/python.exe scripts/generate-coverage-facts.py
 ```
 
-This updates `docs/_internal/help/coverage-facts.md` and `docs/_internal/help/coverage-manifest.json`. Stage both files with the commit — they document what the system can now do.
+Outputs: `docs/_internal/help/coverage-facts.md`, `docs/_internal/help/coverage-manifest.json`
 
-If the regenerated coverage-facts.md shows new capabilities (new domains, species, methods) that aren't reflected in `docs/_internal/help/wiki_sendex_coverage.md`, flag: `WIKI STALE — coverage-facts.md has [new capability] not in wiki`. The wiki update is manual but the staleness should be visible.
+**Step B: Frontend-derived docs** (run if ANY frontend src/lib/ or shared/ file changed):
+
+```bash
+cd C:/pg/pcc/frontend && npx vitest run generate-engine-reference --reporter=verbose
+```
+
+Outputs: `docs/scientific-logic.md`, `docs/_internal/knowledge/syndrome-engine-reference.md`
+
+**Step C: Validation docs** (run if ANY backend generator/ or services/analysis/ file changed):
+
+```bash
+cd C:/pg/pcc/frontend && npx vitest run ground-truth-validation --reporter=verbose
+```
+
+Outputs: `docs/validation/summary.md`, `docs/validation/signal-detection.md`, `docs/validation/engine-output.md`
+
+**Step D: Capability model + wiki** (run after Steps A-C complete):
+
+Diff the regenerated coverage-facts.md against `docs/_internal/capabilities.yaml`:
+
+1. **Dimension tables** — check `hcd_matrix`, `species_overrides`, `compound_profiles`, `validation_studies`. If coverage-facts shows data that the capability model doesn't reflect (e.g., new HCD species/strain, new domain processor, new compound profile), update the dimension table in-place.
+
+2. **Pillar state** — check `state_by_dimension` in each pillar. If a gap listed under `gaps` has been resolved by this commit, move it to the appropriate `shipped` or `state_by_dimension` entry and remove it from `gaps`.
+
+3. **Cascade edges** — if this commit satisfies a `depends_on` in the `cascades` section, note that the dependency is now met.
+
+4. **Wiki** — update `docs/_internal/help/wiki_sendex_coverage.md` to match capabilities.yaml dimension tables. The wiki is a downstream rendering, not an independent document.
+
+**Stage ALL regenerated files with the commit.** If any generator fails, stop and fix before proceeding — a broken generator means the code change broke a doc contract.
 
 ---
 

@@ -22,24 +22,27 @@ Check `.lattice/last-sweep` for the timestamp of the last `/ops:sweep` run.
 
 Read these sources in parallel to build a complete picture:
 
+### Capability Model (PRIMARY SOURCE)
+- `docs/_internal/capabilities.yaml` — the capability model. This is the single most important input. It contains:
+  - **9 user workflow pillars** with traced code paths and per-dimension state
+  - **Cross-cutting dimension tables** (HCD matrix, species overrides, compound profiles, study types, validation studies)
+  - **Cascade edges** — "if X ships, what else improves?" with explicit pillar/dimension references
+  - Each pillar has: `gaps` (what's missing) and `research` (active streams with status)
+  
+  Read the cascades section FIRST — it shows which gaps block the most other work.
+
 ### Active Work
 - `git log --oneline -20` — recent commits (what just shipped)
 - `git diff --stat HEAD` — uncommitted work (what's in progress)
 - `git stash list` — stashed work (what was paused)
 
-### Backlog
-- `docs/_internal/TODO.md` — bugs, gaps, missing features, tech debt
+### Tactical Backlog
+- `docs/_internal/TODO.md` — bugs, individual GAP-* items, tech debt
 - `docs/_internal/incoming/*.md` — specs and synthesis docs waiting for action
 
 ### Research State
-- `docs/_internal/research/INDEX.md` — research status (active, stubs, absorbed)
 - `docs/_internal/research/REGISTRY.md` — stream status, open questions, cross-stream dependencies
-- `docs/_internal/research/peer-reviews/` — pending peer review findings to incorporate
-- Check for landscape docs with unexpanded branches
-
-### Cross-Reference Analysis
-- `docs/_internal/research/distillations/*cross-reference*` or `*todo-cross-reference*` — if a recent cross-reference distillation exists, read it. These contain dependency chains, cascade-fix opportunities, shared root causes, contradictions, and priority impact assessments that are invisible when reading TODO/REGISTRY/ROADMAP independently. A cross-reference analysis from `/lattice:distill` is the single highest-value input to prioritization because it reveals which items unblock others and which fixes cascade.
-- If no cross-reference exists and TODO.md has >15 open items: recommend running one before prioritizing. State: "Consider running `/lattice:distill` on recent TODO items first — dependency chains and cascade-fix opportunities may change the priority order."
+- Each pillar in capabilities.yaml lists its research streams with current status
 
 ### Validation State
 - `docs/validation/summary.md` — missed signals, design mismatches, gaps
@@ -63,17 +66,43 @@ Put every item into one of these buckets:
 
 ## Step 3: Evaluate on Merit
 
-For each item, assess:
+For each item, assess using the capability model's value hierarchy:
 
-1. **Scientist value** — how much does this help a scientist grok their data daily? (High / Medium / Low)
-2. **Coverage impact** — how many studies, species, or study types does this affect? (Broad / Narrow / Niche)
-3. **Dependency chain** — does anything else need this first? Is this blocking other work? If a cross-reference analysis exists, use its dependency chains — they're more reliable than ad-hoc inference.
-4. **Cascade potential** — does fixing this item resolve or partially resolve other items? Cross-reference analyses identify these explicitly. A doc sweep that resolves 6 items ranks higher than a feature that resolves 1, even if the feature has higher individual scientist value.
-5. **Staleness risk** — will this get harder or less relevant if delayed?
+### Value Hierarchy (highest to lowest)
+
+1. **Transformative capability** — does this unlock analysis that's currently impossible?
+   - Example: cross-study Phase 2 views (concordance matrix doesn't exist)
+   - Example: cohort view redesign (subject findings landscape is #1 unmet need)
+   
+2. **Analytical depth** — does this improve what the system computes for existing capabilities?
+   - Example: species magnitude thresholds (dog severity classification uses wrong defaults)
+   - Example: MI/MA HCD wiring (incidence D4 scoring returns 0.0 for ALL findings)
+
+3. **Coverage breadth** — does this extend existing capabilities to more species/study types/domains?
+   - Example: term recognition coverage (+6 domains, 59.4% -> 89.4%)
+   - Example: carcinogenicity study type config
+
+4. **Operational workflow** — does this make existing analysis more convenient?
+   - Example: CSV export, axis lock, report redesign
+
+**Transformative capabilities ALWAYS outrank operational workflow.** A scientist who can't export but gets cross-study concordance analysis is better off than one who can export from single-study views only.
+
+### Cascade Impact (from capabilities.yaml Section 3)
+
+Read the `cascades` section of capabilities.yaml. Each cascade entry lists:
+- `improves` — which pillars and dimensions get better
+- `blocks` — what can't exist until this ships
+- `depends_on` — what must be done first
+
+**Rank by cascade breadth:** an item that improves 3 pillars outranks one that improves 1 pillar, even if the single-pillar item has higher value within that pillar.
+
+### Dimension Breadth
+
+Check the `state_by_dimension` tables in each pillar. An item that affects multiple species (e.g., species magnitude thresholds for dog+NHP+rabbit) outranks one affecting a single species, all else equal.
 
 **Do NOT evaluate effort.** Rule 13 — merit only. The question is "should we do this?" not "can we do this quickly?"
 
-**Wave grouping.** When items share a root cause or can be resolved in a single focused session, group them as a "wave" with a collective priority. This prevents interleaving unrelated work when batch processing would be faster. Cross-reference analyses typically identify waves explicitly.
+**Wave grouping.** When items share a root cause or sit within the same pillar/dimension, group them as a "wave" with a collective priority. Example: "term recognition wave" = coverage expansion + quick wins + dictionary update — all in the term-recognition pillar.
 
 ## Step 4: Recommend
 
@@ -116,16 +145,27 @@ For each recommendation, suggest the specific next command:
 
 ## Step 5: Flag Gaps
 
-After recommendations, flag structural gaps:
+After recommendations, flag structural gaps using the capability model:
 
-- **Research coverage:** are there areas of the product with no research docs at all?
-- **Validation coverage:** are there engine capabilities with no validation study exercising them?
-- **Species/study type gaps:** which species or study designs have no coverage?
-- **Abandoned work:** synthesis docs or specs that haven't moved in weeks
+- **Pillar gaps:** which pillars have the most gaps relative to shipped items? The `gaps` list per pillar is the source.
+- **Dimension gaps:** check the `hcd_matrix` and `species_overrides` tables. Which cells are empty? Which species have zero validation studies?
+- **Research pipeline:** for each pillar, what research is in-progress and what does it enable when complete?
+- **Blocked cascades:** which cascade entries have unmet `depends_on`?
+- **Stale specs:** incoming/ specs that haven't moved in weeks and aren't mapped to any pillar gap
 
 ## Output
 
-Present the recommendations inline (this is a conversation tool — the user decides immediately). Also write a snapshot to `docs/_internal/incoming/priority-snapshot-{date}.md` so the reasoning persists.
+Present the recommendations inline organized by pillar (not flat list). Group related items under the pillar they advance. Also write a snapshot to `docs/_internal/incoming/priority-snapshot-{date}.md` so the reasoning persists.
+
+Format:
+```
+### Pillar: [name] — "[scientist question]"
+State: [1-line summary of current capability]
+
+1. **[item]** — [rationale tied to what this unlocks for the scientist]
+   Cascade: [which other pillars/dimensions improve]
+   Next step: [specific command]
+```
 
 ## Constraints
 
