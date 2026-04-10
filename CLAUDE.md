@@ -236,6 +236,35 @@ If a URL returns 403, 429, captcha, or any access-denied response:
 - **Before committing:** Run every item in `docs/_internal/checklists/COMMIT-CHECKLIST.md`.
 - **After implementing from a spec:** `/review` automatically detects spec context and runs the post-implementation evidence trace before mechanical checks.
 
+### Commit trailers (mandatory for topic work)
+
+Every commit that advances a topic MUST carry a `Topic:` trailer. This is how the executor knows what state the world is in. A commit without a `Topic:` trailer is invisible to the autopilot and coherence engine.
+
+```
+feat: continuous HCD percentile in D4 confidence dimension
+
+Topic: hcd-informed-z-scoring
+Phase: complete
+Coverage: HCD/LB, interpretation engine
+Layer: implementation
+```
+
+| Trailer | Required? | Purpose |
+|---|---|---|
+| `Topic:` | **Yes** for all topic work | Links commit to cycle state. Reconciliation greps this. |
+| `Phase:` | Recommended | Explicit phase completion (`complete`, `build`, `blueprint-complete`). If absent, inferred from commit type (`feat:` after blueprint = complete). |
+| `Coverage:` | Optional | Coverage axis tag for `/lattice:daily-update`. |
+| `Layer:` | Optional | data, research, plumbing, implementation, bug-fix. |
+
+**When to add `Topic:`:**
+- Every `feat:` or `fix:` commit that implements part of a topic
+- Every commit that completes a cycle phase (research, blueprint, build)
+- NOT needed for: docs-only commits, CI changes, framework changes
+
+**`Phase:` values:** `research-complete`, `blueprint-complete`, `complete`. Use the phase that this commit COMPLETES, not the phase it starts. If the commit is mid-phase (one of several), omit `Phase:` — the final commit in the phase carries it.
+
+The executor's `lattice status` and `lattice coherence` commands run git-based reconciliation automatically — they grep for `Topic:` trailers and correct stale cycle state files. No manual state file maintenance needed.
+
 ## Architecture Gotchas
 
 <!-- Project-specific — add entries as you discover agent failure patterns -->

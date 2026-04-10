@@ -1,46 +1,58 @@
 /**
- * State Reconciliation — derive truth from git, not manually maintained YAML.
+ * State Reconciliation — derive truth from git commit trailers.
  *
- * The problem: cycle state files drift because work happens outside the
- * Lattice skill pipeline (direct sessions, spikes, manual builds). The state
- * says "blueprint-complete" but the code is already shipped.
+ * Every commit that advances a topic carries:
+ *   Topic: <topic-name>
+ *   Phase: <completed-phase>   (optional — inferred from commit type if absent)
  *
- * The fix: cross-reference state files against git history to detect and
- * correct stale states. Run automatically before coherence checks.
+ * Reconciliation = grep git log for Topic: trailers, compare against
+ * cycle state files, correct any drift.
  *
- * Reconciliation signals:
- * 1. Commits mentioning the topic name (grep commit messages)
- * 2. Synthesis/spec doc archived (moved to archive/ = implemented)
- * 3. Files matching the topic created/modified after state timestamp
- * 4. State says "blueprint-complete" but feat commits exist after that date
+ * Fallback signals (when trailers are missing — legacy commits):
+ *   - Spec archived in docs/_internal/incoming/archive/
+ *   - Coverage: trailer mapping to known topics
  */
 
 import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import yaml from 'js-yaml';
 import type { TopicState } from './coherence.js';
 
 export interface ReconciliationResult {
   topic: string;
-  stateBefore: string;        // Phase from state file
-  stateAfter: string;         // Corrected phase
-  evidence: string[];         // What git evidence shows
+  stateBefore: string;
+  stateAfter: string;
+  evidence: string[];
   action: 'corrected' | 'unchanged' | 'needs-review';
+}
+
+interface TopicCommit {
+  hash: string;
+  subject: string;
+  topic: string;
+  phase?: string;     // Explicit Phase: trailer
+  type: string;       // feat, fix, docs, etc.
+  coverage?: string;  // Coverage: trailer
 }
 
 /**
  * Reconcile all active topic states against git history.
- * Returns corrections and optionally writes them.
  */
 export function reconcileStates(
   topics: TopicState[],
   cwd: string,
   write: boolean = false,
 ): ReconciliationResult[] {
+  // 1. Collect all Topic:-tagged commits from git
+  const taggedCommits = collectTopicCommits(cwd);
+
+  // 2. Collect archived specs as fallback signal
+  const archivedSpecs = collectArchivedSpecs(cwd);
+
+  // 3. Reconcile each active topic
   const results: ReconciliationResult[] = [];
 
   for (const topic of topics) {
-    const result = reconcileTopic(topic, cwd);
+    const result = reconcileTopic(topic, taggedCommits, archivedSpecs);
     results.push(result);
 
     if (write && result.action === 'corrected') {
@@ -51,67 +63,114 @@ export function reconcileStates(
   return results;
 }
 
-function reconcileTopic(topic: TopicState, cwd: string): ReconciliationResult {
+/**
+ * Grep git log for commits with Topic: trailers.
+ */
+function collectTopicCommits(cwd: string): TopicCommit[] {
+  const commits: TopicCommit[] = [];
+
+  try {
+    // Format: hash|||subject|||body (body contains trailers)
+    const output = execSync(
+      'git log --since=2026-01-01 --format=%h|||%s|||%b',
+      { cwd, encoding: 'utf-8', timeout: 15_000, stdio: ['pipe', 'pipe', 'pipe'] }
+    ).trim();
+
+    if (!output) return commits;
+
+    for (const entry of output.split('\n')) {
+      const topicMatch = entry.match(/Topic:\s*(\S+)/);
+      if (!topicMatch) continue;
+
+      const parts = entry.split('|||');
+      const hash = parts[0]?.trim() ?? '';
+      const subject = parts[1]?.trim() ?? '';
+      const body = parts[2] ?? '';
+
+      const phaseMatch = body.match(/Phase:\s*(\S+)/);
+      const coverageMatch = body.match(/Coverage:\s*(.+?)(?:\n|$)/);
+      const typeMatch = subject.match(/^(feat|fix|docs|refactor|chore|test):/);
+
+      commits.push({
+        hash,
+        subject,
+        topic: topicMatch[1],
+        phase: phaseMatch?.[1],
+        type: typeMatch?.[1] ?? 'other',
+        coverage: coverageMatch?.[1]?.trim(),
+      });
+    }
+  } catch {
+    // git command failed
+  }
+
+  return commits;
+}
+
+/**
+ * Scan archive directory for completed specs.
+ */
+function collectArchivedSpecs(cwd: string): Set<string> {
+  const archived = new Set<string>();
+  const archiveDir = `${cwd}/docs/_internal/incoming/archive`;
+
+  if (!existsSync(archiveDir)) return archived;
+
+  try {
+    const { readdirSync } = require('node:fs') as typeof import('node:fs');
+    for (const file of readdirSync(archiveDir)) {
+      if (!file.endsWith('.md')) continue;
+      // Strip -synthesis.md, -spec.md suffixes to get topic name
+      const topic = file
+        .replace(/-synthesis\.md$/, '')
+        .replace(/-spec\.md$/, '')
+        .replace(/\.md$/, '');
+      archived.add(topic);
+    }
+  } catch {
+    // directory unreadable
+  }
+
+  return archived;
+}
+
+function reconcileTopic(
+  topic: TopicState,
+  taggedCommits: TopicCommit[],
+  archivedSpecs: Set<string>,
+): ReconciliationResult {
   const evidence: string[] = [];
   let suggestedPhase = topic.phase;
 
-  // 1. Check git log for feat/fix commits mentioning this topic
-  const topicKeywords = buildTopicKeywords(topic.topic);
-  const recentCommits = findTopicCommits(topicKeywords, cwd, topic.lastCheckpoint);
+  // 1. Check for Topic:-tagged commits for this topic
+  const topicCommits = taggedCommits.filter(c => c.topic === topic.topic);
 
-  if (recentCommits.length > 0) {
-    evidence.push(`${recentCommits.length} commit(s) found after last checkpoint:`);
-    for (const c of recentCommits.slice(0, 5)) {
-      evidence.push(`  ${c}`);
+  if (topicCommits.length > 0) {
+    evidence.push(`${topicCommits.length} Topic:-tagged commit(s):`);
+    for (const c of topicCommits.slice(0, 5)) {
+      evidence.push(`  ${c.hash} ${c.subject}${c.phase ? ` [Phase: ${c.phase}]` : ''}`);
+    }
+
+    // Use the most recent explicit Phase: trailer
+    const withPhase = topicCommits.filter(c => c.phase);
+    if (withPhase.length > 0) {
+      const latest = withPhase[0]; // git log is newest-first
+      suggestedPhase = latest.phase!;
+      evidence.push(`CORRECTION: Explicit Phase: ${latest.phase} in commit ${latest.hash}`);
+    } else {
+      // Infer phase from commit type
+      const hasFeat = topicCommits.some(c => c.type === 'feat');
+      if (hasFeat && (topic.phase === 'blueprint-complete' || topic.phase === 'build' || topic.phase === 'blueprint')) {
+        suggestedPhase = 'complete';
+        evidence.push('CORRECTION: feat commit(s) with Topic: trailer -> complete');
+      }
     }
   }
 
-  // 2. Check if synthesis/spec was archived
-  const specArchived = checkSpecArchived(topic, cwd);
-  if (specArchived) {
-    evidence.push(`Spec archived: ${specArchived}`);
-  }
-
-  // 3. Check for implementation files matching the topic
-  const implFiles = findImplementationFiles(topicKeywords, cwd);
-  if (implFiles.length > 0) {
-    evidence.push(`Implementation files found: ${implFiles.slice(0, 5).join(', ')}`);
-  }
-
-  // 4. Determine corrected phase
-  const hasFeatCommits = recentCommits.some(c =>
-    /^[a-f0-9]+ feat:/.test(c)
-  );
-  const hasFixCommits = recentCommits.some(c =>
-    /^[a-f0-9]+ fix:/.test(c)
-  );
-
-  if (topic.phase === 'blueprint-complete' || topic.phase === 'build') {
-    if (hasFeatCommits && implFiles.length > 0) {
-      suggestedPhase = 'complete';
-      evidence.push('CORRECTION: State says blueprint-complete/build, but feat commits + impl files exist -> complete');
-    }
-  } else if (topic.phase === 'research-complete') {
-    // Check if synthesis exists (would mean blueprint happened)
-    const hasSynthesis = checkSynthesisExists(topic, cwd);
-    if (hasSynthesis && hasFeatCommits) {
-      suggestedPhase = 'complete';
-      evidence.push('CORRECTION: State says research-complete, but synthesis + feat commits exist -> complete');
-    } else if (hasSynthesis) {
-      suggestedPhase = 'blueprint-complete';
-      evidence.push('CORRECTION: State says research-complete, but synthesis exists -> blueprint-complete');
-    }
-  } else if (topic.phase === 'blueprint') {
-    if (hasFeatCommits && implFiles.length > 0) {
-      suggestedPhase = 'complete';
-      evidence.push('CORRECTION: State says blueprint (mid-flight), but feat commits + impl files exist -> complete');
-    }
-  }
-
-  // If spec was archived, that's strong evidence of completion
-  if (specArchived && suggestedPhase !== 'complete') {
+  // 2. Fallback: check if spec was archived
+  if (suggestedPhase === topic.phase && archivedSpecs.has(topic.topic)) {
     suggestedPhase = 'complete';
-    evidence.push('CORRECTION: Spec archived -> definitively complete');
+    evidence.push(`CORRECTION: Spec archived -> complete`);
   }
 
   const action = suggestedPhase !== topic.phase ? 'corrected' : 'unchanged';
@@ -126,141 +185,29 @@ function reconcileTopic(topic: TopicState, cwd: string): ReconciliationResult {
 }
 
 /**
- * Build search keywords from a topic name.
- * "hcd-informed-z-scoring" -> ["hcd-informed", "z-scoring", "hcd.*z.scoring", "HCD", "z-score"]
- */
-function buildTopicKeywords(topic: string): string[] {
-  const parts = topic.split('-');
-  const keywords = [topic];
-
-  // Add significant multi-word fragments (skip common words)
-  const skipWords = new Set(['the', 'and', 'for', 'with', 'from', 'into', 'pane', 'unified', 'spec', 'fix', 'phases']);
-  const significant = parts.filter(p => p.length > 2 && !skipWords.has(p));
-
-  if (significant.length >= 2) {
-    // First two significant words as a phrase
-    keywords.push(significant.slice(0, 2).join('.*'));
-    keywords.push(significant.slice(0, 2).join(' '));
-    keywords.push(significant.slice(0, 2).join('-'));
-  }
-
-  return keywords;
-}
-
-/**
- * Find commits mentioning topic keywords after the last checkpoint.
- */
-function findTopicCommits(keywords: string[], cwd: string, after: string): string[] {
-  const commits: string[] = [];
-  const afterFlag = after ? `--since=${after}` : '--since=2026-01-01';
-
-  for (const kw of keywords.slice(0, 3)) {
-    try {
-      const output = execSync(
-        `git log --oneline ${afterFlag} --grep="${kw}" -i -- frontend/src/ backend/`,
-        { cwd, encoding: 'utf-8', timeout: 10_000, stdio: ['pipe', 'pipe', 'pipe'] }
-      ).trim();
-
-      if (output) {
-        for (const line of output.split('\n')) {
-          if (!commits.includes(line)) commits.push(line);
-        }
-      }
-    } catch {
-      // git command failed — skip
-    }
-  }
-
-  return commits;
-}
-
-/**
- * Check if the topic's spec/synthesis has been archived.
- */
-function checkSpecArchived(topic: TopicState, cwd: string): string | null {
-  const archiveDir = `${cwd}/docs/_internal/incoming/archive`;
-  if (!existsSync(archiveDir)) return null;
-
-  const candidates = [
-    `${archiveDir}/${topic.topic}.md`,
-    `${archiveDir}/${topic.topic}-synthesis.md`,
-    `${archiveDir}/${topic.topic}-spec.md`,
-  ];
-
-  for (const path of candidates) {
-    if (existsSync(path)) return path;
-  }
-
-  return null;
-}
-
-/**
- * Check if a synthesis doc exists for the topic.
- */
-function checkSynthesisExists(topic: TopicState, cwd: string): boolean {
-  const candidates = [
-    `${cwd}/docs/_internal/incoming/${topic.topic}-synthesis.md`,
-    `${cwd}/docs/_internal/incoming/${topic.topic}.md`,
-  ];
-
-  return candidates.some(p => existsSync(p));
-}
-
-/**
- * Find implementation files that match the topic.
- */
-function findImplementationFiles(keywords: string[], cwd: string): string[] {
-  const files: string[] = [];
-
-  try {
-    // Get all added files in the relevant directories
-    const output = execSync(
-      'git log --diff-filter=A --name-only --format="" --since=2026-01-01 -- frontend/src/ backend/',
-      { cwd, encoding: 'utf-8', timeout: 10_000, stdio: ['pipe', 'pipe', 'pipe'] }
-    ).trim();
-
-    if (output) {
-      const allFiles = output.split('\n').filter(f => f.match(/\.(tsx?|py)$/));
-      // Filter by keywords
-      for (const file of allFiles) {
-        for (const kw of keywords.slice(0, 3)) {
-          const re = new RegExp(kw.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'i');
-          if (re.test(file) && !files.includes(file)) {
-            files.push(file);
-          }
-        }
-      }
-    }
-  } catch {
-    // git command failed
-  }
-
-  return files;
-}
-
-/**
  * Update a state file's phase to the corrected value.
  */
 function updateStateFile(filePath: string, newPhase: string): void {
   try {
     const content = readFileSync(filePath, 'utf-8');
-    const updated = content.replace(
-      /^phase:\s*.+$/m,
-      `phase: ${newPhase}`
-    );
 
-    // Also update current_step if marking complete
-    let final = updated;
-    if (newPhase === 'complete') {
-      final = final.replace(
-        /^current_step:\s*.+$/m,
-        `current_step: complete`
-      );
+    let updated: string;
+    if (/^phase:\s*.+$/m.test(content)) {
+      updated = content.replace(/^phase:\s*.+$/m, `phase: ${newPhase}`);
+    } else {
+      // No phase line — add one after the topic line
+      updated = content.replace(/^(topic:\s*.+)$/m, `$1\nphase: ${newPhase}`);
     }
 
-    writeFileSync(filePath, final, 'utf-8');
+    if (newPhase === 'complete') {
+      if (/^current_step:\s*.+$/m.test(updated)) {
+        updated = updated.replace(/^current_step:\s*.+$/m, `current_step: complete`);
+      }
+    }
+
+    writeFileSync(filePath, updated, 'utf-8');
   } catch {
-    // File unwritable — skip
+    // File unwritable
   }
 }
 
