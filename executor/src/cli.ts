@@ -18,6 +18,7 @@ import { executeWorkflow } from './engine.js';
 import { CliAdapter } from './nodes.js';
 import { loadPortfolioState, checkCoherence, isTopicSafe, formatReport } from './coherence.js';
 import { runAutopilot } from './autopilot.js';
+import { reconcileStates, formatReconciliation } from './reconcile.js';
 
 // ── Argument parsing ────────────────────────────────────────
 
@@ -248,6 +249,16 @@ function cmdCoherence(): void {
     process.exit(1);
   }
 
+  // Reconcile state against git FIRST — always derive truth before analysis
+  const rawTopics = loadPortfolioState(stateDir, cwd);
+  const recon = reconcileStates(rawTopics, cwd, true); // write=true, fix stale states
+  const corrections = recon.filter(r => r.action === 'corrected');
+  if (corrections.length > 0) {
+    console.log(formatReconciliation(recon));
+    console.log('');
+  }
+
+  // Re-load after corrections
   const topics = loadPortfolioState(stateDir, cwd);
 
   if (topics.length === 0) {
@@ -285,6 +296,15 @@ function cmdStatus(): void {
   if (!existsSync(stateDir)) {
     console.error(`No cycle state directory at ${stateDir}`);
     process.exit(1);
+  }
+
+  // Reconcile state against git FIRST
+  const rawTopics = loadPortfolioState(stateDir, cwd);
+  const recon = reconcileStates(rawTopics, cwd, true);
+  const corrections = recon.filter(r => r.action === 'corrected');
+  if (corrections.length > 0) {
+    console.log(formatReconciliation(recon));
+    console.log('');
   }
 
   const topics = loadPortfolioState(stateDir, cwd);
@@ -353,8 +373,9 @@ async function cmdAutopilot(): Promise<void> {
   const cwd = process.cwd();
   const latticeRoot = findLatticeRoot();
   const dryRun = 'dry-run' in flags;
-  const singlePass = !('loop' in flags); // Default: single pass. --loop for continuous.
+  const singlePass = !('loop' in flags);
   const maxAdvance = parseInt(flags['max'] ?? '3', 10);
+  const filter = flags['filter'] ?? undefined;
 
   const adapter = new CliAdapter();
 
@@ -363,6 +384,7 @@ async function cmdAutopilot(): Promise<void> {
   console.log(`Lattice: ${latticeRoot}`);
   console.log(`Mode: ${singlePass ? 'single pass' : 'continuous loop'}`);
   console.log(`Max advance per loop: ${maxAdvance}`);
+  if (filter) console.log(`Filter: "${filter}"`);
   if (dryRun) console.log('DRY RUN — no workflows will execute');
   console.log('');
 
@@ -373,6 +395,7 @@ async function cmdAutopilot(): Promise<void> {
     maxAdvancePerLoop: maxAdvance,
     dryRun,
     singlePass,
+    filter,
   });
 
   process.exit(result.topicsFailed.length > 0 ? 1 : 0);
@@ -427,7 +450,7 @@ switch (command) {
     console.log('  lattice inspect <workflow>');
     console.log('  lattice status                           Portfolio overview + coherence summary');
     console.log('  lattice coherence [topic]                Full conflict analysis');
-    console.log('  lattice autopilot [--dry-run] [--loop] [--max N]');
+    console.log('  lattice autopilot [--dry-run] [--loop] [--max N] [--filter PATTERN]');
     console.log('                                           Advance safe topics, batch human decisions');
     process.exit(command ? 1 : 0);
 }

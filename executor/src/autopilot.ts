@@ -29,6 +29,7 @@ import { loadPortfolioState, checkCoherence, isTopicSafe, formatReport } from '.
 import type { TopicState, Conflict, CoherenceReport } from './coherence.js';
 import { loadWorkflow, resolveWorkflowPath } from './loader.js';
 import { executeWorkflow } from './engine.js';
+import { reconcileStates, formatReconciliation } from './reconcile.js';
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -43,6 +44,8 @@ export interface AutopilotOptions {
   maxAdvancePerLoop: number;
   /** Dry run — report what would be done without executing */
   dryRun: boolean;
+  /** Filter — only advance topics matching this pattern (substring match) */
+  filter?: string;
   /** Single pass — run once and exit (vs continuous loop) */
   singlePass: boolean;
 }
@@ -148,6 +151,18 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
       break;
     }
 
+    // 1a. Reconcile state against git — derive truth before analysis
+    const rawTopics = loadPortfolioState(stateDir, cwd);
+    const recon = reconcileStates(rawTopics, cwd, true);
+    const corrections = recon.filter(r => r.action === 'corrected');
+    if (corrections.length > 0) {
+      await adapter.sendMessage(`Reconciled ${corrections.length} stale state(s):`);
+      for (const c of corrections) {
+        await adapter.sendMessage(`  ${c.topic}: ${c.stateBefore} -> ${c.stateAfter}`);
+      }
+    }
+
+    // 1b. Re-load after corrections
     const topics = loadPortfolioState(stateDir, cwd);
     if (topics.length === 0) {
       await adapter.sendMessage('No active topics.');
@@ -160,10 +175,13 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
 
     await adapter.sendMessage(`\nActive: ${report.activeTopics} | Safe: ${report.safe.length} | Blocked: ${report.blocked.length} | Conflicts: ${report.conflicts.filter(c => c.severity === 'blocker').length}`);
 
-    // 3. Identify advanceable topics
+    // 3. Identify advanceable topics (filtered if --filter provided)
     const advanceable: { topic: TopicState; action: AdvanceAction }[] = [];
 
     for (const topicState of topics) {
+      // Apply filter if provided
+      if (opts.filter && !topicState.topic.includes(opts.filter)) continue;
+
       const safety = isTopicSafe(topicState.topic, report);
       if (!safety.safe) continue;
 
