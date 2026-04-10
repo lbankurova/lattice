@@ -247,7 +247,7 @@ function cmdCoherence(): void {
     process.exit(1);
   }
 
-  const topics = loadPortfolioState(stateDir);
+  const topics = loadPortfolioState(stateDir, cwd);
 
   if (topics.length === 0) {
     console.log('No active topics found.');
@@ -286,7 +286,7 @@ function cmdStatus(): void {
     process.exit(1);
   }
 
-  const topics = loadPortfolioState(stateDir);
+  const topics = loadPortfolioState(stateDir, cwd);
 
   if (topics.length === 0) {
     console.log('No active topics found.');

@@ -21,7 +21,7 @@ export interface TopicState {
   phase: string;
   currentStep: string;
   startedAt: string;
-  subsystems: string[];          // S01, S02, etc.
+  subsystems: string[];          // S01, S02, etc. — merged from state + docs
   scienceFlags: ScienceFlag[];
   breaks: BreaksEntry[];
   propagates: string[];          // Subsystem IDs that receive cascading changes
@@ -31,6 +31,9 @@ export interface TopicState {
   probeResult: string;           // ALL_SAFE, BREAKS, SCIENCE-FLAG, etc.
   lastCheckpoint: string;        // Timestamp of last state update
   stateFile: string;             // Path to the YAML file
+  docRefs: string[];             // Paths to research/synthesis docs referenced
+  /** Subsystem interaction descriptions from research docs — richer than just S-codes */
+  subsystemInteractions: SubsystemInteraction[];
 }
 
 export interface ScienceFlag {
@@ -48,6 +51,12 @@ export interface CrossTopicInteraction {
   topic: string;
   overlap: string;
   resolution: string;
+}
+
+export interface SubsystemInteraction {
+  subsystem: string;             // S01, S07, etc.
+  relationship: string;          // COMPATIBLE, MODIFIES, CASCADE, etc.
+  description: string;           // Full line from the doc
 }
 
 export type ConflictSeverity = 'blocker' | 'warning' | 'info';
@@ -78,8 +87,10 @@ const COMPLETED_PHASES = new Set(['complete', 'build-complete']);
 
 /**
  * Read all cycle state files and extract topic states.
+ * @param cycleStateDir Path to .lattice/cycle-state/
+ * @param projectRoot Path to the project root (for resolving doc references). Optional — if omitted, skips deep doc extraction.
  */
-export function loadPortfolioState(cycleStateDir: string): TopicState[] {
+export function loadPortfolioState(cycleStateDir: string, projectRoot?: string): TopicState[] {
   if (!existsSync(cycleStateDir)) return [];
 
   const files = readdirSync(cycleStateDir).filter(f => f.endsWith('.yaml'));
@@ -96,6 +107,12 @@ export function loadPortfolioState(cycleStateDir: string): TopicState[] {
       if (COMPLETED_PHASES.has(phase)) continue; // skip completed topics
 
       const topic = extractTopicState(file.replace('.yaml', ''), data, content, path);
+
+      // Deep extraction: read referenced docs for richer subsystem data
+      if (projectRoot) {
+        enrichFromDocs(topic, projectRoot);
+      }
+
       topics.push(topic);
     } catch {
       // Skip unparseable files
@@ -141,6 +158,9 @@ function extractTopicState(
   // Find latest timestamp
   const lastCheckpoint = findLatestTimestamp(rawContent);
 
+  // Extract doc references from state file
+  const docRefs = extractDocRefs(rawContent);
+
   return {
     topic: topicName,
     phase,
@@ -156,7 +176,199 @@ function extractTopicState(
     probeResult,
     lastCheckpoint,
     stateFile: filePath,
+    docRefs,
+    subsystemInteractions: [], // populated by enrichFromDocs
   };
+}
+
+/**
+ * Extract doc file paths referenced in a state file.
+ */
+function extractDocRefs(text: string): string[] {
+  const paths = new Set<string>();
+  const re = /docs\/[^\s"']+\.md/g;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    paths.add(match[0]);
+  }
+  return [...paths].sort();
+}
+
+// ── Deep doc extraction ─────────────────────────────────────
+
+/**
+ * Read the actual research/synthesis docs and enrich the topic state
+ * with subsystem references, science flags, and interaction descriptions
+ * that only appear in the doc text (not in the state YAML).
+ */
+function enrichFromDocs(topic: TopicState, projectRoot: string): void {
+  // Read primary research doc and synthesis doc (skip peer reviews — too noisy)
+  const primaryDocs = topic.docRefs.filter(d =>
+    (d.includes('/research/') && !d.includes('peer-reviews/')) ||
+    d.includes('/incoming/')
+  );
+
+  for (const docRef of primaryDocs) {
+    const docPath = `${projectRoot}/${docRef}`;
+    if (!existsSync(docPath)) continue;
+
+    try {
+      const content = readFileSync(docPath, 'utf-8');
+
+      // 1. Extract subsystem references — merge with state-level extraction
+      const docSubsystems = extractSubsystems(content);
+      for (const sub of docSubsystems) {
+        if (!topic.subsystems.includes(sub)) {
+          topic.subsystems.push(sub);
+        }
+      }
+      topic.subsystems.sort();
+
+      // 2. Extract subsystem interaction descriptions
+      // Look for compatibility tables, cascade descriptions, architecture sections
+      const interactions = extractSubsystemInteractions(content);
+      topic.subsystemInteractions.push(...interactions);
+
+      // 3. Extract science flags from doc text that weren't in state file
+      const docFlags = extractDocScienceFlags(content);
+      for (const flag of docFlags) {
+        // Avoid duplicates — check by subsystem + rough description match
+        const isDupe = topic.scienceFlags.some(existing =>
+          existing.subsystems.some(s => flag.subsystems.includes(s)) &&
+          existing.description.length > 0 &&
+          flag.description.includes(existing.description.slice(0, 30))
+        );
+        if (!isDupe) {
+          topic.scienceFlags.push(flag);
+        }
+      }
+
+      // 4. Extract cascade/propagation references
+      const docPropagates = extractDocCascades(content);
+      for (const sub of docPropagates) {
+        if (!topic.propagates.includes(sub)) {
+          topic.propagates.push(sub);
+        }
+      }
+      topic.propagates.sort();
+
+    } catch {
+      // Doc unreadable — skip silently
+    }
+  }
+}
+
+/**
+ * Extract structured subsystem interaction descriptions from a research doc.
+ * Catches patterns like:
+ *   "| Signal scoring (S10) | COMPATIBLE | ..."
+ *   "S40 annotation + D1/D5 modifier fits architecture. Cascade through S16"
+ *   "S01 (Findings Pipeline) -- source of per-animal LB values"
+ */
+function extractSubsystemInteractions(content: string): SubsystemInteraction[] {
+  const interactions: SubsystemInteraction[] = [];
+  const lines = content.split('\n');
+
+  for (const line of lines) {
+    // Table rows with subsystem references and relationship keywords
+    const tableMatch = line.match(/\|\s*.*?(S\d{2}).*?\|\s*(COMPATIBLE|MODIFIES|BREAKS|CASCADE|PROPAGATES|SAFE|N\/A)\s*\|\s*(.+?)\s*\|/i);
+    if (tableMatch) {
+      interactions.push({
+        subsystem: tableMatch[1],
+        relationship: tableMatch[2].toUpperCase(),
+        description: tableMatch[3].trim(),
+      });
+      continue;
+    }
+
+    // "Cascade through SXX" patterns
+    const cascadeMatch = line.match(/[Cc]ascade\s+through\s+(S\d{2})\s*(?:\(([^)]+)\))?/);
+    if (cascadeMatch) {
+      interactions.push({
+        subsystem: cascadeMatch[1],
+        relationship: 'CASCADE',
+        description: cascadeMatch[2] ?? line.trim().slice(0, 150),
+      });
+    }
+
+    // "SXX (Name) -- description" header patterns
+    const headerMatch = line.match(/^(S\d{2})\s*\(([^)]+)\)\s*[-:]+\s*(.+)/);
+    if (headerMatch) {
+      interactions.push({
+        subsystem: headerMatch[1],
+        relationship: 'REFERENCE',
+        description: `${headerMatch[2]}: ${headerMatch[3].trim()}`,
+      });
+    }
+  }
+
+  return interactions;
+}
+
+/**
+ * Extract science flag descriptions from doc text.
+ * Catches patterns like "SCIENCE-FLAG: ...", "science flag", etc.
+ */
+function extractDocScienceFlags(content: string): ScienceFlag[] {
+  const flags: ScienceFlag[] = [];
+  const lines = content.split('\n');
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const upper = line.toUpperCase();
+
+    // Explicit SCIENCE-FLAG markers
+    if (upper.includes('SCIENCE-FLAG') || upper.includes('SCIENCE FLAG')) {
+      const subsystems = extractSubsystems(line);
+      // Also check the next 2 lines for subsystem refs if this line has none
+      if (subsystems.length === 0) {
+        for (let j = 1; j <= 2 && i + j < lines.length; j++) {
+          subsystems.push(...extractSubsystems(lines[i + j]));
+        }
+      }
+      const resolved = upper.includes('RESOLVED') || upper.includes('ALREADY GATED') || upper.includes('ACCEPTED');
+      flags.push({
+        description: line.trim().replace(/^[#*\-\s]+/, '').slice(0, 200),
+        subsystems: [...new Set(subsystems)],
+        resolved,
+      });
+    }
+
+    // "confidence modifier" / "analytical output changes" / "modifies D1/D5" patterns
+    if (/confidence\s+(?:modifier|modification|dimension)/i.test(line) &&
+        /S\d{2}|cascade|downstream/i.test(line)) {
+      const subsystems = extractSubsystems(line);
+      // Check surrounding context for more subsystem refs
+      const context = lines.slice(Math.max(0, i - 2), Math.min(lines.length, i + 3)).join(' ');
+      const contextSubs = extractSubsystems(context);
+      flags.push({
+        description: line.trim().replace(/^[#*|\-\s]+/, '').slice(0, 200),
+        subsystems: [...new Set([...subsystems, ...contextSubs])],
+        resolved: false,
+      });
+    }
+  }
+
+  return flags;
+}
+
+/**
+ * Extract cascade/propagation references from doc text.
+ * Catches "cascade through SXX", "propagates to SXX", etc.
+ */
+function extractDocCascades(content: string): string[] {
+  const subsystems = new Set<string>();
+  const lines = content.split('\n');
+
+  for (const line of lines) {
+    if (/cascade|propagat/i.test(line)) {
+      for (const sub of extractSubsystems(line)) {
+        subsystems.add(sub);
+      }
+    }
+  }
+
+  return [...subsystems].sort();
 }
 
 function extractSubsystems(text: string): string[] {

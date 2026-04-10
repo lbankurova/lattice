@@ -64,7 +64,7 @@ export async function executeWorkflow(
   if (!opts.skipCoherence && topicName) {
     const stateDir = resolve(cwd, '.lattice/cycle-state');
     if (existsSync(stateDir)) {
-      const portfolio = loadPortfolioState(stateDir);
+      const portfolio = loadPortfolioState(stateDir, cwd);
       if (portfolio.length > 0) {
         const report = checkCoherence(portfolio);
         const safety = isTopicSafe(topicName, report);
