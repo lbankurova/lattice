@@ -12,6 +12,7 @@ export { resolveTemplate, resolveTemplates, buildInitialContext } from './templa
 export { executeNode, checkTriggerRule, CliAdapter } from './nodes.js';
 export { executeWorkflow } from './engine.js';
 export { loadPortfolioState, checkCoherence, isTopicSafe, formatReport } from './coherence.js';
+export { runAutopilot } from './autopilot.js';
 export type {
   Workflow, WorkflowNode, WorkflowRun, NodeResult,
   PlatformAdapter, ExecutionLayer, NodeType, TriggerRule,

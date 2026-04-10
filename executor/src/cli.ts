@@ -17,6 +17,7 @@ import { buildExecutionLayers } from './dag.js';
 import { executeWorkflow } from './engine.js';
 import { CliAdapter } from './nodes.js';
 import { loadPortfolioState, checkCoherence, isTopicSafe, formatReport } from './coherence.js';
+import { runAutopilot } from './autopilot.js';
 
 // ── Argument parsing ────────────────────────────────────────
 
@@ -347,6 +348,36 @@ function cmdStatus(): void {
   }
 }
 
+async function cmdAutopilot(): Promise<void> {
+  const flags = parseArgs();
+  const cwd = process.cwd();
+  const latticeRoot = findLatticeRoot();
+  const dryRun = 'dry-run' in flags;
+  const singlePass = !('loop' in flags); // Default: single pass. --loop for continuous.
+  const maxAdvance = parseInt(flags['max'] ?? '3', 10);
+
+  const adapter = new CliAdapter();
+
+  console.log('Lattice Autopilot v0.1.0');
+  console.log(`CWD: ${cwd}`);
+  console.log(`Lattice: ${latticeRoot}`);
+  console.log(`Mode: ${singlePass ? 'single pass' : 'continuous loop'}`);
+  console.log(`Max advance per loop: ${maxAdvance}`);
+  if (dryRun) console.log('DRY RUN — no workflows will execute');
+  console.log('');
+
+  const result = await runAutopilot({
+    cwd,
+    latticeRoot,
+    adapter,
+    maxAdvancePerLoop: maxAdvance,
+    dryRun,
+    singlePass,
+  });
+
+  process.exit(result.topicsFailed.length > 0 ? 1 : 0);
+}
+
 // ── Helpers ─────────────────────────────────────────────────
 
 function duration(start: string, end?: string): string {
@@ -381,6 +412,12 @@ switch (command) {
   case 'status':
     cmdStatus();
     break;
+  case 'autopilot':
+    cmdAutopilot().catch(err => {
+      console.error(err instanceof Error ? err.message : err);
+      process.exit(1);
+    });
+    break;
   default:
     console.log('Lattice Executor v0.1.0\n');
     console.log('Commands:');
@@ -390,5 +427,7 @@ switch (command) {
     console.log('  lattice inspect <workflow>');
     console.log('  lattice status                           Portfolio overview + coherence summary');
     console.log('  lattice coherence [topic]                Full conflict analysis');
+    console.log('  lattice autopilot [--dry-run] [--loop] [--max N]');
+    console.log('                                           Advance safe topics, batch human decisions');
     process.exit(command ? 1 : 0);
 }

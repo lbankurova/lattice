@@ -1,0 +1,105 @@
+workflow:
+  name: autopilot
+  version: 1
+  description: >
+    Portfolio orchestrator -- continuously advances safe topics, batches
+    human decisions. Replaces manual /lattice:cycle invocations.
+    Only stops for justified gates (SCIENCE-FLAG, BREAKS, REJECT,
+    persistent FLAWED, coherence conflicts).
+
+  inputs:
+    max_advance:
+      type: integer
+      default: 3
+      # Max topics to advance per loop iteration
+    single_pass:
+      type: boolean
+      default: true
+      # true = one iteration. false = loop until steady state.
+
+  # No per-topic state — autopilot reads ALL topic states.
+  # No lock — autopilot doesn't hold locks; sub-workflows manage their own.
+
+  # ── Nodes ──────────────────────────────────────────────────
+  #
+  # NOTE: This YAML is the specification of autopilot behavior.
+  # The actual implementation is in executor/src/autopilot.ts
+  # because the autopilot is a meta-loop over multiple workflows,
+  # not a linear DAG itself. The YAML serves as documentation
+  # and as the contract for Slack/web adapters.
+
+  nodes:
+
+    coherence-check:
+      type: skill
+      skill: null
+      context: inherit
+      prompt_append: |
+        Read all .lattice/cycle-state/*.yaml files.
+        For each active topic, read its research and synthesis docs.
+        Build subsystem-to-topic graph.
+        Detect: subsystem overlap, SF propagation, stale blueprints,
+        prerequisite violations, BREAKS cascade.
+        Output: CoherenceReport with safe/blocked/needsHuman lists.
+
+    classify-topics:
+      type: gate
+      depends_on: [coherence-check]
+      evaluate:
+        - condition: "{{nodes.coherence-check.output.safe}}.length > 0"
+          route: advance-batch
+        - condition: default
+          route: collect-decisions
+
+    advance-batch:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [classify-topics]
+      prompt_append: |
+        For each safe topic (up to max_advance):
+        1. Determine workflow from phase (research-complete -> blueprint-cycle, etc.)
+        2. Execute the workflow with skipCoherence=true
+        3. After each: re-run coherence check
+        4. If new blockers appear: stop advancing, collect decisions
+        Phase transitions are automatic — no approval gates.
+
+    re-check-coherence:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [advance-batch]
+      prompt_append: |
+        Re-run coherence after advancements.
+        New findings may create new conflicts.
+        If new blockers: route to collect-decisions.
+        If more safe topics and not single_pass: route back to advance-batch.
+
+    collect-decisions:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [classify-topics, re-check-coherence]
+      prompt_append: |
+        Collect all pending human decisions:
+        - Coherence conflicts (from blocked topics)
+        - Unresolved SCIENCE-FLAGs
+        - Persistent FLAWED from peer review
+        - BREAKS cascades
+        Present as a single batch.
+
+    present-batch:
+      type: approval
+      depends_on: [collect-decisions]
+      prompt: |
+        HUMAN DECISIONS NEEDED:
+        {{nodes.collect-decisions.output}}
+
+        For each decision, choose: resolve, override, or defer.
+      options:
+        - id: resolve
+          label: "Resolve selected conflicts (run distill/probe)"
+        - id: override
+          label: "Override selected — proceed despite conflicts"
+        - id: defer
+          label: "Defer all — stop autopilot"
