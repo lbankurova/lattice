@@ -1,0 +1,717 @@
+/**
+ * Coherence Engine — portfolio-level conflict detection.
+ *
+ * Reads all active cycle states, builds a subsystem-to-topic graph,
+ * detects conflicts that make it unsafe to advance a topic.
+ *
+ * Conflict types:
+ * 1. Subsystem overlap — two active topics propose changes to the same subsystem
+ * 2. Stale blueprint — blueprint validated before a newer finding that affects its subsystems
+ * 3. Unresolved cascade — SF or BREAKS in topic A propagates to subsystems used by topic B
+ * 4. Prerequisite violation — topic depends on another that hasn't completed
+ */
+
+import { readFileSync, readdirSync, existsSync } from 'node:fs';
+import yaml from 'js-yaml';
+
+// ── Types ───────────────────────────────────────────────────
+
+export interface TopicState {
+  topic: string;
+  phase: string;
+  currentStep: string;
+  startedAt: string;
+  subsystems: string[];          // S01, S02, etc.
+  scienceFlags: ScienceFlag[];
+  breaks: BreaksEntry[];
+  propagates: string[];          // Subsystem IDs that receive cascading changes
+  prerequisites: string[];       // Other topics this depends on
+  crossTopicInteractions: CrossTopicInteraction[];
+  keyDecisions: string[];
+  probeResult: string;           // ALL_SAFE, BREAKS, SCIENCE-FLAG, etc.
+  lastCheckpoint: string;        // Timestamp of last state update
+  stateFile: string;             // Path to the YAML file
+}
+
+export interface ScienceFlag {
+  description: string;
+  subsystems: string[];          // Which subsystems are affected
+  resolved: boolean;
+}
+
+export interface BreaksEntry {
+  description: string;
+  subsystems: string[];
+}
+
+export interface CrossTopicInteraction {
+  topic: string;
+  overlap: string;
+  resolution: string;
+}
+
+export type ConflictSeverity = 'blocker' | 'warning' | 'info';
+
+export interface Conflict {
+  severity: ConflictSeverity;
+  type: 'subsystem-overlap' | 'stale-blueprint' | 'unresolved-cascade' | 'prerequisite' | 'science-flag-propagation';
+  topics: string[];              // Topics involved
+  subsystems: string[];          // Subsystems at the intersection
+  description: string;
+  recommendation: string;        // What the human should decide
+}
+
+export interface CoherenceReport {
+  timestamp: string;
+  activeTopics: number;
+  conflicts: Conflict[];
+  safe: string[];                // Topics safe to advance
+  blocked: string[];             // Topics blocked by conflicts
+  needsHuman: string[];          // Topics that need human decision
+  subsystemHeatmap: Record<string, string[]>;  // Subsystem -> topics touching it
+}
+
+// ── State extraction ────────────────────────────────────────
+
+const SUBSYSTEM_RE = /S(\d{2})/g;
+const COMPLETED_PHASES = new Set(['complete', 'build-complete']);
+
+/**
+ * Read all cycle state files and extract topic states.
+ */
+export function loadPortfolioState(cycleStateDir: string): TopicState[] {
+  if (!existsSync(cycleStateDir)) return [];
+
+  const files = readdirSync(cycleStateDir).filter(f => f.endsWith('.yaml'));
+  const topics: TopicState[] = [];
+
+  for (const file of files) {
+    const path = `${cycleStateDir}/${file}`;
+    try {
+      const content = readFileSync(path, 'utf-8');
+      const data = yaml.load(content) as Record<string, unknown>;
+      if (!data) continue;
+
+      const phase = String(data['phase'] ?? '');
+      if (COMPLETED_PHASES.has(phase)) continue; // skip completed topics
+
+      const topic = extractTopicState(file.replace('.yaml', ''), data, content, path);
+      topics.push(topic);
+    } catch {
+      // Skip unparseable files
+    }
+  }
+
+  return topics;
+}
+
+function extractTopicState(
+  topicName: string,
+  data: Record<string, unknown>,
+  rawContent: string,
+  filePath: string,
+): TopicState {
+  const phase = String(data['phase'] ?? '');
+  const currentStep = String(data['current_step'] ?? '');
+
+  // Extract subsystem references from the entire file
+  const subsystems = extractSubsystems(rawContent);
+
+  // Extract science flags
+  const scienceFlags = extractScienceFlags(rawContent);
+
+  // Extract BREAKS
+  const breaks = extractBreaks(rawContent);
+
+  // Extract PROPAGATES
+  const propagates = extractPropagates(rawContent);
+
+  // Extract prerequisites
+  const prerequisites = extractPrerequisites(data);
+
+  // Extract cross-topic interactions
+  const crossTopicInteractions = extractCrossTopicInteractions(data);
+
+  // Extract key decisions
+  const keyDecisions = extractKeyDecisions(data);
+
+  // Extract probe result
+  const probeResult = extractProbeResult(rawContent);
+
+  // Find latest timestamp
+  const lastCheckpoint = findLatestTimestamp(rawContent);
+
+  return {
+    topic: topicName,
+    phase,
+    currentStep,
+    startedAt: String(data['started'] ?? data['started_at'] ?? ''),
+    subsystems,
+    scienceFlags,
+    breaks,
+    propagates,
+    prerequisites,
+    crossTopicInteractions,
+    keyDecisions,
+    probeResult,
+    lastCheckpoint,
+    stateFile: filePath,
+  };
+}
+
+function extractSubsystems(text: string): string[] {
+  const matches = new Set<string>();
+  let match;
+  const re = new RegExp(SUBSYSTEM_RE.source, 'g');
+  while ((match = re.exec(text)) !== null) {
+    matches.add('S' + match[1]);
+  }
+  return [...matches].sort();
+}
+
+function extractScienceFlags(text: string): ScienceFlag[] {
+  const flags: ScienceFlag[] = [];
+  const lines = text.split('\n');
+
+  for (const line of lines) {
+    const upper = line.toUpperCase();
+    if (upper.includes('SCIENCE-FLAG') || upper.includes('SCIENCE_FLAG')) {
+      const subsystems = extractSubsystems(line);
+      const resolved = upper.includes('RESOLVED') || upper.includes('ALREADY GATED');
+      flags.push({
+        description: line.trim().replace(/^[-"'\s]+/, '').replace(/["']+$/, ''),
+        subsystems,
+        resolved,
+      });
+    }
+  }
+
+  return flags;
+}
+
+function extractBreaks(text: string): BreaksEntry[] {
+  const entries: BreaksEntry[] = [];
+  const lines = text.split('\n');
+
+  for (const line of lines) {
+    // Match lines that mention BREAKS with actual content (not just "0 BREAKS")
+    if (/BREAKS/i.test(line) && !/0\s+BREAKS/i.test(line) && !/breaks:\s*0/i.test(line)) {
+      const subsystems = extractSubsystems(line);
+      entries.push({
+        description: line.trim().replace(/^[-"'\s]+/, '').replace(/["']+$/, ''),
+        subsystems,
+      });
+    }
+  }
+
+  return entries;
+}
+
+function extractPropagates(text: string): string[] {
+  const subsystems = new Set<string>();
+  const lines = text.split('\n');
+
+  for (const line of lines) {
+    if (/PROPAGATE/i.test(line)) {
+      for (const s of extractSubsystems(line)) {
+        subsystems.add(s);
+      }
+    }
+  }
+
+  return [...subsystems].sort();
+}
+
+function extractPrerequisites(data: Record<string, unknown>): string[] {
+  const prereqs: string[] = [];
+
+  // Direct prerequisite field
+  const prereq = data['prerequisite'] as string | undefined;
+  if (prereq) {
+    // Extract topic names from prerequisite text
+    const match = prereq.match(/(\S+-\S+)\s+must\s+be/);
+    if (match) prereqs.push(match[1]);
+  }
+
+  // Implementation context prerequisites
+  const ctx = data['implementation_context'] as Record<string, unknown> | undefined;
+  if (ctx?.['prerequisite']) {
+    const match = String(ctx['prerequisite']).match(/(\S+-\S+)\s+must\s+be/);
+    if (match) prereqs.push(match[1]);
+  }
+
+  return prereqs;
+}
+
+function extractCrossTopicInteractions(data: Record<string, unknown>): CrossTopicInteraction[] {
+  const interactions: CrossTopicInteraction[] = [];
+
+  // Walk the object tree looking for cross_topic_interactions arrays
+  const text = yaml.dump(data, { lineWidth: -1 });
+  const lines = text.split('\n');
+
+  let inCrossTopic = false;
+  let currentInteraction: Partial<CrossTopicInteraction> = {};
+
+  for (const line of lines) {
+    if (/cross_topic_interactions:/.test(line)) {
+      inCrossTopic = true;
+      continue;
+    }
+    if (inCrossTopic) {
+      const topicMatch = line.match(/topic:\s*(.+)/);
+      const overlapMatch = line.match(/overlap:\s*"?(.+?)"?\s*$/);
+      const resolutionMatch = line.match(/resolution:\s*"?(.+?)"?\s*$/);
+
+      if (topicMatch) currentInteraction.topic = topicMatch[1].trim().replace(/"/g, '');
+      if (overlapMatch) currentInteraction.overlap = overlapMatch[1].trim();
+      if (resolutionMatch) {
+        currentInteraction.resolution = resolutionMatch[1].trim();
+        if (currentInteraction.topic && currentInteraction.overlap) {
+          interactions.push(currentInteraction as CrossTopicInteraction);
+        }
+        currentInteraction = {};
+      }
+
+      // End of section (non-indented line)
+      if (line.match(/^[a-z]/)) {
+        inCrossTopic = false;
+      }
+    }
+  }
+
+  return interactions;
+}
+
+function extractKeyDecisions(data: Record<string, unknown>): string[] {
+  const decisions: string[] = [];
+  const text = yaml.dump(data, { lineWidth: -1 });
+
+  // Find key_decisions arrays
+  const re = /key_decisions:\s*\n((?:\s+-\s*.+\n)+)/g;
+  let match;
+  while ((match = re.exec(text)) !== null) {
+    const items = match[1].split('\n')
+      .filter(l => l.trim().startsWith('-'))
+      .map(l => l.trim().replace(/^-\s*"?/, '').replace(/"?\s*$/, ''));
+    decisions.push(...items);
+  }
+
+  return decisions;
+}
+
+function extractProbeResult(text: string): string {
+  // Find the probe verdict line
+  const lines = text.split('\n');
+  for (const line of lines) {
+    if (/probe.*result|result.*probe/i.test(line)) {
+      if (/ALL.SAFE/i.test(line)) return 'ALL_SAFE';
+      if (/BREAKS/i.test(line) && !/0\s+BREAKS/i.test(line)) return 'BREAKS';
+      if (/SCIENCE.FLAG/i.test(line) && !/0\s+SCIENCE/i.test(line)) return 'SCIENCE-FLAG';
+    }
+    // Also check probe: field in checkpoints
+    if (/probe:\s*"/.test(line)) {
+      if (/BREAKS/i.test(line) && !/0 BREAKS/i.test(line)) return 'BREAKS';
+      if (/SCIENCE.FLAG/i.test(line) && !/0 SCIENCE/i.test(line)) return 'SCIENCE-FLAG';
+    }
+  }
+  return 'unknown';
+}
+
+function findLatestTimestamp(text: string): string {
+  const timestamps = text.match(/\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}/g) ?? [];
+  if (timestamps.length === 0) return '';
+  return timestamps.sort().pop()!;
+}
+
+// ── Conflict detection ──────────────────────────────────────
+
+/**
+ * Run the full coherence check across all active topics.
+ */
+export function checkCoherence(topics: TopicState[]): CoherenceReport {
+  const conflicts: Conflict[] = [];
+
+  // Build subsystem heatmap
+  const heatmap = buildSubsystemHeatmap(topics);
+
+  // 1. Subsystem overlap — multiple active topics touching the same subsystem
+  conflicts.push(...detectSubsystemOverlap(topics, heatmap));
+
+  // 2. Unresolved science flag propagation
+  conflicts.push(...detectScienceFlagPropagation(topics, heatmap));
+
+  // 3. Stale blueprints
+  conflicts.push(...detectStaleBlueprints(topics));
+
+  // 4. Prerequisite violations
+  conflicts.push(...detectPrerequisiteViolations(topics));
+
+  // 5. Unresolved BREAKS cascading to other topics
+  conflicts.push(...detectBreaksCascade(topics, heatmap));
+
+  // Classify topics
+  const blockedSet = new Set<string>();
+  const needsHumanSet = new Set<string>();
+
+  for (const c of conflicts) {
+    for (const t of c.topics) {
+      if (c.severity === 'blocker') {
+        blockedSet.add(t);
+      } else if (c.severity === 'warning') {
+        needsHumanSet.add(t);
+      }
+    }
+  }
+
+  const advanceable = new Set(['research-complete', 'blueprint-complete', 'blueprint', 'research', 'build', 'spike']);
+  const safe = topics
+    .filter(t => advanceable.has(t.phase) && !blockedSet.has(t.topic) && !needsHumanSet.has(t.topic))
+    .map(t => t.topic);
+
+  return {
+    timestamp: new Date().toISOString(),
+    activeTopics: topics.length,
+    conflicts,
+    safe,
+    blocked: [...blockedSet],
+    needsHuman: [...needsHumanSet].filter(t => !blockedSet.has(t)),
+    subsystemHeatmap: heatmap,
+  };
+}
+
+function buildSubsystemHeatmap(topics: TopicState[]): Record<string, string[]> {
+  const heatmap: Record<string, string[]> = {};
+
+  for (const topic of topics) {
+    for (const sub of topic.subsystems) {
+      if (!heatmap[sub]) heatmap[sub] = [];
+      heatmap[sub].push(topic.topic);
+    }
+    // Also count propagates as touching
+    for (const sub of topic.propagates) {
+      if (!heatmap[sub]) heatmap[sub] = [];
+      if (!heatmap[sub].includes(topic.topic)) {
+        heatmap[sub].push(topic.topic);
+      }
+    }
+  }
+
+  return heatmap;
+}
+
+/**
+ * Detect when multiple active (non-complete) topics touch the same subsystem
+ * and at least one has unresolved science flags or BREAKS.
+ */
+function detectSubsystemOverlap(
+  topics: TopicState[],
+  heatmap: Record<string, string[]>,
+): Conflict[] {
+  const conflicts: Conflict[] = [];
+  const seen = new Set<string>();
+
+  for (const [sub, topicNames] of Object.entries(heatmap)) {
+    if (topicNames.length < 2) continue;
+
+    // Check if any of these topics have unresolved SFs or BREAKS on this subsystem
+    const topicsWithIssues = topics.filter(t =>
+      topicNames.includes(t.topic) && (
+        t.scienceFlags.some(sf => !sf.resolved && (sf.subsystems.includes(sub) || sf.subsystems.length === 0)) ||
+        t.breaks.some(b => b.subsystems.includes(sub) || b.subsystems.length === 0)
+      )
+    );
+
+    if (topicsWithIssues.length > 0) {
+      const key = topicNames.sort().join('+') + ':' + sub;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      const issueTopics = topicsWithIssues.map(t => t.topic);
+      const otherTopics = topicNames.filter(t => !issueTopics.includes(t));
+
+      conflicts.push({
+        severity: 'blocker',
+        type: 'subsystem-overlap',
+        topics: topicNames,
+        subsystems: [sub],
+        description: `${sub} is touched by ${topicNames.length} active topics (${topicNames.join(', ')}). ` +
+          `${issueTopics.join(', ')} have unresolved science flags or BREAKS on this subsystem.`,
+        recommendation: `Run distill across these topics to resolve the ${sub} conflict before advancing any of them.`,
+      });
+    } else if (topicNames.length >= 3) {
+      // High contention even without SFs — worth a warning
+      const key = topicNames.sort().join('+') + ':' + sub;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      conflicts.push({
+        severity: 'info',
+        type: 'subsystem-overlap',
+        topics: topicNames,
+        subsystems: [sub],
+        description: `${sub} is touched by ${topicNames.length} active topics: ${topicNames.join(', ')}.`,
+        recommendation: `No active conflicts, but high contention. Consider sequencing builds to avoid merge conflicts.`,
+      });
+    }
+  }
+
+  return conflicts;
+}
+
+/**
+ * Detect when a topic has an unresolved SCIENCE-FLAG that propagates to
+ * a subsystem used by another topic's blueprint.
+ */
+function detectScienceFlagPropagation(
+  topics: TopicState[],
+  heatmap: Record<string, string[]>,
+): Conflict[] {
+  const conflicts: Conflict[] = [];
+  const buildablePhases = new Set(['blueprint-complete', 'build']);
+
+  for (const source of topics) {
+    const unresolvedSFs = source.scienceFlags.filter(sf => !sf.resolved);
+    if (unresolvedSFs.length === 0) continue;
+
+    // For each unresolved SF, check which subsystems it affects
+    for (const sf of unresolvedSFs) {
+      const affectedSubs = sf.subsystems.length > 0
+        ? sf.subsystems
+        : source.subsystems; // If no specific subsystems, assume all of source's subsystems
+
+      for (const sub of affectedSubs) {
+        const consumers = (heatmap[sub] ?? []).filter(t => t !== source.topic);
+        const buildableConsumers = consumers.filter(t => {
+          const topicState = topics.find(ts => ts.topic === t);
+          return topicState && buildablePhases.has(topicState.phase);
+        });
+
+        if (buildableConsumers.length > 0) {
+          conflicts.push({
+            severity: 'blocker',
+            type: 'science-flag-propagation',
+            topics: [source.topic, ...buildableConsumers],
+            subsystems: [sub],
+            description: `${source.topic} has unresolved SCIENCE-FLAG affecting ${sub}: "${sf.description.slice(0, 120)}". ` +
+              `${buildableConsumers.join(', ')} are ready to build and depend on ${sub}.`,
+            recommendation: `Resolve the SF in ${source.topic} before building ${buildableConsumers.join(', ')}. ` +
+              `The build may need to account for the analytical change.`,
+          });
+        }
+      }
+    }
+  }
+
+  return conflicts;
+}
+
+/**
+ * Detect blueprints validated before a newer finding landed in a related topic.
+ */
+function detectStaleBlueprints(topics: TopicState[]): Conflict[] {
+  const conflicts: Conflict[] = [];
+  const blueprintPhases = new Set(['blueprint-complete']);
+
+  const blueprintTopics = topics.filter(t => blueprintPhases.has(t.phase));
+  const researchTopics = topics.filter(t =>
+    t.phase === 'research' || t.phase === 'research-complete'
+  );
+
+  for (const blueprint of blueprintTopics) {
+    for (const research of researchTopics) {
+      // Check if they share subsystems
+      const shared = blueprint.subsystems.filter(s => research.subsystems.includes(s));
+      if (shared.length === 0) continue;
+
+      // Check if research has newer findings (by timestamp)
+      if (research.lastCheckpoint > blueprint.lastCheckpoint) {
+        // Check for cross-topic interactions mentioning each other
+        const interaction = blueprint.crossTopicInteractions.find(
+          i => i.topic === research.topic
+        );
+
+        if (interaction) {
+          // Known interaction — check if resolution is still valid
+          conflicts.push({
+            severity: 'warning',
+            type: 'stale-blueprint',
+            topics: [blueprint.topic, research.topic],
+            subsystems: shared,
+            description: `${blueprint.topic}'s blueprint was validated before ${research.topic}'s latest research checkpoint. ` +
+              `They share subsystems [${shared.join(', ')}]. Known interaction: "${interaction.overlap}".`,
+            recommendation: `Verify that ${research.topic}'s latest findings don't invalidate ${blueprint.topic}'s blueprint. ` +
+              `Run targeted distill on the shared subsystems.`,
+          });
+        } else if (shared.length >= 2) {
+          // Unknown interaction with significant subsystem overlap
+          conflicts.push({
+            severity: 'warning',
+            type: 'stale-blueprint',
+            topics: [blueprint.topic, research.topic],
+            subsystems: shared,
+            description: `${blueprint.topic}'s blueprint (${blueprint.lastCheckpoint.slice(0, 10)}) predates ` +
+              `${research.topic}'s latest findings (${research.lastCheckpoint.slice(0, 10)}). ` +
+              `${shared.length} shared subsystems [${shared.join(', ')}] with no documented cross-topic interaction.`,
+            recommendation: `Run distill across both topics to check for undocumented conflicts on [${shared.join(', ')}].`,
+          });
+        }
+      }
+    }
+  }
+
+  return conflicts;
+}
+
+/**
+ * Detect topics that depend on others that haven't completed.
+ */
+function detectPrerequisiteViolations(topics: TopicState[]): Conflict[] {
+  const conflicts: Conflict[] = [];
+  const allTopicNames = new Set(topics.map(t => t.topic));
+
+  for (const topic of topics) {
+    for (const prereq of topic.prerequisites) {
+      // Check if prerequisite is still active (not completed)
+      if (allTopicNames.has(prereq)) {
+        const prereqTopic = topics.find(t => t.topic === prereq)!;
+        if (!COMPLETED_PHASES.has(prereqTopic.phase)) {
+          conflicts.push({
+            severity: 'blocker',
+            type: 'prerequisite',
+            topics: [topic.topic, prereq],
+            subsystems: [],
+            description: `${topic.topic} requires ${prereq} to complete first, ` +
+              `but ${prereq} is still in phase "${prereqTopic.phase}".`,
+            recommendation: `Advance ${prereq} to completion before building ${topic.topic}.`,
+          });
+        }
+      }
+    }
+  }
+
+  return conflicts;
+}
+
+/**
+ * Detect unresolved BREAKS that cascade to other topics' subsystems.
+ */
+function detectBreaksCascade(
+  topics: TopicState[],
+  heatmap: Record<string, string[]>,
+): Conflict[] {
+  const conflicts: Conflict[] = [];
+
+  for (const source of topics) {
+    if (source.breaks.length === 0) continue;
+
+    for (const brk of source.breaks) {
+      const affectedSubs = brk.subsystems.length > 0
+        ? brk.subsystems
+        : source.subsystems;
+
+      for (const sub of affectedSubs) {
+        const consumers = (heatmap[sub] ?? []).filter(t => t !== source.topic);
+        if (consumers.length > 0) {
+          conflicts.push({
+            severity: 'blocker',
+            type: 'unresolved-cascade',
+            topics: [source.topic, ...consumers],
+            subsystems: [sub],
+            description: `${source.topic} has unresolved BREAKS on ${sub}: "${brk.description.slice(0, 120)}". ` +
+              `This cascades to: ${consumers.join(', ')}.`,
+            recommendation: `Resolve the BREAKS in ${source.topic} before advancing dependent topics.`,
+          });
+        }
+      }
+    }
+  }
+
+  return conflicts;
+}
+
+// ── Report formatting ───────────────────────────────────────
+
+/**
+ * Format a coherence report for terminal display.
+ */
+export function formatReport(report: CoherenceReport): string {
+  const lines: string[] = [];
+
+  lines.push('COHERENCE REPORT');
+  lines.push('='.repeat(70));
+  lines.push(`Active topics: ${report.activeTopics}`);
+  lines.push(`Conflicts: ${report.conflicts.length} (${report.conflicts.filter(c => c.severity === 'blocker').length} blockers, ${report.conflicts.filter(c => c.severity === 'warning').length} warnings)`);
+  lines.push(`Safe to advance: ${report.safe.length}`);
+  lines.push(`Blocked: ${report.blocked.length}`);
+  lines.push(`Needs human: ${report.needsHuman.length}`);
+  lines.push('');
+
+  // Blockers
+  const blockers = report.conflicts.filter(c => c.severity === 'blocker');
+  if (blockers.length > 0) {
+    lines.push('BLOCKERS');
+    lines.push('-'.repeat(70));
+    for (const c of blockers) {
+      lines.push(`  [${c.type}] ${c.description}`);
+      lines.push(`  -> ${c.recommendation}`);
+      lines.push('');
+    }
+  }
+
+  // Warnings
+  const warnings = report.conflicts.filter(c => c.severity === 'warning');
+  if (warnings.length > 0) {
+    lines.push('WARNINGS');
+    lines.push('-'.repeat(70));
+    for (const c of warnings) {
+      lines.push(`  [${c.type}] ${c.description}`);
+      lines.push(`  -> ${c.recommendation}`);
+      lines.push('');
+    }
+  }
+
+  // Safe
+  if (report.safe.length > 0) {
+    lines.push('SAFE TO ADVANCE');
+    lines.push('-'.repeat(70));
+    for (const t of report.safe) {
+      lines.push(`  ${t}`);
+    }
+    lines.push('');
+  }
+
+  // Subsystem heatmap (only show contended subsystems)
+  const contended = Object.entries(report.subsystemHeatmap)
+    .filter(([_, topics]) => topics.length >= 2)
+    .sort(([, a], [, b]) => b.length - a.length);
+
+  if (contended.length > 0) {
+    lines.push('SUBSYSTEM HEATMAP (contended)');
+    lines.push('-'.repeat(70));
+    for (const [sub, topics] of contended) {
+      lines.push(`  ${sub}: ${topics.join(', ')}`);
+    }
+    lines.push('');
+  }
+
+  return lines.join('\n');
+}
+
+/**
+ * Check if a specific topic is safe to advance given the current portfolio state.
+ * Used by the executor as a pre-advancement gate.
+ */
+export function isTopicSafe(topic: string, report: CoherenceReport): {
+  safe: boolean;
+  conflicts: Conflict[];
+} {
+  const topicConflicts = report.conflicts.filter(c =>
+    c.topics.includes(topic) && c.severity !== 'info'
+  );
+
+  return {
+    safe: topicConflicts.length === 0,
+    conflicts: topicConflicts,
+  };
+}

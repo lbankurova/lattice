@@ -16,6 +16,7 @@ import { loadWorkflow, resolveWorkflowPath } from './loader.js';
 import { buildExecutionLayers } from './dag.js';
 import { executeWorkflow } from './engine.js';
 import { CliAdapter } from './nodes.js';
+import { loadPortfolioState, checkCoherence, isTopicSafe, formatReport } from './coherence.js';
 
 // ── Argument parsing ────────────────────────────────────────
 
@@ -236,6 +237,116 @@ function cmdInspect(): void {
   }
 }
 
+function cmdCoherence(): void {
+  const flags = parseArgs();
+  const cwd = process.cwd();
+  const stateDir = resolve(cwd, '.lattice/cycle-state');
+
+  if (!existsSync(stateDir)) {
+    console.error(`No cycle state directory at ${stateDir}`);
+    process.exit(1);
+  }
+
+  const topics = loadPortfolioState(stateDir);
+
+  if (topics.length === 0) {
+    console.log('No active topics found.');
+    return;
+  }
+
+  const report = checkCoherence(topics);
+  console.log(formatReport(report));
+
+  // If a specific topic was asked about, show its safety
+  const topic = flags['topic'] ?? args[1];
+  if (topic) {
+    const safety = isTopicSafe(topic, report);
+    console.log('');
+    console.log(`TOPIC CHECK: ${topic}`);
+    console.log('-'.repeat(70));
+    if (safety.safe) {
+      console.log('  SAFE to advance. No blocking conflicts.');
+    } else {
+      console.log(`  BLOCKED by ${safety.conflicts.length} conflict(s):`);
+      for (const c of safety.conflicts) {
+        console.log(`    [${c.severity}] ${c.type}: ${c.description.slice(0, 100)}`);
+      }
+    }
+  }
+
+  process.exit(report.conflicts.filter(c => c.severity === 'blocker').length > 0 ? 1 : 0);
+}
+
+function cmdStatus(): void {
+  const cwd = process.cwd();
+  const stateDir = resolve(cwd, '.lattice/cycle-state');
+
+  if (!existsSync(stateDir)) {
+    console.error(`No cycle state directory at ${stateDir}`);
+    process.exit(1);
+  }
+
+  const topics = loadPortfolioState(stateDir);
+
+  if (topics.length === 0) {
+    console.log('No active topics found.');
+    return;
+  }
+
+  // Group by phase
+  const byPhase: Record<string, typeof topics> = {};
+  for (const t of topics) {
+    const phase = t.phase || 'unknown';
+    if (!byPhase[phase]) byPhase[phase] = [];
+    byPhase[phase].push(t);
+  }
+
+  const phaseOrder = ['research', 'research-complete', 'blueprint', 'blueprint-complete', 'build', 'spike', 'bugfix', 'building', 'unknown'];
+
+  console.log('PORTFOLIO STATUS');
+  console.log('='.repeat(70));
+  console.log(`Active topics: ${topics.length}`);
+  console.log('');
+
+  for (const phase of phaseOrder) {
+    const phaseTopics = byPhase[phase];
+    if (!phaseTopics) continue;
+
+    console.log(`${phase.toUpperCase()} (${phaseTopics.length})`);
+    console.log('-'.repeat(70));
+
+    for (const t of phaseTopics) {
+      const sfCount = t.scienceFlags.filter(sf => !sf.resolved).length;
+      const brkCount = t.breaks.length;
+      const subs = t.subsystems.length > 0 ? `[${t.subsystems.slice(0, 6).join(',')}]` : '';
+      const flags: string[] = [];
+      if (sfCount > 0) flags.push(`SF:${sfCount}`);
+      if (brkCount > 0) flags.push(`BRK:${brkCount}`);
+      if (t.prerequisites.length > 0) flags.push(`prereq:${t.prerequisites.join(',')}`);
+      const flagStr = flags.length > 0 ? ` ${flags.join(' ')}` : '';
+
+      console.log(`  ${t.topic.padEnd(45)} ${t.currentStep.padEnd(16)} ${subs}${flagStr}`);
+    }
+    console.log('');
+  }
+
+  // Run coherence and show summary
+  const report = checkCoherence(topics);
+  const blockers = report.conflicts.filter(c => c.severity === 'blocker');
+  const warnings = report.conflicts.filter(c => c.severity === 'warning');
+
+  if (blockers.length > 0 || warnings.length > 0) {
+    console.log(`COHERENCE: ${blockers.length} blockers, ${warnings.length} warnings`);
+    console.log('Run `lattice coherence` for details.');
+  } else {
+    console.log(`COHERENCE: clean`);
+  }
+
+  if (report.safe.length > 0) {
+    console.log(`READY TO ADVANCE: ${report.safe.join(', ')}`);
+  }
+}
+
 // ── Helpers ─────────────────────────────────────────────────
 
 function duration(start: string, end?: string): string {
@@ -264,6 +375,12 @@ switch (command) {
   case 'inspect':
     cmdInspect();
     break;
+  case 'coherence':
+    cmdCoherence();
+    break;
+  case 'status':
+    cmdStatus();
+    break;
   default:
     console.log('Lattice Executor v0.1.0\n');
     console.log('Commands:');
@@ -271,5 +388,7 @@ switch (command) {
     console.log('  lattice validate [workflow]');
     console.log('  lattice list');
     console.log('  lattice inspect <workflow>');
+    console.log('  lattice status                           Portfolio overview + coherence summary');
+    console.log('  lattice coherence [topic]                Full conflict analysis');
     process.exit(command ? 1 : 0);
 }

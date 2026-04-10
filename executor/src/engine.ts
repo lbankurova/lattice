@@ -15,6 +15,8 @@ import type {
 import { buildExecutionLayers } from './dag.js';
 import { buildInitialContext, resolveTemplate, type TemplateContext } from './template.js';
 import { executeNode, checkTriggerRule } from './nodes.js';
+import { loadPortfolioState, checkCoherence, isTopicSafe, formatReport } from './coherence.js';
+import { resolve } from 'node:path';
 
 export interface EngineOptions {
   /** Working directory for bash commands and state files */
@@ -25,6 +27,8 @@ export interface EngineOptions {
   dryRun?: boolean;
   /** Lattice root directory (for resolving skill paths) */
   latticeRoot: string;
+  /** Skip coherence check (for sub-workflows called by autopilot which already checked) */
+  skipCoherence?: boolean;
 }
 
 /**
@@ -52,6 +56,54 @@ export async function executeWorkflow(
   for (const [name, spec] of Object.entries(wf.inputs)) {
     if (!(name in inputs) && spec.default !== undefined) {
       inputs[name] = spec.default;
+    }
+  }
+
+  // Coherence gate — check for cross-topic conflicts before advancing
+  const topicName = String(inputs['topic'] ?? '');
+  if (!opts.skipCoherence && topicName) {
+    const stateDir = resolve(cwd, '.lattice/cycle-state');
+    if (existsSync(stateDir)) {
+      const portfolio = loadPortfolioState(stateDir);
+      if (portfolio.length > 0) {
+        const report = checkCoherence(portfolio);
+        const safety = isTopicSafe(topicName, report);
+
+        if (!safety.safe) {
+          await adapter.sendMessage(`\nCOHERENCE CHECK FAILED for "${topicName}":`);
+          for (const c of safety.conflicts) {
+            await adapter.sendMessage(`  [${c.severity}] ${c.type}: ${c.description}`);
+            await adapter.sendMessage(`  -> ${c.recommendation}`);
+          }
+
+          const blockers = safety.conflicts.filter(c => c.severity === 'blocker');
+          if (blockers.length > 0) {
+            // Ask the human: proceed anyway or stop?
+            const decision = await adapter.promptApproval(
+              `${blockers.length} blocker(s) detected. Proceeding may build against stale or conflicting assumptions.`,
+              [
+                { id: 'stop', label: 'Stop — resolve conflicts first' },
+                { id: 'proceed', label: 'Proceed anyway — I accept the risk' },
+              ]
+            );
+
+            if (decision === 'stop') {
+              return {
+                workflowName: wf.name,
+                inputs,
+                startedAt: new Date().toISOString(),
+                completedAt: new Date().toISOString(),
+                status: 'paused',
+                nodeResults: {},
+                activeRoutes: new Set(),
+              };
+            }
+            await adapter.sendMessage('Coherence override accepted. Proceeding with known conflicts.');
+          }
+        } else {
+          await adapter.sendMessage(`Coherence check: CLEAN (no conflicts for "${topicName}")`);
+        }
+      }
     }
   }
 
