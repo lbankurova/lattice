@@ -48,58 +48,58 @@ Then determine what kind of work you're reviewing:
 
 ---
 
-## Step 0.5: Architect Review (ALL work — produces ARCHITECT REVIEW section)
+## Step 1: Parallel agent reviews (ALL work — produces ARCHITECT REVIEW + DECISION AUDIT + REQUIREMENT TRACE sections)
 
-**Launch a separate agent** with the architect-reviewer instructions (`agents/architect-reviewer.md`).
+**Launch all applicable review agents in parallel.** These agents are independent by design — each receives zero implementation context, preventing confirmation bias. Running them concurrently cuts review wall-clock time without sacrificing quality.
 
-For spec work: the architect gate already ran during the research cycle (Step 7.5). Skip this step but note: "Architect review: passed during synthesis (see `peer-reviews/{topic}-architect-review.md`)."
+Collect inputs once before launching:
+- `git diff --name-only` — changed file list
+- `git diff` — full diff
+- Spec path (if spec work)
+- Implement audit table (if available from `/lattice:implement`)
 
-For non-spec work (spikes, bug fixes, ad-hoc): this is the only architect check. Launch with:
-- **Prompt:** Full architect-reviewer agent instructions
-- **Input:** The changed file list (`git diff --name-only`), the full diff, and the guardrails doc path
+### Agents to launch
+
+**Send all applicable agents in a single message with multiple Agent tool calls:**
+
+#### Agent A: Architect Reviewer (ALL work)
+
+For spec work where the architect gate already ran during research: skip this agent but note: "Architect review: passed during synthesis (see `peer-reviews/{topic}-architect-review.md`)."
+
+For all other work (spikes, bug fixes, ad-hoc):
+- **Agent type:** `architect-reviewer`
+- **Input:** Changed file list, full diff, guardrails doc path
 - **Mode:** "review" (diff review)
 
-Include the architect's report in the ARCHITECT REVIEW output section. If the architect returns SCIENCE-FLAG, the overall review cannot PASS until the user explicitly acknowledges each flag.
+#### Agent B: Decision Auditor (ALL work)
 
-| Architect verdict | Review action |
-|-------------------|---------------|
-| PASS | Note in section, continue |
-| SIMPLIFY | List items in section. User decides: fix now or accept. If "fix now", fix before continuing review. |
-| SCIENCE-FLAG | List in section. **WAIT** for user acknowledgment on each flag before continuing. |
-
----
-
-## Step 1: Decision Audit (ALL work — produces DECISION AUDIT section)
-
-**Launch a separate agent** with the decision-auditor instructions (`agents/decision-auditor.md`).
-
-The decision auditor is independent — it evaluates decisions without implementation context, preventing the confirmation bias of self-assessment. This is the enforcement mechanism for rules 13 (merit-driven) and 14 (no unprompted deferrals).
-
-Launch with:
-- **Prompt:** Full decision-auditor agent instructions
-- **Input:** (1) Spec path (if spec work), (2) changed file list (`git diff --name-only`), (3) full diff, (4) implement audit table (if available from `/lattice:implement`)
+- **Agent type:** `decision-auditor`
+- **Input:** (1) Spec path (if spec work), (2) changed file list, (3) full diff, (4) implement audit table (if available)
 - **No implementation context.** Do not include design rationale, conversation history, or decision notes.
 
-| Auditor verdict | Review action |
-|-----------------|---------------|
-| **PASS** | Include report in DECISION AUDIT section, continue |
-| **FAIL: EFFORT-BIASED** | **STOP** — present flagged decisions to user. Fix before continuing. |
-| **FAIL: UNPROMPTED-DEFERRAL** | **STOP** — present deferrals to user. Either do the work now or get explicit approval to defer. |
-| **FAIL: SILENT-DROP** | **STOP** — present dropped requirements. Either implement or get explicit approval to defer. |
-| **INSUFFICIENT-RATIONALE** | Present to user for clarification. If user provides rationale, continue. If not, treat as EFFORT-BIASED. |
+#### Agent C: Independent Requirement Reviewer (spec work only)
 
-Include the auditor's full report in the DECISION AUDIT output section.
-
----
-
-## Step 1b: Launch independent review agent (spec work only)
-
-**Do not perform this step yourself.** Launch a separate agent. The agent that implemented the code has confirmation bias — it will recall what it intended to write, not what it actually wrote.
-
-Launch the agent with:
 - **Prompt:** "You are reviewing someone else's implementation against a spec. You have not seen the implementation before. Your job is to find every mismatch between spec and code. Read the spec file, then read each changed file, and produce the evidence table described below."
-- **Inputs:** (1) The spec file path. (2) The list of changed/created files. (3) The evidence format template from Step 2.
+- **Input:** (1) Spec file path, (2) changed/created file list, (3) evidence format template from Step 2
 - **No implementation context.** Do not include implementation notes, rationale, or design decisions. The agent must form its own understanding from the spec and code alone.
+
+### Convergence — wait for all agents, then evaluate verdicts
+
+**Trigger rule: `all_done`.** Wait for every launched agent to return before proceeding. Then evaluate each verdict:
+
+| Agent | Verdict | Review action |
+|-------|---------|---------------|
+| Architect | PASS | Note in ARCHITECT REVIEW section, continue |
+| Architect | SIMPLIFY | List items. User decides: fix now or accept. If "fix now", fix before continuing. |
+| Architect | SCIENCE-FLAG | List in section. **WAIT** for user acknowledgment on each flag before continuing. |
+| Decision Auditor | PASS | Include report in DECISION AUDIT section, continue |
+| Decision Auditor | FAIL: EFFORT-BIASED | **STOP** — present flagged decisions to user. Fix before continuing. |
+| Decision Auditor | FAIL: UNPROMPTED-DEFERRAL | **STOP** — present deferrals to user. Do the work now or get explicit approval to defer. |
+| Decision Auditor | FAIL: SILENT-DROP | **STOP** — present dropped requirements. Implement or get explicit approval to defer. |
+| Decision Auditor | INSUFFICIENT-RATIONALE | Present to user. If user provides rationale, continue. If not, treat as EFFORT-BIASED. |
+| Requirement Reviewer | Evidence table | Feed into Step 2 (four-dimension trace). Merge with your own verification. |
+
+**Any STOP verdict blocks the review** regardless of what the other agents returned. Process all STOP verdicts together — present them as a batch, not one at a time.
 
 If the spec has its own verification checklist, tell the agent to run it first. Every item: PASS, FAIL, or N/A with a file:line reference.
 
@@ -390,6 +390,16 @@ During the review you may have identified research gaps, data gaps, or implement
 2. **Read `docs/_internal/TODO.md`** — for each data gap or implementation gap, append with appropriate `[Area:]` tag.
 3. **If the implementation phase already logged gaps (implement.md Step E)**, verify they're still in REGISTRY.md and TODO.md — don't duplicate, but confirm they weren't lost.
 
+### 5c: Bug registry (bug fixes — produces BUG SWEEP line in GAPS output)
+
+If this commit fixes a bug (`fix:` prefix, bug-fix `Layer:` trailer, or behavioral correction embedded in a `feat:` commit):
+
+1. **Read `docs/_internal/BUG-SWEEP.md`** — scan for an existing entry covering this bug (search by component, symptom, or GAP/BUG ID).
+2. **If entry exists** with status `open`/`triaged`/`batched` → update status to `fixed`, fill in commit SHA, root_cause if missing.
+3. **If no entry exists** → create one with the next sequential BUG-ID. Required fields: status (`fixed`), category, component, observed behavior (1-2 sentences), root_cause (1-2 sentences), commit SHA. Optional: view, repro, screenshot.
+4. **Update the Summary table** counts (increment `fixed`, decrement prior status if transitioning).
+5. **For `feat:` commits with embedded fixes**: if the commit message or diff reveals a behavioral correction (e.g., "scaling fix", "scoping fix", "dedup"), log the bug portion as a separate entry. The feature is tracked in ROADMAP; the bug needs its own registry entry or it becomes invisible.
+
 **Include a gap summary in the review output:**
 
 ```
@@ -397,9 +407,11 @@ GAPS PERSISTED:
 - [N] research gaps → REGISTRY.md
 - [N] data/impl gaps → TODO.md
 - [N] gaps already logged by implementation (verified)
+- [N] bugs → BUG-SWEEP.md (new: [IDs], updated: [IDs])
 ```
 
 If no gaps were found, state: `GAPS: None identified.` This is informational — zero gaps is a valid outcome, not a missing section.
+If no bug fix component exists, state: `BUG SWEEP: N/A — no bug-fix component in this commit.`
 
 ---
 

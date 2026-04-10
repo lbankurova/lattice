@@ -1,0 +1,604 @@
+workflow:
+  name: bug-fix-cycle
+  version: 1
+  description: >
+    Bug fix cycle -- classify, log, investigate (read-only), fix, test,
+    stress-test pattern, review (parallel agents), self-fix, update all artifacts.
+    Severity-based routing controls investigation depth.
+
+  inputs:
+    topic:
+      type: string
+      required: true
+      # Bug description or BUG-NNN ID
+    files:
+      type: string
+      required: false
+      # Affected file(s), comma-separated. Auto-detected from description if omitted.
+    severity_override:
+      type: string
+      required: false
+      # Override auto-classification: silent-wrong-answer | misleading-display | crash | cosmetic
+
+  state:
+    file: ".lattice/cycle-state/bugfix-{{inputs.topic}}.yaml"
+    resume_from: current_step
+    revision_check: true
+    initial:
+      phase: bugfix
+      current_step: bugfix.0
+
+  lock:
+    type: topic
+    key: "bugfix-{{inputs.topic}}"
+    holder: bug-fix-cycle
+
+  # ── Nodes ──────────────────────────────────────────────────
+
+  nodes:
+
+    # ── Layer 0: Lock ────────────────────────────────────────
+
+    acquire-lock:
+      type: bash
+      command: bash scripts/acquire-topic-lock.sh "bugfix-{{inputs.topic}}" "bug-fix-cycle"
+      on_failure: stop
+
+    # ═══════════════════════════════════════════════════════════
+    # PHASE 1: CLASSIFY + LOG
+    # ═══════════════════════════════════════════════════════════
+
+    # ── Layer 1: Classify ────────────────────────────────────
+    #
+    # Lightweight classification: severity, category, pattern family.
+    # Uses cheap model, zero write tools -- pure analysis.
+
+    classify:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [acquire-lock]
+      prompt_append: |
+        Classify this bug. You may ONLY read files -- do not edit anything.
+
+        Bug: "{{inputs.topic}}"
+        Files: {{inputs.files}}
+
+        Determine:
+
+        1. **Severity** (from bug-stress severity scale):
+           - `silent-wrong-answer` -- produced incorrect analytical output without error (WORST)
+           - `misleading-display` -- showed wrong data in UI
+           - `crash` -- threw an exception
+           - `cosmetic` -- visual glitch, no data impact
+
+        2. **BUG-SWEEP category** (from docs/_internal/BUG-SWEEP.md):
+           pane-drift | stale-state | count-mismatch | cache-staleness |
+           layout | interaction | data-pipeline | other
+
+        3. **Pattern family** (from .lattice/bug-patterns.md):
+           null-handling | encoding-variance | threshold-boundary | domain-logic |
+           statistical-edge | contract-drift | species-variance | temporal-edge |
+           ui-state-sync | cascade-failure
+
+        4. **Subsystem** -- map affected files to subsystem IDs using
+           docs/_internal/knowledge/system-manifest.md
+
+        5. **Confidence** -- how sure are you about root cause?
+           high (clear from description) | medium (need investigation) | low (unclear)
+
+        If severity_override is provided, use it: {{inputs.severity_override}}
+
+        Output as structured block:
+        ```
+        CLASSIFICATION:
+          severity: {value}
+          category: {value}
+          pattern_family: {value}
+          subsystem: S{XX} ({name})
+          confidence: {high|medium|low}
+          reasoning: {1-2 sentences}
+        ```
+      checkpoint:
+        state_key: bugfix.1
+        captures: [severity, category, pattern_family, subsystem, confidence]
+      log: true
+
+    # ── Layer 2: Log to BUG-SWEEP ───────────────────────────
+
+    log-bug:
+      type: skill
+      skill: ops/bug
+      context: inherit
+      depends_on: [classify]
+      inputs:
+        description: "{{inputs.topic}}"
+        severity: "{{nodes.classify.output.severity}}"
+        category: "{{nodes.classify.output.category}}"
+        subsystem: "{{nodes.classify.output.subsystem}}"
+      checkpoint:
+        state_key: bugfix.2
+        captures: [bug_id]
+      log: true
+
+    # ── Layer 3: Severity routing ────────────────────────────
+
+    severity-gate:
+      type: gate
+      depends_on: [log-bug]
+      evaluate:
+        - condition: "{{nodes.classify.output.severity}} == 'silent-wrong-answer' || {{nodes.classify.output.severity}} == 'misleading-display'"
+          route: investigate-full
+        - condition: "{{nodes.classify.output.severity}} == 'crash'"
+          route: investigate-focused
+        - condition: "{{nodes.classify.output.severity}} == 'cosmetic'"
+          route: investigate-minimal
+        - condition: default
+          route: investigate-focused
+
+    # ═══════════════════════════════════════════════════════════
+    # PHASE 2: INVESTIGATE (read-only)
+    # ═══════════════════════════════════════════════════════════
+
+    # ── Full investigation (silent-wrong-answer, misleading-display) ──
+
+    investigate-full:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [severity-gate]
+      # MECHANICALLY ENFORCED: read-only
+      # denied_tools: [Write, Edit]
+      prompt_append: |
+        **READ-ONLY INVESTIGATION. Do NOT edit any files.**
+
+        You are investigating bug "{{inputs.topic}}" ({{nodes.classify.output.severity}}).
+        Classification: {{nodes.classify.output.pattern_family}} in {{nodes.classify.output.subsystem}}.
+
+        ## Protocol
+
+        ### 1. Read the full module
+        Read EVERY file involved -- not just the error line. For CSS/layout bugs,
+        map the complete parent-child layout chain.
+
+        ### 2. Five-Whys root cause analysis
+        For each "why", provide mandatory file:line evidence:
+        ```
+        Why 1: {symptom} -- {file}:{line} shows {code}
+        Why 2: {cause of symptom} -- {file}:{line} shows {code}
+        Why 3: {cause of cause} -- {file}:{line} shows {code}
+        Why 4: {deeper cause} -- {file}:{line} shows {code}
+        Why 5: {root cause} -- {file}:{line} shows {code}
+        ```
+        Stop before 5 if root cause is found. Never go beyond 5.
+
+        ### 3. git blame on affected lines
+        Run `git log --oneline -5 -- {file}` for each affected file.
+        Note when the bug was introduced and by which commit.
+
+        ### 4. Check domain-critical status
+        Read docs/_internal/knowledge/code-quality-guardrails.md.
+        Is the affected code listed as domain-critical? If yes, flag as
+        SCIENCE-SENSITIVE -- the fix must not change analytical behavior
+        beyond correcting the bug.
+
+        ### 5. Scope boundaries
+        ```
+        IN SCOPE (touch these):
+          - {file}:{line range} -- {what to change and why}
+          - ...
+
+        OUT OF SCOPE (do NOT touch):
+          - {file/module} -- {why it's tempting but wrong}
+          - ...
+        ```
+
+        ### 6. Fix hypothesis
+        State ONE clear hypothesis for the fix. Include:
+        - What to change (specific code, not "refactor the module")
+        - What test to write (specific assertion)
+        - What could go wrong (side effects, edge cases)
+
+        ### Output artifact
+        Write the full investigation to the terminal. Structure:
+        ```
+        INVESTIGATION: {{inputs.topic}}
+        ================================
+        Severity:    {{nodes.classify.output.severity}}
+        Pattern:     {{nodes.classify.output.pattern_family}}
+        Subsystem:   {{nodes.classify.output.subsystem}}
+        Confidence:  {high|medium|low}
+        Domain-critical: {yes|no}
+
+        ROOT CAUSE (5-Whys):
+          {whys with file:line evidence}
+
+        HISTORY:
+          Introduced: {commit} by {author} on {date}
+          Context: {why the bug was introduced -- intent of the original change}
+
+        SCOPE:
+          IN:  {files to touch}
+          OUT: {files to avoid}
+
+        FIX HYPOTHESIS:
+          {what to change, what test to write, what could go wrong}
+        ```
+      gate_check:
+        has_root_cause: "output.contains('ROOT CAUSE')"
+        has_scope: "output.contains('IN SCOPE') && output.contains('OUT OF SCOPE')"
+        has_hypothesis: "output.contains('FIX HYPOTHESIS')"
+        on_fail: retry
+      checkpoint:
+        state_key: bugfix.3
+        captures: [root_cause, scope_in, scope_out, hypothesis, domain_critical]
+
+    # ── Focused investigation (crash/error) ──────────────────
+
+    investigate-focused:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [severity-gate]
+      # denied_tools: [Write, Edit]
+      prompt_append: |
+        **READ-ONLY INVESTIGATION. Do NOT edit any files.**
+
+        Bug: "{{inputs.topic}}" ({{nodes.classify.output.severity}}).
+        Pattern: {{nodes.classify.output.pattern_family}} in {{nodes.classify.output.subsystem}}.
+
+        ## Focused protocol (crash/error severity)
+
+        1. Read the full module(s) involved
+        2. State root cause hypothesis with file:line evidence (no 5-Whys needed)
+        3. Define scope boundaries (IN SCOPE / OUT OF SCOPE)
+        4. State fix hypothesis
+
+        Output:
+        ```
+        INVESTIGATION: {{inputs.topic}}
+        ================================
+        ROOT CAUSE: {hypothesis with file:line evidence}
+        SCOPE IN:   {files to touch}
+        SCOPE OUT:  {files to avoid}
+        FIX:        {what to change}
+        TEST:       {what to assert}
+        ```
+      gate_check:
+        has_root_cause: "output.contains('ROOT CAUSE')"
+        has_scope: "output.contains('SCOPE')"
+        on_fail: retry
+      checkpoint:
+        state_key: bugfix.3
+        captures: [root_cause, scope_in, scope_out, hypothesis]
+
+    # ── Minimal investigation (cosmetic) ─────────────────────
+
+    investigate-minimal:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [severity-gate]
+      # denied_tools: [Write, Edit]
+      prompt_append: |
+        **READ-ONLY INVESTIGATION. Do NOT edit any files.**
+
+        Cosmetic bug: "{{inputs.topic}}".
+        Read the affected file(s). State what to change and why in 3-5 lines.
+        No formal investigation artifact needed.
+
+        ```
+        COSMETIC FIX: {file}:{line} -- {what to change}
+        ```
+      checkpoint:
+        state_key: bugfix.3
+        captures: [fix_description]
+
+    # ═══════════════════════════════════════════════════════════
+    # PHASE 3: FIX + TEST
+    # ═══════════════════════════════════════════════════════════
+
+    # ── Layer 5: Fix ─────────────────────────────────────────
+    #
+    # Scope-constrained: only touch files listed in IN SCOPE.
+    # Type-check runs after every edit (PostToolUse hook).
+
+    fix:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [investigate-full, investigate-focused, investigate-minimal]
+      # trigger_rule: one_success (only one investigation path runs)
+      prompt_append: |
+        Implement the fix based on the investigation above.
+
+        **Constraints:**
+        - ONLY touch files listed in the investigation's IN SCOPE section.
+          If you need to touch something in OUT OF SCOPE, STOP and explain why.
+        - After EVERY edit, verify the build still passes.
+        - Do NOT refactor surrounding code. Fix the bug, nothing more.
+        - If the investigation flagged domain-critical code, apply SCIENCE-FLAG
+          discipline: verify the fix doesn't change analytical behavior beyond
+          correcting the bug.
+
+        **Steps:**
+        1. Make the fix (minimal, scoped)
+        2. Run `npm run build` (frontend) or Python syntax check (backend)
+        3. Verify the fix addresses the root cause, not just the symptom
+      checkpoint:
+        state_key: bugfix.4
+        captures: [files_changed, fix_description]
+
+    # ── Layer 6: Write test ──────────────────────────────────
+
+    write-test:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [fix]
+      prompt_append: |
+        Write a test that:
+        1. **Reproduces the exact bug** -- would fail on the old code
+        2. **Covers the edge case** -- not just the happy path
+        3. **Is in the right test file** for the affected subsystem
+
+        Check the test strategy in docs/_internal/knowledge/code-quality-guardrails.md
+        to determine the right test type (unit, integration, fixture-based).
+
+        For engine/analytical bugs: use fixture tests against real generated JSON,
+        NOT mirror-pattern tests (CLAUDE.md rule 18).
+
+        Run the test and verify it passes.
+      gate_check:
+        test_exists: "output.contains('.test.') || output.contains('.spec.')"
+        on_fail: retry
+      checkpoint:
+        state_key: bugfix.5
+        captures: [test_file, test_description]
+
+    # ═══════════════════════════════════════════════════════════
+    # PHASE 4: STRESS TEST
+    # ═══════════════════════════════════════════════════════════
+
+    # ── Layer 7: Bug stress ──────────────────────────────────
+    #
+    # Skip for cosmetic bugs. Mandatory for everything else.
+
+    stress-gate:
+      type: gate
+      depends_on: [write-test]
+      evaluate:
+        - condition: "{{nodes.classify.output.severity}} == 'cosmetic'"
+          route: review
+        - condition: default
+          route: bug-stress
+
+    bug-stress:
+      type: skill
+      skill: ops/bug-stress
+      context: inherit
+      depends_on: [stress-gate]
+      inputs:
+        files: "{{nodes.fix.output.files_changed}}"
+      # bug-stress runs 7 steps:
+      #   1. Classify (already done -- feed classification forward)
+      #   2. Identify blast radius (system manifest)
+      #   3. Pattern search across subsystems
+      #   4. Verify test coverage
+      #   5. Grow oracle (write tests for same-pattern instances)
+      #   6. Persist systemic gaps (TODO.md, REGISTRY.md if 3+ instances)
+      #   7. Log to decisions.log and report
+      checkpoint:
+        state_key: bugfix.6
+        captures: [blast_radius, same_pattern_count, tests_added, commit_ready]
+      log: true
+
+    # ═══════════════════════════════════════════════════════════
+    # PHASE 5: REVIEW (parallel agents) + SELF-FIX
+    # ═══════════════════════════════════════════════════════════
+
+    # ── Layer 8: Review ──────────────────────────────────────
+    #
+    # Full review with parallel agents. For bug fixes, the review
+    # traces against the investigation artifact (not a spec).
+
+    review:
+      type: skill
+      skill: lattice/review
+      context: inherit
+      depends_on: [bug-stress, stress-gate]
+      # trigger_rule: one_success (stress-gate routes either through
+      # bug-stress or directly to review for cosmetic)
+      inputs:
+        topic: "bugfix-{{inputs.topic}}"
+      # Review runs:
+      #   Step 1: Parallel agents (architect + decision auditor)
+      #   Step 2: Four-dimension trace (against code intent, not spec)
+      #   Step 3: Mechanical checks
+      #   Step 5: Gap persistence
+      #   Step 7: Commit gate
+      checkpoint:
+        state_key: bugfix.7
+        captures: [verdict, review_findings]
+      log: true
+
+    # ── Layer 9: Self-fix (review findings) ──────────────────
+    #
+    # Address CRITICAL/HIGH findings from review automatically.
+    # MEDIUM/LOW left for user. SCIENCE-FLAG stops for human.
+
+    self-fix-gate:
+      type: gate
+      depends_on: [review]
+      evaluate:
+        - condition: "{{nodes.review.output.verdict}} == 'PASS'"
+          route: update-artifacts
+        - condition: "{{nodes.review.output.has_science_flag}} == true"
+          route: self-fix-stop-science
+        - condition: "{{nodes.review.output.has_critical_or_high}} == true"
+          route: self-fix
+        - condition: default
+          route: update-artifacts
+
+    self-fix:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [self-fix-gate]
+      prompt_append: |
+        The review found CRITICAL or HIGH findings that need fixing.
+        Address ONLY the CRITICAL and HIGH findings listed below.
+
+        **Constraints:**
+        - Fix ONLY what the review flagged. Do not make additional changes.
+        - Do not touch MEDIUM or LOW findings -- leave for user.
+        - Run build check after every edit.
+        - If a finding requires touching OUT OF SCOPE code, STOP and ask.
+
+        After fixing, run `npm run build` and `npm test` to verify.
+      checkpoint:
+        state_key: bugfix.7b
+        captures: [self_fix_changes]
+
+    self-fix-stop-science:
+      type: approval
+      depends_on: [self-fix-gate]
+      prompt: >
+        Review raised SCIENCE-FLAG. Analytical behavior changes need
+        scientist review before proceeding.
+      options:
+        - id: accept
+          label: "Accept -- proceed with fix"
+          route: update-artifacts
+        - id: revise
+          label: "Revise fix"
+          route: fix
+        - id: abort
+          label: "Abort"
+          route: release-lock
+
+    # ═══════════════════════════════════════════════════════════
+    # PHASE 6: UPDATE ALL ARTIFACTS
+    # ═══════════════════════════════════════════════════════════
+
+    update-artifacts:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [self-fix-gate, self-fix]
+      # trigger_rule: one_success
+      prompt_append: |
+        Update all bug-related artifacts before commit.
+        This is mandatory -- a bug fix without updated artifacts is incomplete.
+
+        ## 1. BUG-SWEEP.md (docs/_internal/BUG-SWEEP.md)
+
+        Find the entry created in the log-bug step ({{nodes.log-bug.output.bug_id}}).
+        Update:
+        - status: fixed
+        - root_cause: {from investigation}
+        - commit: (will be filled at commit time -- write "(pending)")
+
+        Update the Summary table counts (increment fixed, decrement open).
+
+        ## 2. bug-patterns.md (.lattice/bug-patterns.md)
+
+        In the Instance Log section (below the "Append entries below" marker), add:
+        ```
+        {today's date} | {{nodes.classify.output.pattern_family}} | {{nodes.classify.output.subsystem}} | {{inputs.topic}} | {1-line fix description} | {count of tests added} | {{nodes.bug-stress.output.same_pattern_count}}
+        ```
+
+        In the Pattern Families table, increment the Instances count for the
+        matching family.
+
+        ## 3. decisions.log (.lattice/decisions.log)
+
+        Append (if not already logged by bug-stress):
+        ```
+        {timestamp}	bug-fix-cycle	FIXED	bugfix-{{inputs.topic}}	severity:{{nodes.classify.output.severity}} pattern:{{nodes.classify.output.pattern_family}} same-pattern:{{nodes.bug-stress.output.same_pattern_count}}	{one-line summary}
+        ```
+
+        ## 4. TODO.md (docs/_internal/TODO.md)
+
+        If bug-stress found systemic gaps (3+ same-pattern instances),
+        verify the PATTERN-GAP entry exists. If not, create it.
+
+        ## 5. REGISTRY.md (docs/_internal/research/REGISTRY.md)
+
+        If bug-stress recommended a research stream (pattern suggests
+        deeper investigation needed), verify the stream exists.
+
+        ## Verification
+
+        After updating all artifacts, list what was updated:
+        ```
+        ARTIFACTS UPDATED:
+          BUG-SWEEP.md:    {{nodes.log-bug.output.bug_id}} -> status:fixed
+          bug-patterns.md: {{nodes.classify.output.pattern_family}} instance #{N}
+          decisions.log:   entry appended
+          TODO.md:         {PATTERN-GAP added | no systemic gap}
+          REGISTRY.md:     {stream added/updated | no research needed}
+        ```
+      gate_check:
+        all_updated: "output.contains('ARTIFACTS UPDATED')"
+        on_fail: retry
+      checkpoint:
+        state_key: bugfix.8
+        captures: [artifacts_updated]
+
+    # ═══════════════════════════════════════════════════════════
+    # PHASE 7: COMMIT + COMPLETE
+    # ═══════════════════════════════════════════════════════════
+
+    commit:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [update-artifacts]
+      prompt_append: |
+        Ready to commit. Acquire commit lock, merge shared state, stage, commit.
+
+        1. Acquire lock:
+           ```bash
+           bash scripts/acquire-lock.sh "bugfix-{{inputs.topic}}" --poll
+           bash scripts/merge-shared-state.sh
+           ```
+
+        2. Stage all changed files (code + tests + updated artifacts)
+
+        3. Commit with message format:
+           ```
+           fix: {concise description}
+
+           Root cause: {1 sentence from investigation}
+           Pattern: {{nodes.classify.output.pattern_family}}
+           Severity: {{nodes.classify.output.severity}}
+           Coverage: {coverage tag if applicable}
+           Layer: bug-fix
+           ```
+
+        4. After commit, update BUG-SWEEP.md entry with actual commit SHA.
+           Stage and amend (this one time, amending is correct -- adding SHA to the same commit).
+
+        5. Release lock and clean up:
+           ```bash
+           bash scripts/release-lock.sh
+           rm -f .lattice/engine-changed .lattice/validation-compared 2>/dev/null
+           ```
+
+        If commit fails, release the lock immediately.
+      checkpoint:
+        state_key: bugfix.9
+        captures: [commit_hash]
+
+    complete:
+      type: bash
+      depends_on: [commit]
+      command: bash scripts/release-topic-lock.sh "bugfix-{{inputs.topic}}"
+      checkpoint:
+        state_key: complete
+        phase: complete
+
+    release-lock:
+      type: bash
+      command: bash scripts/release-topic-lock.sh "bugfix-{{inputs.topic}}"

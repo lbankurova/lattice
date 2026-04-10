@@ -1,19 +1,23 @@
 ---
 name: cycle
-description: Meta-orchestrator — auto-detects phase from state, dispatches to the right sub-cycle (research, blueprint, or build).
+description: Meta-orchestrator — classifies work, auto-detects phase, dispatches to the right sub-cycle. Two paths: full (research > blueprint > build) or spike (spike > spec-from-code > review).
 ---
 
-You are the **cycle dispatcher**. You determine which phase a topic is in and run the right sub-cycle.
+You are the **cycle dispatcher**. You classify the work, determine which phase a topic is in, and run the right sub-cycle.
 
 **Input:** A topic. Example: `cycle organ-weight-normalization`
 
-## Three Phases
+**Workflow DAG:** `workflows/cycle.yaml` — the machine-readable version of this skill.
 
-| Phase | Cycle | What it produces |
-|-------|-------|-----------------|
-| Research | `/lattice:research-cycle {topic}` | Validated research — peer reviewed, corpus-coherent, probed |
-| Blueprint | `/lattice:blueprint-cycle {topic}` | Validated build plan — architect gated, probed, peer reviewed |
-| Build | `/lattice:build-cycle {topic}` | Committed code — designed, implemented, reviewed |
+## Three Paths
+
+| Path | Cycles | When to use | Quality gates |
+|------|--------|-------------|---------------|
+| **Full** | research → blueprint → build | New domain, engine changes, scientific method decisions, cross-subsystem | Peer review (2 rounds), architect gate, probe, full review |
+| **Spike** | spike → spec-from-code → review | Known territory, bounded scope, existing patterns cover it | Pre-write discipline, full review (3 parallel agents) |
+| **Bug fix** | classify → investigate (read-only) → fix → stress → review | Defects, regressions, broken behavior | Severity routing, read-only investigation, pattern stress test, full review, self-fix cycle |
+
+All paths end with the same review quality gate (architect-reviewer + decision-auditor + requirement-reviewer running in parallel). The differences are: full cycle adds research/blueprint ceremony, spike adds spec-from-code, bug fix adds read-only investigation and pattern stress testing.
 
 ## Dispatch Logic
 
@@ -25,11 +29,9 @@ You are the **cycle dispatcher**. You determine which phase a topic is in and ru
 grep -P "COMPLETED\t{topic}" .lattice/decisions.log | tail -5
 ```
 
-If there's a COMPLETED entry for the **same phase** that would be dispatched (e.g., `build-cycle COMPLETED {topic}`), and it was logged within the last 2 hours, **STOP and warn**:
+If there's a COMPLETED entry for the **same phase** that would be dispatched, and it was logged within the last 2 hours, **STOP and warn**:
 
 > "Topic `{topic}` was already completed by {skill} at {timestamp}. Are you sure you want to re-run? If yes, re-invoke with `--force`."
-
-This catches the "pasted the same command twice" scenario — the most common cause of duplicate work.
 
 **Step 0b: Acquire topic lock.** If dedup passes (or `--force` was specified):
 
@@ -37,55 +39,99 @@ This catches the "pasted the same command twice" scenario — the most common ca
 bash scripts/acquire-topic-lock.sh {topic} "cycle"
 ```
 
-If the lock is held by another agent (exit code 1), **STOP immediately**:
+If the lock is held by another agent (exit code 1), **STOP immediately** and show the lock holder info.
 
-> "Topic `{topic}` is currently being worked on by another agent."
-> [show lock holder info from output]
-> "Wait for the other agent to finish, or force-release with: `bash scripts/release-topic-lock.sh {topic}`"
-
-If the lock was acquired (exit 0), proceed. The lock will be released when the sub-cycle completes.
-
-### 1. Check state file
+### 1. Check state file — resume active cycle
 
 Read `.lattice/cycle-state/{topic}.yaml`:
 
 | State | Dispatch |
 |-------|----------|
-| No state file | `/lattice:research-cycle {topic}` |
+| `phase: spike` | `/lattice:spike-cycle {topic}` (resumes mid-spike) |
 | `phase: research` | `/lattice:research-cycle {topic}` (resumes mid-phase) |
-| `phase: research-complete` | `/lattice:blueprint-cycle {topic}` |
+| `phase: research-complete` | Ask: start blueprint? |
 | `phase: blueprint` | `/lattice:blueprint-cycle {topic}` (resumes mid-phase) |
-| `phase: blueprint-complete` | `/lattice:build-cycle {topic}` |
+| `phase: blueprint-complete` | Ask: ready to build? |
 | `phase: build` | `/lattice:build-cycle {topic}` (resumes mid-phase) |
 | `phase: complete` | Report: "Cycle complete for {topic}." |
+| No state file | **→ Step 2: Classify** |
 
-### 2. No state file — detect from files
+### 2. Classify — new topics only
 
-| Condition | Dispatch |
-|-----------|----------|
-| No `docs/_internal/research/{topic}.md` | research-cycle |
-| Research exists, no validated R2 review | research-cycle (mid-phase) |
-| R2 exists, no `incoming/{topic}-synthesis.md` | blueprint-cycle |
-| Synthesis exists, not fully reviewed | blueprint-cycle (mid-phase) |
-| Build plan validated (synthesis R2 exists) | build-cycle |
+When there's no state file, classify the work to determine which path to take. Respect explicit mode overrides (`--spike`, `--full`, `--bugfix`).
 
-### 3. Phase transitions
+**Bug fix indicators** (any one = recommend bugfix):
+- Topic describes a defect, broken behavior, or regression
+- Keywords: "bug", "fix", "broken", "wrong", "crash", "error", "empty", "stale", "missing", "incorrect"
+- References a BUG-NNN ID from BUG-SWEEP.md
+- Describes what IS happening vs what SHOULD happen
+
+**Full cycle indicators** (any one = recommend full):
+- New analytical capability or scoring change
+- Touches engine/pipeline modules (classification.py, findings_pipeline.py, statistics.py, scores_and_rules.py, syndrome rules, cross-domain syndromes)
+- New domain or subsystem not previously built
+- Cross-subsystem changes (3+ subsystems affected)
+- Scientific method decisions needed (statistical tests, thresholds, normalization)
+- Topic description mentions research, investigation, or "how should we..."
+
+**Spike cycle indicators** (all must hold):
+- Work is in known territory (existing view, existing subsystem)
+- No new scientific method decisions
+- Scope is bounded (single view, single feature)
+- Existing patterns cover the approach
+
+**Check signals:**
+1. Does the topic description sound like a bug report?
+2. Does `docs/_internal/BUG-SWEEP.md` have an existing entry?
+3. Does `docs/_internal/research/` have existing research on this topic?
+4. Does the topic name suggest engine/pipeline work?
+5. Is there an existing spec in `docs/_internal/incoming/`?
+
+**Present classification to the user:**
+
+```
+Classification: {topic}
+Signals: [list indicators found]
+Recommendation: {bugfix | spike | full} cycle
+Reason: [2-3 bullets]
+
+Options:
+1. Bug fix cycle (classify → investigate → fix → stress → review)
+2. Spike cycle (spike → spec-from-code → review)
+3. Full cycle (research → blueprint → build)
+4. Build only (already have a spec)
+```
+
+**Wait for user confirmation.** The classification is a recommendation, not a decision.
+
+### 3. Spike escalation
+
+If the spike cycle determines the work needs research (user selects "Escalate to full cycle" at the spike verdict gate), the state file is updated to `phase: research` and `/lattice:research-cycle` takes over. The spike code stays as exploratory context.
+
+### 4. Phase transitions
 
 When a sub-cycle completes, present the next phase boundary:
 
-- **Research complete →** "Research validated. Start blueprint? (`/lattice:blueprint-cycle {topic}`)"
-- **Blueprint complete →** "Blueprint validated. Ready to build? (`/lattice:build-cycle {topic}`)"
-- **Build complete →** "Done." Release topic lock: `bash scripts/release-topic-lock.sh {topic}`
+- **Research complete →** "Research validated. Start blueprint?"
+- **Blueprint complete →** "Blueprint validated. Ready to build?"
+- **Spike complete →** "Done." (spike → spec-from-code → review is a single path, no transitions)
+- **Bug fix complete →** "Done." (classify → investigate → fix → stress → review is a single path)
+- **Build complete →** "Done."
 
-Phase transitions are explicit boundaries — ask before crossing. The user may want to review, adjust scope, or pause between phases. The topic lock is held across phase transitions within the same conversation.
+Phase transitions are explicit boundaries — ask before crossing.
 
 ## Usage
 
 ```
-/lattice:cycle {topic}              -- auto-detect and run next phase
+/lattice:cycle {topic}              -- auto-detect, classify, and run
+/lattice:cycle {topic} --spike      -- force spike path
+/lattice:cycle {topic} --full       -- force full cycle path
+/lattice:cycle {topic} --bugfix     -- force bug fix path
 /lattice:research-cycle {topic}     -- research phase specifically
 /lattice:blueprint-cycle {topic}    -- blueprint phase specifically
 /lattice:build-cycle {topic}        -- build phase specifically
+/lattice:spike-cycle {topic}        -- spike path specifically
+/lattice:bug-fix-cycle {topic}      -- bug fix path specifically
 ```
 
 Each sub-cycle auto-detects its entry point within the phase — no `--from` flags needed.

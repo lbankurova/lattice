@@ -89,6 +89,29 @@ cd <project>/frontend && npm test         # Vitest
 
 19. **Frontend UI gate (mandatory for all frontend work).** Read the project's `frontend-ui-gate.md` rule file before writing any UI code. Core principle: find the existing working pattern and copy it — never design from scratch when a reference exists. Every new chart, table, panel, or interaction must match an existing approved instance. Strip pass is mandatory after building.
 
+## Workflow DAGs
+
+Development cycles are defined as YAML DAGs in `workflows/`. The DAG defines orchestration structure (what runs when, dependencies, gates, routing); markdown skills (`commands/lattice/*.md`) define what each node does.
+
+| File | Cycle | Nodes |
+|---|---|---|
+| `workflows/cycle.yaml` | Meta-orchestrator — classify, detect phase, dispatch | 16 |
+| `workflows/research-cycle.yaml` | Research — produce, challenge, validate | 17 |
+| `workflows/blueprint-cycle.yaml` | Blueprint — synthesize, gate, probe, review plan | 20 |
+| `workflows/build-cycle.yaml` | Build — implement, review, commit | 6 |
+| `workflows/spike-cycle.yaml` | Spike — explore, generate spec, full review | 8 |
+| `workflows/bug-fix-cycle.yaml` | Bug fix — classify, investigate (read-only), fix, stress, review, self-fix | 19 |
+
+**Schema reference:** `workflows/schema.md` — node types, template expressions, execution rules.
+
+**Node types:** `bash` (shell command), `skill` (AI agent with skill prompt), `gate` (conditional routing), `approval` (human decision point), `parallel` (concurrent group with trigger rules).
+
+**Three paths:** The meta-orchestrator (`cycle.yaml`) classifies new topics and routes to: full cycle (research → blueprint → build) for complex/new-domain work, spike cycle (spike → spec-from-code → review) for known-territory work, or bug fix cycle (classify → investigate → fix → stress → review) for defects. All end with the same review quality gate. Classification is presented to the user for confirmation, not auto-decided.
+
+**Multi-platform:** The YAML DAG is the API contract. Executors (CLI, phone, Slack, web, CI) read the same workflow; only approval UX differs per platform.
+
+**Relationship to markdown skills:** YAML DAGs complement, not replace. The DAG references skills by name (`skill: lattice/research`). The executor reads the DAG, resolves the topological order, and dispatches each node using the skill's prompt. Markdown skills remain the authoritative source for agent instructions.
+
 ## Concurrent Sessions
 
 When multiple agents work in parallel terminals on the same repo:

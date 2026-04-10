@@ -1,0 +1,119 @@
+workflow:
+  name: build-cycle
+  version: 1
+  description: >
+    Build phase -- design, implement, review, commit.
+    Takes a validated blueprint and delivers code.
+
+  inputs:
+    topic:
+      type: string
+      required: false       # Optional if spec_path provided directly
+    spec_path:
+      type: path
+      required: false       # Optional if topic provided (derived from state)
+    # One of topic or spec_path must be provided.
+    # topic: reads spec path from cycle-state blueprint checkpoint
+    # spec_path: direct entry, skips prerequisite check
+
+  state:
+    file: ".lattice/cycle-state/{{inputs.topic}}.yaml"
+    resume_from: current_step
+    revision_check: true
+    initial:
+      phase: build
+      current_step: build.0
+    prerequisite:
+      phase: blueprint-complete         # Skipped for spec_path entry
+
+  lock:
+    type: topic
+    key: "{{inputs.topic}}"
+    holder: build-cycle
+
+  # ── Nodes ──────────────────────────────────────────────────
+
+  nodes:
+
+    # ── Layer 0: Lock ────────────────────────────────────────
+
+    acquire-lock:
+      type: bash
+      command: bash scripts/acquire-topic-lock.sh "{{inputs.topic}}" "build-cycle"
+      on_failure: stop
+
+    # ── Layer 1: Implement ───────────────────────────────────
+
+    implement:
+      type: skill
+      skill: lattice/implement
+      context: inherit
+      depends_on: [acquire-lock]
+      inputs:
+        spec_path: "{{inputs.spec_path}}"
+      # Implement handles its own internal phases:
+      #   Phase 0: load and plan
+      #   Phase 1-N: for each phase, design (if new UI) -> implement -> ops:check
+      #   Phase N+1: compile implementation audit
+      # Implement does NOT run review.
+      checkpoint:
+        state_key: build.1
+        captures: [key_decisions, deviations, audit_table]
+      log: true
+
+    # ── Layer 2: Review ──────────────────────────────────────
+    #
+    # Review now launches 3 agents in parallel (architect-reviewer,
+    # decision-auditor, post-impl-reviewer) then converges before
+    # mechanical checks. See commands/lattice/review.md Step 1.
+
+    review:
+      type: skill
+      skill: lattice/review
+      context: inherit
+      depends_on: [implement]
+      inputs:
+        spec_path: "{{inputs.spec_path}}"
+        topic: "{{inputs.topic}}"
+      # Review produces 7 mandatory sections:
+      #   CHANGES, ARCHITECT REVIEW, DECISION AUDIT,
+      #   REQUIREMENT TRACE, MECHANICAL CHECKS, DOCS UPDATE, VERDICT
+      # Review offers to commit when all checks pass.
+      checkpoint:
+        state_key: build.2
+        captures: [verdict, commit_hash, gaps_persisted]
+      log: true
+
+    # ── Layer 3: Post-Ship Spec Refresh ──────────────────────
+
+    spec-refresh:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [review]
+      prompt_append: |
+        Post-ship spec refresh. Check whether this implementation invalidates
+        downstream specs:
+        1. Scan docs/_internal/incoming/ for synthesis docs that depend on
+           the subsystems just shipped.
+        2. For each: compare field names, module locations, data shape assumptions
+           against the actual shipped code.
+        3. If mismatches: update the spec in-place, log each correction.
+        4. If none found: state "No dependent specs found in incoming/."
+      checkpoint:
+        state_key: build.3
+        captures: [specs_refreshed]
+
+    # ── Layer 4: Complete ────────────────────────────────────
+
+    complete:
+      type: bash
+      depends_on: [spec-refresh]
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}"
+      checkpoint:
+        state_key: complete
+        phase: complete
+
+    release-lock:
+      type: bash
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}"

@@ -1,0 +1,265 @@
+workflow:
+  name: cycle
+  version: 1
+  description: >
+    Meta-orchestrator -- classifies work, auto-detects phase from state,
+    dispatches to the right sub-cycle workflow.
+    Two paths: full cycle (research > blueprint > build) for new/complex work,
+    spike cycle (spike > spec-from-code > review) for known-territory work.
+
+  inputs:
+    topic:
+      type: string
+      required: true
+    force:
+      type: boolean
+      default: false
+    mode:
+      type: string
+      default: auto
+      # auto: orchestrator classifies and recommends
+      # spike: force spike cycle
+      # full: force full cycle
+      # bugfix: force bug-fix cycle
+
+  state:
+    file: ".lattice/cycle-state/{{inputs.topic}}.yaml"
+    resume_from: current_step
+
+  # No lock at this level -- sub-cycles manage their own locks.
+  # Cycle dispatcher only reads state, classifies, and routes.
+
+  # ── Nodes ──────────────────────────────────────────────────
+
+  nodes:
+
+    # ── Layer 0: Deduplication ───────────────────────────────
+
+    dedup-check:
+      type: bash
+      command: |
+        RECENT=$(grep -P "COMPLETED\t{{inputs.topic}}" .lattice/decisions.log 2>/dev/null | tail -5)
+        if [ -n "$RECENT" ]; then
+          LAST_TIME=$(echo "$RECENT" | tail -1 | cut -f1)
+          echo "RECENT_COMPLETION=$LAST_TIME"
+          echo "$RECENT"
+        else
+          echo "NO_RECENT_COMPLETION"
+        fi
+      on_failure: continue
+
+    dedup-gate:
+      type: gate
+      depends_on: [dedup-check]
+      evaluate:
+        - condition: "{{inputs.force}} == true"
+          route: detect-phase
+        - condition: "{{nodes.dedup-check.output}}.contains('NO_RECENT_COMPLETION')"
+          route: detect-phase
+        - condition: default
+          route: dedup-approval
+
+    dedup-approval:
+      type: approval
+      depends_on: [dedup-gate]
+      prompt: >
+        Topic {{inputs.topic}} was recently completed.
+        Are you sure you want to re-run?
+      options:
+        - id: yes
+          label: "Yes, re-run"
+          route: detect-phase
+        - id: no
+          label: "No, abort"
+
+    # ── Layer 1: Phase Detection ─────────────────────────────
+    #
+    # If state exists, resume the active cycle (no classification needed).
+    # Classification only runs for NEW topics (no state file).
+
+    detect-phase:
+      type: gate
+      depends_on: [dedup-gate]
+      evaluate:
+        # Existing state -- resume active cycle
+        - condition: "{{state.phase}} == 'bugfix'"
+          route: dispatch-bugfix
+        - condition: "{{state.phase}} == 'spike'"
+          route: dispatch-spike
+        - condition: "{{state.phase}} == 'research'"
+          route: dispatch-research
+        - condition: "{{state.phase}} == 'research-complete'"
+          route: transition-to-blueprint
+        - condition: "{{state.phase}} == 'blueprint'"
+          route: dispatch-blueprint
+        - condition: "{{state.phase}} == 'blueprint-complete'"
+          route: transition-to-build
+        - condition: "{{state.phase}} == 'build'"
+          route: dispatch-build
+        - condition: "{{state.phase}} == 'complete'"
+          route: already-complete
+        # No state file -- needs classification
+        - condition: default
+          route: classify
+
+    # ── Layer 1b: Classification (new topics only) ───────────
+    #
+    # Determines whether to run the full cycle or the spike cycle.
+    # Evaluates: scope, domain novelty, engine impact, user override.
+
+    classify:
+      type: gate
+      depends_on: [detect-phase]
+      evaluate:
+        # User forced a mode
+        - condition: "{{inputs.mode}} == 'bugfix'"
+          route: dispatch-bugfix
+        - condition: "{{inputs.mode}} == 'spike'"
+          route: dispatch-spike
+        - condition: "{{inputs.mode}} == 'full'"
+          route: dispatch-research
+        # Auto-classification: check for signals that need full cycle
+        - condition: default
+          route: classify-auto
+
+    classify-auto:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [classify]
+      prompt_append: |
+        Classify whether topic "{{inputs.topic}}" needs the full research cycle
+        or can use the lightweight spike cycle. Evaluate these signals:
+
+        **Bug fix indicators** (any one = recommend bugfix):
+        - Topic describes a defect, broken behavior, or regression
+        - Keywords: "bug", "fix", "broken", "wrong", "crash", "error", "empty",
+          "stale", "missing", "incorrect", "doesn't work", "fails"
+        - References a BUG-NNN ID from BUG-SWEEP.md
+        - Describes what IS happening vs what SHOULD happen
+
+        **Full cycle indicators** (any one = recommend full):
+        - New analytical capability or scoring change
+        - Touches engine/pipeline modules (classification.py, findings_pipeline.py,
+          statistics.py, scores_and_rules.py, syndrome rules, cross-domain syndromes)
+        - New domain or subsystem not previously built
+        - Cross-subsystem changes (3+ subsystems affected)
+        - Scientific method decisions needed (statistical tests, thresholds, normalization)
+        - User's topic description mentions research, investigation, or "how should we..."
+
+        **Spike cycle indicators** (all must hold):
+        - Work is in known territory (existing view, existing subsystem)
+        - No new scientific method decisions
+        - Scope is bounded (single view, single feature)
+        - Existing patterns cover the approach (reuse > invent)
+
+        Check:
+        1. Does the topic description sound like a bug report?
+        2. Does docs/_internal/BUG-SWEEP.md have an existing entry for this?
+        3. Does docs/_internal/research/ have existing research on this topic?
+        4. Does the topic name suggest engine/pipeline work?
+        5. Is there an existing spec in docs/_internal/incoming/ for this?
+
+        Output exactly one line: RECOMMEND=bugfix or RECOMMEND=spike or RECOMMEND=full
+        Then 2-3 bullet justification.
+
+    classify-verdict:
+      type: approval
+      depends_on: [classify-auto]
+      prompt: |
+        Classification result for "{{inputs.topic}}":
+        {{nodes.classify-auto.output}}
+
+        Agree with the recommendation, or override?
+      options:
+        - id: bugfix
+          label: "Bug fix cycle (classify > investigate > fix > stress > review)"
+          route: dispatch-bugfix
+        - id: spike
+          label: "Spike cycle (spike > spec-from-code > review)"
+          route: dispatch-spike
+        - id: full
+          label: "Full cycle (research > blueprint > build)"
+          route: dispatch-research
+        - id: build-only
+          label: "Build only (have a spec already)"
+          route: dispatch-build
+
+    # ── Layer 1c: File-based fallback detection ──────────────
+
+    detect-from-files:
+      type: gate
+      depends_on: [detect-phase]
+      evaluate:
+        - condition: "!exists('docs/_internal/research/{{inputs.topic}}.md')"
+          route: dispatch-research
+        - condition: "!exists('docs/_internal/incoming/{{inputs.topic}}-synthesis.md')"
+          route: dispatch-blueprint
+        - condition: default
+          route: dispatch-build
+
+    # ── Layer 2: Phase transitions (approval gates) ──────────
+
+    transition-to-blueprint:
+      type: approval
+      depends_on: [detect-phase]
+      prompt: "Research validated for {{inputs.topic}}. Start blueprint?"
+      options:
+        - id: yes
+          label: "Start blueprint"
+          route: dispatch-blueprint
+        - id: no
+          label: "Not yet"
+
+    transition-to-build:
+      type: approval
+      depends_on: [detect-phase]
+      prompt: "Blueprint validated for {{inputs.topic}}. Ready to build?"
+      options:
+        - id: yes
+          label: "Start build"
+          route: dispatch-build
+        - id: no
+          label: "Not yet"
+
+    already-complete:
+      type: bash
+      depends_on: [detect-phase]
+      command: echo "Cycle complete for {{inputs.topic}}. Nothing to dispatch."
+
+    # ── Layer 3: Dispatch to sub-workflows ───────────────────
+
+    dispatch-bugfix:
+      type: skill
+      skill: lattice/bug-fix-cycle
+      context: inherit
+      inputs:
+        topic: "{{inputs.topic}}"
+
+    dispatch-spike:
+      type: skill
+      skill: lattice/spike-cycle
+      context: inherit
+      inputs:
+        topic: "{{inputs.topic}}"
+
+    dispatch-research:
+      type: skill
+      skill: lattice/research-cycle
+      context: inherit
+      inputs:
+        topic: "{{inputs.topic}}"
+
+    dispatch-blueprint:
+      type: skill
+      skill: lattice/blueprint-cycle
+      context: inherit
+      inputs:
+        topic: "{{inputs.topic}}"
+
+    dispatch-build:
+      type: skill
+      skill: lattice/build-cycle
+      context: inherit
+      inputs:
+        topic: "{{inputs.topic}}"

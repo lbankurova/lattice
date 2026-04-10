@@ -1,0 +1,161 @@
+workflow:
+  name: spike-cycle
+  version: 1
+  description: >
+    Lightweight cycle -- spike, generate spec from code, full review.
+    For known-territory work that doesn't need research/blueprint ceremony.
+    Still gets all quality gates (architect, decision auditor, requirement trace).
+
+  inputs:
+    topic:
+      type: string
+      required: true
+    question:
+      type: string
+      required: false
+      # The spike question: "Can we render X?" / "Does Y work with Z?"
+      # If not provided, spike skill will ask.
+
+  state:
+    file: ".lattice/cycle-state/{{inputs.topic}}.yaml"
+    resume_from: current_step
+    revision_check: true
+    initial:
+      phase: spike
+      current_step: spike.0
+
+  lock:
+    type: topic
+    key: "{{inputs.topic}}"
+    holder: spike-cycle
+
+  # ── Nodes ──────────────────────────────────────────────────
+
+  nodes:
+
+    # ── Layer 0: Lock ────────────────────────────────────────
+
+    acquire-lock:
+      type: bash
+      command: bash scripts/acquire-topic-lock.sh "{{inputs.topic}}" "spike-cycle"
+      on_failure: stop
+
+    # ── Layer 1: Spike ───────────────────────────────────────
+
+    spike:
+      type: skill
+      skill: lattice/spike
+      context: inherit
+      depends_on: [acquire-lock]
+      inputs:
+        topic: "{{inputs.topic}}"
+        question: "{{inputs.question}}"
+      # Spike enforces:
+      #   - Pre-write discipline (rule 11)
+      #   - Reuse check (rule 6)
+      #   - Design decisions
+      #   - Build + test pass
+      #   - Gap persistence to REGISTRY.md / TODO.md
+      checkpoint:
+        state_key: spike.1
+        captures: [files_changed, approach, gaps_found, recommendation]
+      log: true
+
+    # ── Layer 2: Keep or discard ─────────────────────────────
+
+    spike-verdict:
+      type: approval
+      depends_on: [spike]
+      prompt: >
+        Spike complete. The approach has been explored and gaps persisted.
+        What next?
+      options:
+        - id: keep
+          label: "Keep -- formalize with spec-from-code, then review"
+          route: spec-from-code
+        - id: iterate
+          label: "Iterate -- adjust and re-spike"
+          route: spike
+        - id: escalate
+          label: "Escalate to full cycle -- this needs research"
+          route: escalate-to-full
+        - id: discard
+          label: "Discard -- approach doesn't work"
+          route: release-lock
+
+    escalate-to-full:
+      type: bash
+      depends_on: [spike-verdict]
+      command: echo "ESCALATE_TO_FULL_CYCLE"
+      # Orchestrator reads this output and dispatches to research-cycle.
+      # The spike code stays as exploratory context; research validates
+      # the approach before blueprint formalizes it.
+      checkpoint:
+        state_key: spike.escalated
+        phase: research
+        # Reset to research phase -- cycle.yaml will pick up and dispatch
+
+    # ── Layer 3: Generate spec from code ─────────────────────
+
+    spec-from-code:
+      type: skill
+      skill: lattice/spec-from-code
+      context: inherit
+      depends_on: [spike-verdict]
+      inputs:
+        topic: "{{inputs.topic}}"
+      # spec-from-code:
+      #   1. Reads all implementation files
+      #   2. Generates spec to docs/_internal/incoming/
+      #   3. Identifies gaps (edge cases, coverage holes, hardcoded values)
+      #   4. ROADMAP intake (rule 12)
+      #   5. Presents spec + ROADMAP entry for user confirmation
+      gate_check:
+        has_behavior: "output.contains('Behavior')"
+        has_checklist: "output.contains('Verification Checklist')"
+        on_fail: retry
+      checkpoint:
+        state_key: spike.2
+        captures: [spec_path, gaps_found]
+      log: true
+
+    # ── Layer 4: Full review ─────────────────────────────────
+    #
+    # Same review as build-cycle: 3 parallel agents (architect,
+    # decision auditor, requirement reviewer) + mechanical checks
+    # + visual/data verification. The generated spec is what
+    # the requirement reviewer traces against.
+
+    review:
+      type: skill
+      skill: lattice/review
+      context: inherit
+      depends_on: [spec-from-code]
+      inputs:
+        spec_path: "{{nodes.spec-from-code.outputs.spec_path}}"
+        topic: "{{inputs.topic}}"
+      # Review runs:
+      #   Step 1: Parallel agents (architect + decision auditor + requirement reviewer)
+      #   Step 2: Four-dimension requirement trace against generated spec
+      #   Step 3: Mechanical checks (build, lint, tests, visual, data)
+      #   Step 4: Docs & MANIFEST update
+      #   Step 5: Gap persistence verification
+      #   Step 7: Commit gate
+      checkpoint:
+        state_key: spike.3
+        captures: [verdict, commit_hash]
+      log: true
+
+    # ── Layer 5: Complete ────────────────────────────────────
+
+    complete:
+      type: bash
+      depends_on: [review]
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}"
+      checkpoint:
+        state_key: complete
+        phase: complete
+
+    release-lock:
+      type: bash
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}"

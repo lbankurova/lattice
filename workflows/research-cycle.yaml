@@ -1,0 +1,306 @@
+workflow:
+  name: research-cycle
+  version: 1
+  description: >
+    Research phase -- produce, challenge, and validate research.
+    Two rounds of peer review, corpus coherence check, cross-system probe.
+
+  inputs:
+    topic:
+      type: string
+      required: true
+    flags:
+      type: string
+      default: ""
+      # --landscape: present branch table, stop for user selection
+      # --novel: R2 prioritizes preprints, small repos, last 2-3 years
+
+  state:
+    file: ".lattice/cycle-state/{{inputs.topic}}.yaml"
+    resume_from: current_step
+    revision_check: true
+    initial:
+      phase: research
+      current_step: research.0
+
+  lock:
+    type: topic
+    key: "{{inputs.topic}}"
+    holder: research-cycle
+
+  # ── Nodes ──────────────────────────────────────────────────
+
+  nodes:
+
+    # ── Layer 0: Lock ────────────────────────────────────────
+
+    acquire-lock:
+      type: bash
+      command: bash scripts/acquire-topic-lock.sh "{{inputs.topic}}" "research-cycle"
+      on_failure: stop
+
+    # ── Layer 1: Research ────────────────────────────────────
+
+    research:
+      type: skill
+      skill: lattice/research
+      context: inherit
+      depends_on: [acquire-lock]
+      inputs:
+        topic: "{{inputs.topic}}"
+        flags: "{{inputs.flags}}"
+      gate_check:
+        has_corpus_load: "output.contains('Already Known')"
+        on_fail: retry
+      checkpoint:
+        state_key: research.1
+        captures: [key_decisions, constraints, output]
+      log: true
+
+    landscape-decision:
+      type: approval
+      depends_on: [research]
+      condition: "{{inputs.flags}}.contains('--landscape')"
+      prompt: >
+        Research produced branch table with coverage scores.
+        Which branches should we deep dive?
+      options:
+        - id: selected
+          label: "Branches selected -- proceed to peer review"
+        - id: all
+          label: "Deep dive all branches"
+        - id: abort
+          label: "Abort -- rethink scope"
+          route: release-lock
+
+    # ── Layer 2: Peer Review R1 ──────────────────────────────
+
+    peer-review-r1:
+      type: skill
+      skill: lattice/peer-review
+      context: fresh                    # Separate agent -- non-negotiable
+      depends_on: [research]
+      inputs:
+        doc_path: "docs/_internal/research/{{inputs.topic}}.md"
+      gate_check:
+        min_findings: "count(output.findings) >= 1"
+        min_dimensions: "count(output.dimensions) >= 3"
+        has_evidence: "all(output.findings, f => f.evidence != null)"
+        on_fail: retry
+      auto_decision:
+        SOUND: proceed
+        CONDITIONAL: accept
+        FLAWED: accept                  # Accept for incorporation
+      checkpoint:
+        state_key: research.2
+        captures: [findings, verdict]
+      log: true
+
+    # ── Layer 3: Incorporate R1 ──────────────────────────────
+
+    incorporate-r1:
+      type: skill
+      skill: null                       # Inline prompt, no dedicated skill
+      context: inherit
+      depends_on: [peer-review-r1]
+      prompt_append: |
+        Incorporate peer review R1 feedback into the research doc.
+        - FLAWED: rewrite affected section with corrected science
+        - CONDITIONAL: add evidence, narrow assumptions, acknowledge limitations
+        - Rejected: note counter-evidence in "Peer Review Notes" section
+        The "Peer Review Notes" section is the content marker that incorporation happened.
+      inputs:
+        research_doc: "docs/_internal/research/{{inputs.topic}}.md"
+        review: "docs/_internal/research/peer-reviews/{{inputs.topic}}-review.md"
+      checkpoint:
+        state_key: research.3
+      log: true
+
+    # ── Layer 4: Peer Review R2 ──────────────────────────────
+
+    peer-review-r2:
+      type: skill
+      skill: lattice/peer-review
+      context: fresh                    # Fresh agent -- not the R1 agent
+      depends_on: [incorporate-r1]
+      inputs:
+        doc_path: "docs/_internal/research/{{inputs.topic}}.md"
+        prior_review: "docs/_internal/research/peer-reviews/{{inputs.topic}}-review.md"
+        focus: "Check revisions addressed R1 findings. Check for new issues. Don't re-raise addressed findings."
+        flags: "{{inputs.flags}}"       # --novel passes through
+      gate_check:
+        min_findings: "count(output.findings) >= 1"
+        min_dimensions: "count(output.dimensions) >= 3"
+        on_fail: retry
+      auto_decision:
+        SOUND: proceed
+        CONDITIONAL: accept
+      checkpoint:
+        state_key: research.4
+        captures: [findings, verdict]
+      log: true
+
+    # ── Layer 5: Evaluate ────────────────────────────────────
+
+    evaluate:
+      type: gate
+      depends_on: [peer-review-r2]
+      evaluate:
+        - condition: "{{nodes.peer-review-r2.output.verdict}} == 'SOUND' || {{nodes.peer-review-r2.output.verdict}} == 'CONDITIONAL'"
+          route: distill
+        - condition: "{{nodes.peer-review-r2.output.has_new_flawed_on_sound}} == true"
+          route: evaluate-stop-bikeshed
+        - condition: "{{nodes.peer-review-r2.output.has_persistent_flawed}} == true"
+          route: evaluate-stop-disagreement
+        - condition: default
+          route: distill
+      checkpoint:
+        state_key: research.5
+
+    evaluate-stop-bikeshed:
+      type: approval
+      depends_on: [evaluate]
+      prompt: >
+        R2 raised new FLAWED finding on previously-SOUND material.
+        Likely bikeshedding. Both positions presented below.
+        How do you want to proceed?
+      options:
+        - id: accept-r2
+          label: "Accept R2 finding"
+          route: incorporate-r1          # Re-incorporate and skip R2
+        - id: reject-r2
+          label: "Reject R2 finding -- original was correct"
+          route: distill
+        - id: abort
+          label: "Abort research"
+          route: release-lock
+
+    evaluate-stop-disagreement:
+      type: approval
+      depends_on: [evaluate]
+      prompt: >
+        Same FLAWED finding persists across both peer review rounds.
+        Genuine disagreement. Both rounds' evidence presented.
+        How do you want to proceed?
+      options:
+        - id: accept-r1
+          label: "Side with R1 position"
+          route: distill
+        - id: accept-r2
+          label: "Side with R2 position"
+          route: distill
+        - id: external
+          label: "Need external input"
+          route: release-lock
+
+    # ── Layer 6: Distill + Probe (parallel) ──────────────────
+
+    distill:
+      type: skill
+      skill: lattice/distill
+      context: inherit
+      depends_on: [evaluate]
+      inputs:
+        topic: "{{inputs.topic}}"
+        mode: "--audit"
+      auto_decision:
+        contradictions: proceed         # Informational, non-blocking
+        clean: proceed
+      checkpoint:
+        state_key: research.6
+        captures: [contradictions, corpus_status]
+      log: true
+
+    probe:
+      type: skill
+      skill: lattice/probe
+      context: inherit
+      depends_on: [distill]
+      inputs:
+        doc_path: "docs/_internal/research/{{inputs.topic}}.md"
+        topic: "{{inputs.topic}}"
+      auto_decision:
+        SAFE: proceed
+        PROPAGATES: proceed
+      checkpoint:
+        state_key: research.7
+        captures: [implications, verdict]
+      log: true
+
+    probe-gate:
+      type: gate
+      depends_on: [probe]
+      evaluate:
+        - condition: "{{nodes.probe.output.verdict}} == 'SAFE' || {{nodes.probe.output.verdict}} == 'PROPAGATES'"
+          route: verify-gaps
+        - condition: "{{nodes.probe.output.verdict}} == 'BREAKS'"
+          route: probe-stop-breaks
+        - condition: "{{nodes.probe.output.verdict}} == 'SCIENCE-FLAG'"
+          route: probe-stop-science
+        - condition: default
+          route: verify-gaps
+
+    probe-stop-breaks:
+      type: approval
+      depends_on: [probe-gate]
+      prompt: >
+        Probe detected BREAKS -- cross-system implications that the build plan must account for.
+        Affected subsystems listed below.
+      options:
+        - id: acknowledge
+          label: "Acknowledged -- proceed with constraints noted"
+          route: verify-gaps
+        - id: revise
+          label: "Revise research to address breaks"
+          route: research                # Loop back
+        - id: abort
+          label: "Abort"
+          route: release-lock
+
+    probe-stop-science:
+      type: approval
+      depends_on: [probe-gate]
+      prompt: >
+        Probe detected SCIENCE-FLAG -- analytical behavior changes that need scientist review.
+      options:
+        - id: accept
+          label: "Accept -- proceed"
+          route: verify-gaps
+        - id: reject
+          label: "Reject -- revise research"
+          route: research
+        - id: abort
+          label: "Abort"
+          route: release-lock
+
+    # ── Layer 7: Verify + Complete ───────────────────────────
+
+    verify-gaps:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [probe-gate]
+      prompt_append: |
+        Verify all gaps from the research cycle are persisted:
+        1. Read docs/_internal/research/REGISTRY.md -- confirm gaps from research,
+           peer review R1/R2, distill audit, and probe are registered.
+        2. Read docs/_internal/TODO.md -- confirm data gaps are logged.
+        If any gap was mentioned in research/review output but has no entry, write it now.
+      checkpoint:
+        state_key: research.7b
+        captures: [gaps_persisted]
+
+    complete:
+      type: bash
+      depends_on: [verify-gaps]
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}"
+      checkpoint:
+        state_key: research.complete
+        phase: research-complete
+
+    # ── Fallback: Release lock on any abort ──────────────────
+
+    release-lock:
+      type: bash
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}"
+      # Reached via abort routes from approval nodes
