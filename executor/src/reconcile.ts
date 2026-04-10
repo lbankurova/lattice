@@ -45,6 +45,10 @@ export function reconcileStates(
   // 1. Collect all Topic:-tagged commits from git
   const taggedCommits = collectTopicCommits(cwd);
 
+  // 1b. Supplement with retroactive annotations (.lattice/commit-topics.tsv)
+  const retroCommits = loadRetroactiveAnnotations(cwd);
+  taggedCommits.push(...retroCommits);
+
   // 2. Collect archived specs as fallback signal
   const archivedSpecs = collectArchivedSpecs(cwd);
 
@@ -110,6 +114,37 @@ function collectTopicCommits(cwd: string): TopicCommit[] {
 /**
  * Scan archive directory for completed specs.
  */
+/**
+ * Load retroactive Topic/Phase annotations from .lattice/commit-topics.tsv.
+ * This file covers commits made before the Topic: trailer convention existed.
+ */
+function loadRetroactiveAnnotations(cwd: string): TopicCommit[] {
+  const tsvPath = `${cwd}/.lattice/commit-topics.tsv`;
+  if (!existsSync(tsvPath)) return [];
+
+  const commits: TopicCommit[] = [];
+  try {
+    const content = readFileSync(tsvPath, 'utf-8');
+    for (const line of content.split('\n')) {
+      if (line.startsWith('#') || !line.trim()) continue;
+      const [hash, topic, phase] = line.split('\t');
+      if (!hash || !topic || topic === '-') continue;
+
+      commits.push({
+        hash: hash.trim(),
+        subject: '(retroactive annotation)',
+        topic: topic.trim(),
+        phase: phase?.trim() === '-' ? undefined : phase?.trim(),
+        type: 'feat', // Assume feat for phase inference
+      });
+    }
+  } catch {
+    // File unreadable
+  }
+
+  return commits;
+}
+
 function collectArchivedSpecs(cwd: string): Set<string> {
   const archived = new Set<string>();
   const archiveDir = `${cwd}/docs/_internal/incoming/archive`;
