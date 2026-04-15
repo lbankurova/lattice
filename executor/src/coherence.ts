@@ -36,10 +36,13 @@ export interface TopicState {
   subsystemInteractions: SubsystemInteraction[];
 }
 
+export type ScienceFlagScope = 'active' | 'deferred' | 'resolved' | 'contextual';
+
 export interface ScienceFlag {
   description: string;
   subsystems: string[];          // Which subsystems are affected
   resolved: boolean;
+  scope: ScienceFlagScope;       // Is this SF about the current build scope?
 }
 
 export interface BreaksEntry {
@@ -307,7 +310,15 @@ function extractSubsystemInteractions(content: string): SubsystemInteraction[] {
 
 /**
  * Extract science flag descriptions from doc text.
- * Catches patterns like "SCIENCE-FLAG: ...", "science flag", etc.
+ *
+ * Key improvement: classifies each SF as active/deferred/resolved/contextual.
+ * Only 'active' SFs block coherence. Deferred-proposal SFs (e.g., HCD-z P2
+ * variance borrowing) and resolved SFs are ignored by conflict detection.
+ *
+ * Also filters out false positives:
+ * - Subsystem reference headers ("S07 (Confidence) -- RCV concordance")
+ * - Table rows describing proposals with "No" in scope column
+ * - Lines that mention SF but conclude "Not SCIENCE-FLAG"
  */
 function extractDocScienceFlags(content: string): ScienceFlag[] {
   const flags: ScienceFlag[] = [];
@@ -317,39 +328,74 @@ function extractDocScienceFlags(content: string): ScienceFlag[] {
     const line = lines[i];
     const upper = line.toUpperCase();
 
+    // Skip lines that are just counts ("0 SCIENCE-FLAGS")
+    if (/0\s+SCIENCE/i.test(line)) continue;
+
     // Explicit SCIENCE-FLAG markers
     if (upper.includes('SCIENCE-FLAG') || upper.includes('SCIENCE FLAG')) {
+      // Skip subsystem reference headers — these describe architecture, not flag a problem
+      // Pattern: "+-- S07 (Name) -- description" or "S07 (Name) — description"
+      if (/^\s*\+?--\s*S\d{2}\s*\(/.test(line)) continue;
+
+      // Skip "Not SCIENCE-FLAG" / "no SCIENCE-FLAG" conclusions
+      if (/NOT\s+SCIENCE.FLAG|no\s+SCIENCE.FLAG|Not\s+SF/i.test(line)) continue;
+
       const subsystems = extractSubsystems(line);
-      // Also check the next 2 lines for subsystem refs if this line has none
       if (subsystems.length === 0) {
         for (let j = 1; j <= 2 && i + j < lines.length; j++) {
           subsystems.push(...extractSubsystems(lines[i + j]));
         }
       }
-      const resolved = upper.includes('RESOLVED') || upper.includes('ALREADY GATED') || upper.includes('ACCEPTED');
-      flags.push({
-        description: line.trim().replace(/^[#*\-\s]+/, '').slice(0, 200),
-        subsystems: [...new Set(subsystems)],
-        resolved,
-      });
-    }
 
-    // "confidence modifier" / "analytical output changes" / "modifies D1/D5" patterns
-    if (/confidence\s+(?:modifier|modification|dimension)/i.test(line) &&
-        /S\d{2}|cascade|downstream/i.test(line)) {
-      const subsystems = extractSubsystems(line);
-      // Check surrounding context for more subsystem refs
-      const context = lines.slice(Math.max(0, i - 2), Math.min(lines.length, i + 3)).join(' ');
-      const contextSubs = extractSubsystems(context);
+      // Get surrounding context for scope classification
+      const context = lines.slice(Math.max(0, i - 5), Math.min(lines.length, i + 5)).join('\n');
+      const scope = classifyDocSFScope(line, context);
+
       flags.push({
-        description: line.trim().replace(/^[#*|\-\s]+/, '').slice(0, 200),
-        subsystems: [...new Set([...subsystems, ...contextSubs])],
-        resolved: false,
+        description: line.trim().replace(/^[#*\-\s|]+/, '').slice(0, 200),
+        subsystems: [...new Set(subsystems)],
+        resolved: scope === 'resolved',
+        scope,
       });
     }
   }
 
+  // NOTE: Removed the "confidence modifier/dimension" pattern matcher.
+  // It produced false positives on subsystem reference headers like
+  // "+-- S07 (Confidence) -- RCV concordance as confidence dimension".
+  // Real confidence-related SFs are caught by the explicit SCIENCE-FLAG marker above.
+
   return flags;
+}
+
+/**
+ * Classify a doc-extracted SF's scope from surrounding context.
+ */
+function classifyDocSFScope(line: string, context: string): ScienceFlagScope {
+  // Resolved
+  if (/RESOLVED|ALREADY GATED|ACCEPTED/i.test(line)) return 'resolved';
+  if (/SCIENCE.FLAG\s+RESOLUTION|RESOLVES.*SCIENCE.FLAG/i.test(line)) return 'resolved';
+
+  // Deferred — the SF is about a proposal not in the current build
+  if (/DEFERRED|SEPARATE CYCLE|NOT IN THIS|FUTURE|NOT IN SCOPE/i.test(line)) return 'deferred';
+  if (/\|\s*No\s*[-—]/i.test(line)) return 'deferred'; // Table row: "| No — separate cycle |"
+
+  // Check context for deferred signals
+  if (/deferred to separate|not in this cycle|separate research/i.test(context)) {
+    // But only if the context is about the SAME proposal as the SF line
+    if (/this cycle|current cycle|P1/i.test(context) === false) {
+      return 'deferred';
+    }
+  }
+
+  // Contextual — mentioned in risk assessment that concludes it's manageable
+  if (/Risk:.*Not SCIENCE|changes confidence labels.*Not SCIENCE/i.test(context)) return 'contextual';
+
+  // If the line is inside a table comparing proposals and the row says "High" risk
+  // but the "This Cycle?" column says "No", it's deferred
+  if (/\|\s*High\s*[-—]\s*SCIENCE/i.test(line) && /\|\s*No\s/i.test(line)) return 'deferred';
+
+  return 'active';
 }
 
 /**
@@ -388,17 +434,65 @@ function extractScienceFlags(text: string): ScienceFlag[] {
   for (const line of lines) {
     const upper = line.toUpperCase();
     if (upper.includes('SCIENCE-FLAG') || upper.includes('SCIENCE_FLAG')) {
+      // Skip lines that are just counts ("0 SCIENCE-FLAGS", "science_flags: 0")
+      if (/0\s+SCIENCE|science_flags:\s*0/i.test(line)) continue;
+
       const subsystems = extractSubsystems(line);
-      const resolved = upper.includes('RESOLVED') || upper.includes('ALREADY GATED');
+      const scope = classifySFScope(line, text);
+
       flags.push({
         description: line.trim().replace(/^[-"'\s]+/, '').replace(/["']+$/, ''),
         subsystems,
-        resolved,
+        resolved: scope === 'resolved',
+        scope,
       });
     }
   }
 
   return flags;
+}
+
+/**
+ * Classify a science flag's scope from its textual context.
+ */
+function classifySFScope(line: string, fullText: string): ScienceFlagScope {
+  const upper = line.toUpperCase();
+
+  // Resolved indicators
+  if (/RESOLVED|ALREADY GATED|ACCEPTED|NO SCIENCE.FLAG/i.test(line)) {
+    return 'resolved';
+  }
+
+  // Deferred indicators — the SF is about a proposal not in the current cycle
+  if (/DEFERRED|SEPARATE CYCLE|NOT IN THIS|PHASE [2-9]|FUTURE|NOT IN SCOPE|NO\s*[-—]\s*SEPARATE/i.test(line)) {
+    return 'deferred';
+  }
+
+  // Contextual indicators — mentioned in discussion, comparison tables, risk assessments
+  // that conclude it's NOT a science flag
+  if (/NOT\s+SCIENCE.FLAG|NOT\s+SF|RISK:.*NOT/i.test(line)) {
+    return 'contextual';
+  }
+
+  // "Resolves:" pattern — this line is about resolving a prior SF, not raising a new one
+  if (/\bRESOLVES\b.*SCIENCE.FLAG|SCIENCE.FLAG\s+RESOLUTION/i.test(line)) {
+    return 'resolved';
+  }
+
+  // Check surrounding context for deferred indicators
+  const lineIdx = fullText.indexOf(line);
+  if (lineIdx >= 0) {
+    const context = fullText.slice(Math.max(0, lineIdx - 300), lineIdx + line.length + 300);
+    if (/deferred to separate|not in this cycle|separate research.to.build/i.test(context)) {
+      return 'deferred';
+    }
+    // Table row with "No" in the "This Cycle?" column
+    if (/\|\s*No\s*[-—]\s*separate/i.test(context)) {
+      return 'deferred';
+    }
+  }
+
+  return 'active';
 }
 
 function extractBreaks(text: string): BreaksEntry[] {
@@ -613,8 +707,12 @@ function buildSubsystemHeatmap(topics: TopicState[]): Record<string, string[]> {
 }
 
 /**
- * Detect when multiple active (non-complete) topics touch the same subsystem
- * and at least one has unresolved science flags or BREAKS.
+ * Detect when multiple active topics MODIFY the same subsystem
+ * and at least one has active science flags or BREAKS.
+ *
+ * Key distinction: topics that only READ a subsystem (COMPATIBLE, REFERENCE
+ * relationships) don't conflict with each other. Only MODIFIES/CASCADE
+ * relationships indicate a write that could conflict.
  */
 function detectSubsystemOverlap(
   topics: TopicState[],
@@ -626,11 +724,28 @@ function detectSubsystemOverlap(
   for (const [sub, topicNames] of Object.entries(heatmap)) {
     if (topicNames.length < 2) continue;
 
-    // Check if any of these topics have unresolved SFs or BREAKS on this subsystem
+    // Filter to topics that MODIFY this subsystem (not just read/reference it)
+    const modifiers = topicNames.filter(name => {
+      const t = topics.find(ts => ts.topic === name);
+      if (!t) return false;
+      // If topic has subsystem interactions, check for MODIFIES/CASCADE
+      if (t.subsystemInteractions.length > 0) {
+        const interaction = t.subsystemInteractions.find(i => i.subsystem === sub);
+        if (interaction) {
+          // COMPATIBLE and REFERENCE are read-only — not a modifier
+          return !['COMPATIBLE', 'REFERENCE', 'SAFE'].includes(interaction.relationship);
+        }
+      }
+      // No interaction data — conservatively assume modifier if topic has active SFs
+      return t.scienceFlags.some(sf => sf.scope === 'active') || t.breaks.length > 0;
+    });
+
+    // Only flag conflict if at least one topic has active SFs or BREAKS
+    // that SPECIFICALLY target this subsystem (not just any SF on the topic)
     const topicsWithIssues = topics.filter(t =>
-      topicNames.includes(t.topic) && (
-        t.scienceFlags.some(sf => !sf.resolved && (sf.subsystems.includes(sub) || sf.subsystems.length === 0)) ||
-        t.breaks.some(b => b.subsystems.includes(sub) || b.subsystems.length === 0)
+      modifiers.includes(t.topic) && (
+        t.scienceFlags.some(sf => sf.scope === 'active' && sf.subsystems.includes(sub)) ||
+        t.breaks.some(b => b.subsystems.includes(sub))
       )
     );
 
@@ -683,7 +798,7 @@ function detectScienceFlagPropagation(
   const buildablePhases = new Set(['blueprint-complete', 'build']);
 
   for (const source of topics) {
-    const unresolvedSFs = source.scienceFlags.filter(sf => !sf.resolved);
+    const unresolvedSFs = source.scienceFlags.filter(sf => sf.scope === 'active');
     if (unresolvedSFs.length === 0) continue;
 
     // For each unresolved SF, check which subsystems it affects

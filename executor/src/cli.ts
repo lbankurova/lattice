@@ -337,7 +337,9 @@ function cmdStatus(): void {
     console.log('-'.repeat(70));
 
     for (const t of phaseTopics) {
-      const sfCount = t.scienceFlags.filter(sf => !sf.resolved).length;
+      const activeSFs = t.scienceFlags.filter(sf => sf.scope === 'active').length;
+      const deferredSFs = t.scienceFlags.filter(sf => sf.scope === 'deferred').length;
+      const sfCount = activeSFs;
       const brkCount = t.breaks.length;
       const subs = t.subsystems.length > 0 ? `[${t.subsystems.slice(0, 6).join(',')}]` : '';
       const flags: string[] = [];
