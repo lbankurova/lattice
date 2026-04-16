@@ -17,12 +17,12 @@ export { runAutopilot } from './autopilot.js';
 export { tryAutoResolve } from './auto-resolve.js';
 export {
   loadE2EConfig, getChangedFiles, classifyTestability,
-  runBranchComparison, writeE2EResult, readE2EResult,
+  detectComparisonMode, runBranchComparison, writeE2EResult, readE2EResult,
   formatE2EResult, formatClassification,
 } from './e2e.js';
 export type {
   E2EConfig, SuiteConfig, E2EResult, SuiteComparison,
-  SuiteRunResult, TestabilityResult, Classification,
+  SuiteRunResult, TestabilityResult, Classification, ComparisonMode,
 } from './e2e.js';
 export type {
   Workflow, WorkflowNode, WorkflowRun, NodeResult,

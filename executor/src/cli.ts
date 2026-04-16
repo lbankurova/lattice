@@ -21,7 +21,7 @@ import { runAutopilot } from './autopilot.js';
 import { reconcileStates, formatReconciliation } from './reconcile.js';
 import {
   loadE2EConfig, getChangedFiles, classifyTestability,
-  runBranchComparison, writeE2EResult,
+  detectComparisonMode, runBranchComparison, writeE2EResult,
   formatE2EResult, formatClassification,
 } from './e2e.js';
 
@@ -439,9 +439,10 @@ function cmdE2E(): void {
 
   switch (subcommand) {
     case 'classify': {
-      const changedFiles = getChangedFiles(effectiveBase, cwd);
+      const mode = detectComparisonMode(effectiveBase, cwd);
+      const changedFiles = getChangedFiles(effectiveBase, cwd, mode);
       const testability = classifyTestability(changedFiles, config);
-      console.log(formatClassification(testability, changedFiles));
+      console.log(formatClassification(testability, changedFiles, mode));
       process.exit(testability.classification === 'e2e_testable' ? 0 : 2);
       break;
     }

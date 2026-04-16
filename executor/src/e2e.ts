@@ -68,8 +68,11 @@ export interface SuiteComparison {
   diff?: string;
 }
 
+export type ComparisonMode = 'branch' | 'uncommitted' | 'last-commit';
+
 export interface E2EResult {
   timestamp: string;
+  mode: ComparisonMode;
   classification: Classification;
   baseBranch: string;
   featureBranch: string;
@@ -190,31 +193,71 @@ function matchGlobSimple(pattern: string, filePath: string): boolean {
   return new RegExp(regex).test(filePath);
 }
 
+// ── Comparison Mode Detection ───────────────────────────────
+
+/**
+ * Auto-detect which comparison mode to use:
+ * 1. branch    — HEAD is ahead of base branch (feature branch workflow)
+ * 2. uncommitted — working tree has changes on the base branch itself (trunk workflow)
+ * 3. last-commit — clean tree on base branch, compare HEAD vs HEAD~1
+ */
+export function detectComparisonMode(baseBranch: string, cwd: string): ComparisonMode {
+  // Check if HEAD is ahead of base
+  try {
+    const ahead = execSync(`git rev-list --count ${baseBranch}..HEAD`, {
+      cwd, encoding: 'utf-8', timeout: 5_000,
+    }).trim();
+    if (parseInt(ahead, 10) > 0) return 'branch';
+  } catch {
+    // If base branch doesn't exist or other error, fall through
+  }
+
+  // Check for uncommitted changes (staged + unstaged + untracked)
+  try {
+    const dirty = execSync('git status --porcelain', {
+      cwd, encoding: 'utf-8', timeout: 5_000,
+    }).trim();
+    if (dirty) return 'uncommitted';
+  } catch {
+    // Fall through
+  }
+
+  // Clean tree, on base branch — compare last commit
+  return 'last-commit';
+}
+
 // ── Testability Classification ──────────────────────────────
 
 /**
- * Get changed files from git diff against base branch.
+ * Get changed files for the detected comparison mode.
  */
-export function getChangedFiles(baseBranch: string, cwd: string): string[] {
-  try {
-    const output = execSync(`git diff --name-only ${baseBranch}...HEAD`, {
-      cwd,
-      encoding: 'utf-8',
-      timeout: 10_000,
-    }).trim();
-    return output ? output.split('\n').filter(Boolean) : [];
-  } catch {
-    // Fallback: diff against base directly (no merge-base)
+export function getChangedFiles(baseBranch: string, cwd: string, mode?: ComparisonMode): string[] {
+  const effectiveMode = mode ?? detectComparisonMode(baseBranch, cwd);
+
+  const run = (cmd: string): string[] => {
     try {
-      const output = execSync(`git diff --name-only ${baseBranch}`, {
-        cwd,
-        encoding: 'utf-8',
-        timeout: 10_000,
-      }).trim();
+      const output = execSync(cmd, { cwd, encoding: 'utf-8', timeout: 10_000 }).trim();
       return output ? output.split('\n').filter(Boolean) : [];
     } catch {
       return [];
     }
+  };
+
+  switch (effectiveMode) {
+    case 'branch':
+      // Files changed between base and HEAD
+      return run(`git diff --name-only ${baseBranch}...HEAD`);
+
+    case 'uncommitted': {
+      // Staged + unstaged changes vs HEAD
+      const staged = run('git diff --cached --name-only');
+      const unstaged = run('git diff --name-only');
+      return [...new Set([...staged, ...unstaged])];
+    }
+
+    case 'last-commit':
+      // Files changed in the most recent commit
+      return run('git diff --name-only HEAD~1...HEAD');
   }
 }
 
@@ -484,13 +527,16 @@ function summarizeValue(v: unknown): string {
   return `{object(${Object.keys(v as Record<string, unknown>).length})}`;
 }
 
-// ── Branch Comparison ───────────────────────────────────────
+// ── E2E Gate Runner ─────────────────────────────────────────
 
 /**
- * Run the full branch-comparison E2E gate.
+ * Run the E2E gate. Auto-detects comparison mode:
+ * - branch:      checkout base → run → checkout feature → run → diff
+ * - uncommitted:  stash → run (clean) → pop → run (dirty) → diff
+ * - last-commit: checkout HEAD~1 → run → checkout HEAD → run → diff
  *
  * Guarantees:
- * - Always returns to the feature branch
+ * - Always returns to the original branch/state
  * - Always pops stash if pushed
  * - Always runs teardown
  * - Always writes result file (even on error)
@@ -502,13 +548,13 @@ export function runBranchComparison(
 ): E2EResult {
   const start = Date.now();
   const effectiveBase = baseBranch ?? config.base_branch;
-  let featureBranch = '';
+  const mode = detectComparisonMode(effectiveBase, cwd);
+  let originalBranch = '';
   let stashed = false;
-  let baseResults: SuiteRunResult[] = [];
-  let featureResults: SuiteRunResult[] = [];
 
   const result: E2EResult = {
     timestamp: new Date().toISOString(),
+    mode,
     classification: 'e2e_testable',
     baseBranch: effectiveBase,
     featureBranch: '',
@@ -519,13 +565,13 @@ export function runBranchComparison(
 
   try {
     // 1. Record current branch
-    featureBranch = execSync('git rev-parse --abbrev-ref HEAD', {
+    originalBranch = execSync('git rev-parse --abbrev-ref HEAD', {
       cwd, encoding: 'utf-8', timeout: 5_000,
     }).trim();
-    result.featureBranch = featureBranch;
+    result.featureBranch = originalBranch;
 
     // 2. Classify testability
-    const changedFiles = getChangedFiles(effectiveBase, cwd);
+    const changedFiles = getChangedFiles(effectiveBase, cwd, mode);
     const testability = classifyTestability(changedFiles, config);
     result.classification = testability.classification;
 
@@ -535,63 +581,59 @@ export function runBranchComparison(
       return result;
     }
 
-    // 3. Stash dirty work if needed
-    const dirty = execSync('git status --porcelain', {
-      cwd, encoding: 'utf-8', timeout: 5_000,
-    }).trim();
-    if (dirty) {
-      execSync('git stash push -m "lattice-e2e-gate"', {
-        cwd, encoding: 'utf-8', timeout: 10_000,
-      });
-      stashed = true;
-    }
+    // 3. Dispatch by mode
+    let baseResults: SuiteRunResult[];
+    let featureResults: SuiteRunResult[];
 
-    // 4. Checkout base branch, run suites
-    execSync(`git checkout ${effectiveBase}`, {
-      cwd, encoding: 'utf-8', timeout: 30_000, stdio: 'pipe',
-    });
+    switch (mode) {
+      case 'branch': {
+        // Stash any dirty work, checkout base, run, checkout feature, run
+        const dirty = git('status --porcelain', cwd).trim();
+        if (dirty) {
+          git('stash push -m "lattice-e2e-gate"', cwd);
+          stashed = true;
+        }
 
-    if (config.setup) {
-      execSync(config.setup, {
-        cwd, encoding: 'utf-8', timeout: 60_000, stdio: 'pipe',
-      });
-    }
+        git(`checkout ${effectiveBase}`, cwd);
+        baseResults = runWithSetupTeardown(config, cwd);
 
-    baseResults = runAllSuites(config.suites, cwd, config);
+        git(`checkout ${originalBranch}`, cwd);
+        if (stashed) {
+          try { git('stash pop', cwd); stashed = false; } catch {
+            result.error = 'WARNING: git stash pop failed (conflict). Run `git stash pop` manually.';
+          }
+        }
+        featureResults = runWithSetupTeardown(config, cwd);
+        break;
+      }
 
-    // Run teardown after base run
-    if (config.teardown) {
-      try {
-        execSync(config.teardown, { cwd, encoding: 'utf-8', timeout: 30_000, stdio: 'pipe' });
-      } catch { /* non-fatal */ }
-    }
+      case 'uncommitted': {
+        // Stash changes → run (clean HEAD) → pop → run (with changes)
+        git('stash push -m "lattice-e2e-gate"', cwd);
+        stashed = true;
 
-    // 5. Checkout feature branch
-    execSync(`git checkout ${featureBranch}`, {
-      cwd, encoding: 'utf-8', timeout: 30_000, stdio: 'pipe',
-    });
+        baseResults = runWithSetupTeardown(config, cwd);
 
-    // 6. Restore stash
-    if (stashed) {
-      try {
-        execSync('git stash pop', { cwd, encoding: 'utf-8', timeout: 10_000, stdio: 'pipe' });
-        stashed = false; // Successfully popped
-      } catch {
-        // Stash pop conflict -- leave in stash, warn
-        result.error = 'WARNING: git stash pop failed (conflict). Run `git stash pop` manually.';
+        try { git('stash pop', cwd); stashed = false; } catch {
+          result.error = 'WARNING: git stash pop failed (conflict). Run `git stash pop` manually.';
+        }
+        featureResults = runWithSetupTeardown(config, cwd);
+        break;
+      }
+
+      case 'last-commit': {
+        // Checkout HEAD~1, run, checkout HEAD, run
+        const headRef = git('rev-parse HEAD', cwd).trim();
+        git('checkout HEAD~1', cwd);
+        baseResults = runWithSetupTeardown(config, cwd);
+
+        git(`checkout ${headRef}`, cwd);
+        featureResults = runWithSetupTeardown(config, cwd);
+        break;
       }
     }
 
-    // 7. Run suites on feature branch
-    if (config.setup) {
-      execSync(config.setup, {
-        cwd, encoding: 'utf-8', timeout: 60_000, stdio: 'pipe',
-      });
-    }
-
-    featureResults = runAllSuites(config.suites, cwd, config);
-
-    // 8. Compare results
+    // 4. Compare results
     const comparisons: SuiteComparison[] = [];
     for (let i = 0; i < config.suites.length; i++) {
       comparisons.push(compareSuite(config.suites[i], baseResults[i], featureResults[i]));
@@ -604,25 +646,19 @@ export function runBranchComparison(
     result.verdict = 'error';
     result.error = err instanceof Error ? err.message : String(err);
   } finally {
-    // Guarantee: return to feature branch
-    if (featureBranch) {
+    // Guarantee: return to original branch
+    if (originalBranch) {
       try {
-        const current = execSync('git rev-parse --abbrev-ref HEAD', {
-          cwd, encoding: 'utf-8', timeout: 5_000,
-        }).trim();
-        if (current !== featureBranch) {
-          execSync(`git checkout ${featureBranch}`, {
-            cwd, encoding: 'utf-8', timeout: 30_000, stdio: 'pipe',
-          });
+        const current = git('rev-parse --abbrev-ref HEAD', cwd).trim();
+        if (current !== originalBranch) {
+          git(`checkout ${originalBranch}`, cwd);
         }
       } catch { /* best-effort */ }
     }
 
     // Guarantee: pop stash if still pending
     if (stashed) {
-      try {
-        execSync('git stash pop', { cwd, encoding: 'utf-8', timeout: 10_000, stdio: 'pipe' });
-      } catch { /* best-effort */ }
+      try { git('stash pop', cwd); } catch { /* best-effort */ }
     }
 
     // Guarantee: run teardown
@@ -636,6 +672,27 @@ export function runBranchComparison(
   }
 
   return result;
+}
+
+/** Run setup → all suites → teardown. Returns suite results. */
+function runWithSetupTeardown(config: E2EConfig, cwd: string): SuiteRunResult[] {
+  if (config.setup) {
+    execSync(config.setup, { cwd, encoding: 'utf-8', timeout: 60_000, stdio: 'pipe' });
+  }
+  const results = runAllSuites(config.suites, cwd, config);
+  if (config.teardown) {
+    try {
+      execSync(config.teardown, { cwd, encoding: 'utf-8', timeout: 30_000, stdio: 'pipe' });
+    } catch { /* non-fatal */ }
+  }
+  return results;
+}
+
+/** Shorthand for git commands. Throws on failure. */
+function git(cmd: string, cwd: string): string {
+  return execSync(`git ${cmd}`, {
+    cwd, encoding: 'utf-8', timeout: 30_000, stdio: 'pipe',
+  });
 }
 
 // ── Result Persistence ──────────────────────────────────────
@@ -675,9 +732,13 @@ export function formatE2EResult(result: E2EResult): string {
   lines.push('  E2E Testing Gate');
   lines.push('========================================');
   lines.push('');
+  const modeLabel = result.mode === 'branch' ? 'branch comparison'
+    : result.mode === 'uncommitted' ? 'uncommitted changes'
+    : 'last commit (HEAD vs HEAD~1)';
+  lines.push(`  Mode:            ${modeLabel}`);
   lines.push(`  Classification:  ${result.classification}`);
-  lines.push(`  Base branch:     ${result.baseBranch}`);
-  lines.push(`  Feature branch:  ${result.featureBranch}`);
+  lines.push(`  Base:            ${result.mode === 'last-commit' ? 'HEAD~1' : result.baseBranch}`);
+  lines.push(`  Current:         ${result.featureBranch}`);
   lines.push(`  Duration:        ${(result.durationMs / 1000).toFixed(1)}s`);
   lines.push('');
 
@@ -733,8 +794,10 @@ export function formatE2EResult(result: E2EResult): string {
 export function formatClassification(
   testability: TestabilityResult,
   changedFiles: string[],
+  mode?: ComparisonMode,
 ): string {
   const lines: string[] = [];
+  if (mode) lines.push(`mode: ${mode}`);
   lines.push(`classification: ${testability.classification}`);
   lines.push(`changed_files: ${changedFiles.length}`);
   lines.push(`e2e_testable: ${testability.e2eFiles.length}`);
