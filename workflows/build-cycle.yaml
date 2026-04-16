@@ -61,6 +61,39 @@ workflow:
         captures: [key_decisions, deviations, audit_table]
       log: true
 
+    # ── Layer 1.5: E2E Gate ────────────────────────────────────
+    #
+    # Branch-comparison behavioral verification. Classifies testability
+    # from changed files, then runs suites on base and feature branches
+    # and diffs the results. Skipped if no .lattice/e2e.yaml exists or
+    # all changes are code_review_only.
+
+    e2e-classify:
+      type: bash
+      depends_on: [implement]
+      command: node executor/dist/cli.js e2e classify --base main
+      capture: stdout
+      on_failure: continue
+
+    e2e-gate:
+      type: gate
+      depends_on: [e2e-classify]
+      evaluate:
+        - condition: "{{nodes.e2e-classify.output}}.includes('e2e_testable')"
+          route: e2e-run
+        - condition: default
+          route: review
+
+    e2e-run:
+      type: bash
+      depends_on: [e2e-gate]
+      command: node executor/dist/cli.js e2e run --base main
+      timeout: 600000
+      on_failure: stop
+      checkpoint:
+        state_key: build.1.5
+      log: true
+
     # ── Layer 2: Review ──────────────────────────────────────
     #
     # Review now launches 3 agents in parallel (architect-reviewer,
@@ -71,7 +104,7 @@ workflow:
       type: skill
       skill: lattice/review
       context: inherit
-      depends_on: [implement]
+      depends_on: [implement, e2e-classify, e2e-run]
       inputs:
         spec_path: "{{inputs.spec_path}}"
         topic: "{{inputs.topic}}"

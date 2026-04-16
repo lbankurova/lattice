@@ -1,0 +1,44 @@
+# E2E Testing Gate Configuration
+# Used by: lattice e2e run, lattice e2e classify
+# Integrated into build-cycle and bug-fix-cycle workflows.
+#
+# Customize patterns and suites for your project's stack.
+
+e2e:
+  testability:
+    e2e_testable:
+      - "frontend/src/**/*.ts"
+      - "frontend/src/**/*.tsx"
+      - "backend/**/*.py"
+    code_review_only:
+      - "docs/**"
+      - "*.md"
+      - ".lattice/**"
+      - ".claude/**"
+      - "workflows/**"
+      - "commands/**"
+
+  suites:
+    - name: frontend-build
+      command: "cd frontend && npm run build"
+      comparison: exit_code
+
+    - name: frontend-tests
+      command: "cd frontend && npm test"
+      comparison: exit_code
+
+    # Uncomment for analytical output comparison:
+    # - name: validation
+    #   command: "bash scripts/validation-ratchet.sh compare"
+    #   comparison: json_diff
+    #   output_path: "docs/validation/summary.md"
+
+  # Global setup/teardown (start/stop servers, generate data):
+  # setup: ""
+  # teardown: ""
+
+  timeouts:
+    per_suite: 120000    # 2 min per suite
+    total: 600000        # 10 min total
+
+  base_branch: main

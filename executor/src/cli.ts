@@ -19,6 +19,11 @@ import { CliAdapter } from './nodes.js';
 import { loadPortfolioState, checkCoherence, isTopicSafe, formatReport } from './coherence.js';
 import { runAutopilot } from './autopilot.js';
 import { reconcileStates, formatReconciliation } from './reconcile.js';
+import {
+  loadE2EConfig, getChangedFiles, classifyTestability,
+  runBranchComparison, writeE2EResult,
+  formatE2EResult, formatClassification,
+} from './e2e.js';
 
 // ── Argument parsing ────────────────────────────────────────
 
@@ -403,6 +408,60 @@ async function cmdAutopilot(): Promise<void> {
   process.exit(result.topicsFailed.length > 0 ? 1 : 0);
 }
 
+// ── E2E Gate ───────────────────────────────────────────────
+
+function cmdE2E(): void {
+  const subcommand = args[1]; // 'run', 'classify', or undefined
+
+  // Show help before checking config
+  if (!subcommand || (subcommand !== 'run' && subcommand !== 'classify')) {
+    console.log('Usage:');
+    console.log('  lattice e2e run [--base main]       Full E2E gate: classify, compare branches, write result');
+    console.log('  lattice e2e classify [--base main]   Testability classification only');
+    console.log('');
+    console.log('Exit codes: 0=pass, 1=fail, 2=skip (code_review_only or no config)');
+    console.log('Config:     .lattice/e2e.yaml (see scaffold/.lattice/e2e.yaml for template)');
+    process.exit(subcommand ? 1 : 0);
+  }
+
+  const flags = parseArgs();
+  const cwd = process.cwd();
+  const baseBranch = flags['base'] ?? undefined;
+
+  const config = loadE2EConfig(cwd);
+  if (!config) {
+    console.log('No .lattice/e2e.yaml found -- E2E gate not configured for this project.');
+    console.log('Copy scaffold/.lattice/e2e.yaml to .lattice/e2e.yaml and customize.');
+    process.exit(2); // skip
+  }
+
+  const effectiveBase = baseBranch ?? config.base_branch;
+
+  switch (subcommand) {
+    case 'classify': {
+      const changedFiles = getChangedFiles(effectiveBase, cwd);
+      const testability = classifyTestability(changedFiles, config);
+      console.log(formatClassification(testability, changedFiles));
+      process.exit(testability.classification === 'e2e_testable' ? 0 : 2);
+      break;
+    }
+
+    case 'run': {
+      const result = runBranchComparison(config, cwd, baseBranch);
+      writeE2EResult(result, cwd);
+      console.log(formatE2EResult(result));
+
+      switch (result.verdict) {
+        case 'pass': process.exit(0); break;
+        case 'fail': process.exit(1); break;
+        case 'skip': process.exit(2); break;
+        case 'error': process.exit(1); break;
+      }
+      break;
+    }
+  }
+}
+
 // ── Helpers ─────────────────────────────────────────────────
 
 function duration(start: string, end?: string): string {
@@ -443,6 +502,9 @@ switch (command) {
       process.exit(1);
     });
     break;
+  case 'e2e':
+    cmdE2E();
+    break;
   default:
     console.log('Lattice Executor v0.1.0\n');
     console.log('Commands:');
@@ -454,5 +516,7 @@ switch (command) {
     console.log('  lattice coherence [topic]                Full conflict analysis');
     console.log('  lattice autopilot [--dry-run] [--loop] [--max N] [--filter PATTERN]');
     console.log('                                           Advance safe topics, batch human decisions');
+    console.log('  lattice e2e run [--base main]             Branch-comparison E2E testing gate');
+    console.log('  lattice e2e classify [--base main]        Testability classification');
     process.exit(command ? 1 : 0);
 }

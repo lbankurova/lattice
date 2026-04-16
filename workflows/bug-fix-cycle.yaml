@@ -357,6 +357,39 @@ workflow:
         captures: [test_file, test_description]
 
     # ═══════════════════════════════════════════════════════════
+    # PHASE 3.5: E2E GATE
+    # ═══════════════════════════════════════════════════════════
+
+    # Branch-comparison behavioral verification after fix + test.
+    # Skipped if no .lattice/e2e.yaml or all changes are code_review_only.
+
+    e2e-classify:
+      type: bash
+      depends_on: [write-test]
+      command: node executor/dist/cli.js e2e classify --base main
+      capture: stdout
+      on_failure: continue
+
+    e2e-gate:
+      type: gate
+      depends_on: [e2e-classify]
+      evaluate:
+        - condition: "{{nodes.e2e-classify.output}}.includes('e2e_testable')"
+          route: e2e-run
+        - condition: default
+          route: stress-gate
+
+    e2e-run:
+      type: bash
+      depends_on: [e2e-gate]
+      command: node executor/dist/cli.js e2e run --base main
+      timeout: 600000
+      on_failure: stop
+      checkpoint:
+        state_key: bugfix.5.5
+      log: true
+
+    # ═══════════════════════════════════════════════════════════
     # PHASE 4: STRESS TEST
     # ═══════════════════════════════════════════════════════════
 
@@ -366,7 +399,7 @@ workflow:
 
     stress-gate:
       type: gate
-      depends_on: [write-test]
+      depends_on: [write-test, e2e-classify, e2e-run]
       evaluate:
         - condition: "{{nodes.classify.output.severity}} == 'cosmetic'"
           route: review

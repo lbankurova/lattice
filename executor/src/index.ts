@@ -15,6 +15,15 @@ export { loadPortfolioState, checkCoherence, isTopicSafe, formatReport } from '.
 export { reconcileStates, formatReconciliation } from './reconcile.js';
 export { runAutopilot } from './autopilot.js';
 export { tryAutoResolve } from './auto-resolve.js';
+export {
+  loadE2EConfig, getChangedFiles, classifyTestability,
+  runBranchComparison, writeE2EResult, readE2EResult,
+  formatE2EResult, formatClassification,
+} from './e2e.js';
+export type {
+  E2EConfig, SuiteConfig, E2EResult, SuiteComparison,
+  SuiteRunResult, TestabilityResult, Classification,
+} from './e2e.js';
 export type {
   Workflow, WorkflowNode, WorkflowRun, NodeResult,
   PlatformAdapter, ExecutionLayer, NodeType, TriggerRule,
