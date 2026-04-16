@@ -101,33 +101,37 @@ The framework enforces quality through constraints, not just instructions:
 
 | Mechanism | What it does | How it enforces |
 |-----------|-------------|-----------------|
+| **Review gate** (`.claude/settings.json` + `.git/hooks/pre-commit`) | Every commit requires `/lattice:review` or `write-review-gate.sh` | PreToolUse hook + pre-commit hook both block; gate is single-use (consumed after commit) |
 | **Validation ratchet** (`scripts/validation-ratchet.sh`) | Compares analytical scores before/after changes | Pre-commit hook blocks if engine changed without ratchet |
 | **Decision log** (`.lattice/decisions.log`) | Persistent experiment memory across sessions | Agents read at session start — prevents re-trying failures |
 | **Structural quality gates** | Checks peer review depth, synthesis sections, probe results | Orchestrator re-launches skill if output fails gate |
-| **Independent decision audit** (`agents/decision-auditor.md`) | Evaluates merit rationale and catches unprompted deferrals | Separate agent — prevents self-assessment of rules 13-14 |
-| **Claude Code hooks** (`hooks/claude-hooks.json`) | Test-first, engine-change tracking, co-author block | Mechanical — agent cannot skip |
+| **Independent decision audit** (`agents/decision-auditor.md`) | Evaluates merit rationale and catches unprompted deferrals | Separate agent — prevents self-assessment of rules 12-13 |
+| **Claude Code hooks** (`.claude/settings.json`) | Review gate, commit lock, topic trailer, co-author block, build check | Mechanical — agent cannot skip |
+| **Autopilot auto-resolve** (`executor/src/auto-resolve.ts`) | Targeted distill analysis for coherence conflicts | Resolves subsystem-overlap, stale-blueprint, SF-propagation automatically |
 | **Autonomous execution** | Research cycle runs without human until critical decisions | Stops only on: genuine disagreements, SCIENCE-FLAG, REJECT, validation degradation |
 
 See [WORKFLOW.md](WORKFLOW.md) for full enforcement layer documentation.
 
 ## Hard Rules (CLAUDE.md)
 
-15 process rules that apply to every task:
+16 process rules that apply to every task:
 
 | # | Rule | Why |
 |---|------|-----|
-| 1-4 | Design system approval gates | Prevent agent drift on visual design |
-| 5 | No Claude co-author in commits | Clean git history |
-| 6 | Reuse before reinventing | Search existing code before writing new |
-| 7 | Doc lifecycle (specs are disposable, system docs are durable) | Knowledge extraction after implementation |
-| 8 | Circuit breaker (5 failures = stop) | Prevent runaway agent loops |
-| 9 | No directory sprawl | Keep repo structure clean |
-| 10 | Bug fix protocol (read before patching, escalate after 2 failures) | Prevent blind patching |
-| 11 | Pre-write protocol (read, search, plan, then write) | Prevent inconsistent implementations |
-| 12 | New spec → ROADMAP intake | No orphaned specs |
-| 13 | **Merit-driven architectural decisions** | Choose scientifically correct approach, not easiest |
-| 14 | **No unprompted deferrals** | Never defer without real dependency or explicit user decision |
-| 15 | **Science preservation gate** | Cleanup that changes analytical behavior requires scientist review |
+| 1-3 | Design system approval gates | Prevent agent drift on visual design |
+| 4 | No Claude co-author in commits | Clean git history |
+| 5 | Reuse before reinventing | Search existing code before writing new |
+| 6 | Doc lifecycle (specs are disposable, system docs are durable) | Knowledge extraction after implementation |
+| 7 | Circuit breaker (5 failures = stop) | Prevent runaway agent loops |
+| 8 | No directory sprawl | Keep repo structure clean |
+| 9 | Bug fix protocol (read before patching, stress after fixing, escalate after 2) | Prevent blind patching |
+| 10 | Pre-write protocol (read, search, plan, then write) | Prevent inconsistent implementations |
+| 11 | New spec -> ROADMAP intake | No orphaned specs |
+| 12 | **Merit-driven architectural decisions** | Choose scientifically correct approach, not easiest |
+| 13 | **No unprompted deferrals** | Never defer without real dependency or explicit user decision |
+| 14 | **Science preservation gate** | Cleanup that changes analytical behavior requires scientist review |
+| 15 | Impact analysis before touching shared code | Know what breaks before you edit |
+| 16 | Verify empirical claims against actual data | Don't infer from code -- read the output |
 
 ## Research Quality Controls
 
@@ -152,6 +156,9 @@ Built into `/lattice:distill`:
 ## Scaffold (scaffold/)
 
 Templates for new projects:
+- `.claude/settings.json` — commit hooks (review gate, commit lock, topic trailer, co-author block)
+- `.claude/rules/design-decisions.md` — project-specific design decisions (Layer 2)
+- `scripts/write-review-gate.sh` — mechanical checks before writing review gate
 - `docs/_internal/TODO.md` — tactical backlog
 - `docs/_internal/ROADMAP.md` — strategic roadmap
 - `docs/_internal/MANIFEST.md` — doc staleness tracker
@@ -164,14 +171,15 @@ Templates for new projects:
 ## Setup
 
 ### New project
-1. Copy `CLAUDE.md` to project root — adapt paths, add project-specific design decisions
+1. Copy `CLAUDE.md` to project root -- adapt paths, add project-specific rules
 2. Copy `commands/lattice/` to `.claude/commands/lattice/`
 3. Copy `scaffold/docs/` to your project's `docs/`
-4. Copy `scaffold/.lattice/` to `.lattice/` — state directory for enforcement layer
-5. Copy `scripts/validation-ratchet.sh` to `scripts/` — adapt for your validation suite
-6. Copy `hooks/pre-commit` to `.git/hooks/pre-commit`
-7. Merge `hooks/claude-hooks.json` into `.claude/settings.json` — replace `PIPELINE_MODULES_PATTERN` and `ENGINE_FILES_PATTERN` with your project's regexes
-8. Create `.claude/rules/domain-knowledge-map.md` — topic-to-file lookup for your domain
+4. Copy `scaffold/.claude/` to `.claude/` -- settings.json (hooks) + rules/design-decisions.md
+5. Copy `scaffold/scripts/write-review-gate.sh` to `scripts/` -- adapt checks for your stack
+6. Copy `scripts/validation-ratchet.sh` to `scripts/` -- adapt for your validation suite
+7. Install pre-commit hook: adapt from framework's `.git/hooks/pre-commit` (review gate + build checks)
+8. In `.claude/settings.json`: replace placeholder patterns (PIPELINE_MODULES, ENGINE_FILES) with your project's regexes, update absolute paths
+9. Create `.claude/rules/domain-knowledge-map.md` -- topic-to-file lookup for your domain
 
 ### Existing project
-Cherry-pick what you need. CLAUDE.md rules are the foundation — everything else builds on them.
+Cherry-pick what you need. CLAUDE.md rules are the foundation -- everything else builds on them.

@@ -342,19 +342,36 @@ File-based checks that cycle orchestrators run on skill outputs before proceedin
 | **Probe results** | BREAKS/SCIENCE-FLAG require user decision | Yes — STOP at decision point |
 | **Engine change marker** | `.lattice/engine-changed` exists -> validation ratchet required | Yes — blocks commit |
 
-### 4. Claude Code Hooks (`hooks/claude-hooks.json`)
+### 4. Claude Code Hooks (`.claude/settings.json`)
 
-Mechanical enforcement — the agent cannot skip these:
+Mechanical enforcement -- the agent cannot skip these:
 
-| Hook | Trigger | Action |
-|------|---------|--------|
-| **Test-first** | `git commit` with pipeline modules staged | Blocks if no test files staged |
-| **Validation gate** | `git commit` when `.lattice/engine-changed` exists | Blocks if validation ratchet wasn't run |
-| **Co-author block** | Write/Edit containing "Co-Authored-By" | Blocks the edit |
-| **Engine change marker** | Write/Edit to engine files | Sets `.lattice/engine-changed`, clears comparison marker |
-| **Complexity advisory** | Write/Edit any file | Non-blocking complexity warnings |
+**PreToolUse (fire before `git commit`):**
 
-### 5. Autonomous Execution Model
+| Hook | Action |
+|------|--------|
+| **Commit lock** | BLOCKS if another agent holds `.lattice/commit.lock`. Auto-expires stale locks >5min. |
+| **Topic trailer** | WARNS (non-blocking) when `feat:`/`fix:` commits lack a `Topic:` trailer. |
+| **Review gate** | BLOCKS ALL commits without a fresh `.lattice/review-gate.json`. No file-count threshold. |
+
+**PostToolUse (fire after Write/Edit):**
+
+| Hook | Action |
+|------|--------|
+| **Co-author block** | BLOCKS writes containing `Co-Authored-By` (rule 4). |
+| **Build check** | Advisory -- runs TypeScript build after edits to code files. |
+
+The review gate is the primary enforcement mechanism. It ensures every commit passes through `/lattice:review` (full quality gate) or `scripts/write-review-gate.sh` (mechanical checks only). The gate file is single-use -- consumed after each successful commit.
+
+### 5. Review Gate (`scripts/write-review-gate.sh` + `.git/hooks/pre-commit`)
+
+The escape hatch for trivial commits that skip the full `/lattice:review`. Runs mechanical checks (build, tests, syntax) before writing the gate file. If any check fails, the gate is not written and the commit stays blocked.
+
+The pre-commit hook provides a second layer: it verifies the gate file exists and is fresh (<30 min), runs build checks on staged code files, emits index freshness and complexity advisories, and consumes the gate after a successful commit.
+
+Template hooks for new projects live in `hooks/claude-hooks.json` (legacy reference) and `scaffold/.claude/settings.json` (current). Replace `PIPELINE_MODULES_PATTERN` and `ENGINE_FILES_PATTERN` with project-specific regexes.
+
+### 6. Autonomous Execution Model
 
 All three cycles run autonomously by default. They stop only at critical decision points:
 
