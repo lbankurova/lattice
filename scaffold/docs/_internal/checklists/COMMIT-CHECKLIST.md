@@ -29,6 +29,8 @@ Run every item before committing changes that alter system or view behavior. Eve
 
 - [ ] **10. Nullable contract fields null-guarded at consumption.** If you added or changed a nullable field, verify every UI consumption site handles `null`/`undefined` — `?? fallback`, optional chaining, or conditional render.
 
+- [ ] **11. Bug registry updated (bug fixes only).** If this commit fixes a bug (`fix:` message prefix or bug-fix `Layer:` trailer), verify `docs/_internal/BUG-SWEEP.md` has a matching entry. If an existing entry covers this bug (status `open`/`triaged`/`batched`), update it to `fixed` + commit SHA. If no entry exists, create one with the next sequential BUG-ID, status `fixed`, category, component, observed behavior, root cause, and commit SHA. Update the Summary table counts. Also check: if a `feat:` commit includes a behavioral correction (fixes a bug as part of a feature), log the bug portion as a separate BUG-SWEEP entry — bugs embedded in features are invisible to the registry otherwise. Skip only for pure `feat:`/`chore:`/`docs:` commits with no bug-fix component.
+
 ---
 
 **Data pipeline bug fix protocol:** Write the failing test FIRST, then apply the fix, then confirm all tests pass. Non-negotiable for any data transformation, classification, or scoring module.

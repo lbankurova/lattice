@@ -73,7 +73,7 @@ For each affected subsystem, classify the implication:
 | **SAFE** | Change doesn't affect this consumer's behavior | Note why (e.g., "consumer only reads field X, change is to field Y") |
 | **PROPAGATES** | Change alters this consumer's input, but consumer handles it correctly | Note what propagates and why it's handled |
 | **BREAKS** | Change alters this consumer's input in a way it doesn't handle | Flag with specific failure mode |
-| **SCIENCE-FLAG** | Change alters analytical output (scores, classifications, verdicts) | Flag per rule 15 — requires scientist review |
+| **SCIENCE-FLAG** | Change alters analytical output (scores, classifications, verdicts) | Flag per Science preservation gate (CLAUDE.md) — requires scientist review |
 | **STALE** | Connection in manifest no longer exists in code | Flag for manifest update |
 
 ## Step 4: Check research registry

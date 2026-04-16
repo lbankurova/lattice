@@ -36,7 +36,7 @@ Before changing any spacing, sizing, or layout:
 Enforce the interactivity rule (`docs/_internal/reference/interactivity-rule.md`): every clickable element must respond. No dead clicks. Empty states always visible.
 
 ### Design System Compliance
-**You may READ any design system document freely but NEVER write to them without explicit user approval** (CLAUDE.md rule 1). Propose changes, present rationale, wait for approval.
+**You may READ any design system document freely but NEVER write to them without explicit user approval** (Design system approval, CLAUDE.md). Propose changes, present rationale, wait for approval.
 
 ## Audit Protocol
 

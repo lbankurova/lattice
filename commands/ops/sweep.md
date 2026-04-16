@@ -58,7 +58,7 @@ Read `docs/_internal/incoming/`. For each `.md` file:
 |--------|----------|--------|
 | **Implemented** | Commits reference this spec, features exist in code | Move to `incoming/archive/`, note commit hash |
 | **Superseded** | A newer spec covers the same area | Move to `incoming/archive/`, note superseding spec |
-| **Active** | No implementation found, spec is still relevant | Keep, verify it has a ROADMAP entry (rule 12) |
+| **Active** | No implementation found, spec is still relevant | Keep, verify it has a ROADMAP entry (Spec -> ROADMAP intake, CLAUDE.md) |
 | **Stale** | >90 days old, no ROADMAP entry, no recent references | Move to `incoming/archive/` with "stale" note |
 
 **After archiving:** For every spec just archived, scan ROADMAP for entries that reference it (`Spec: incoming/{filename}`). If found and still marked active, update the ROADMAP entry to reflect the archive (mark done, add archive reference). This is the cross-reference that was missing — archiving specs without updating ROADMAP leaves prioritize reading "Open" items that are actually shipped.

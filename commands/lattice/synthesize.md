@@ -61,13 +61,13 @@ The synthesis produces three sections. Each routes differently.
 For capabilities classified as PARTIAL or NEW that are ready to implement:
 
 - **What to build** — features with acceptance criteria
-- **Architecture decisions** — evaluated on scientific/product merit (rule 13), not effort
-- **Dependencies** — only real technical dependencies, not "would be simpler later" (rule 14)
+- **Architecture decisions** — evaluated on scientific/product merit (Merit-driven decisions, CLAUDE.md), not effort
+- **Dependencies** — only real technical dependencies, not "would be simpler later" (No unprompted deferrals, CLAUDE.md)
 - **Verification** — how to validate correctness
 
-Follow the pre-write protocol (rule 11): state approach, identify reusable code, list constraints.
+Follow the Pre-write protocol (CLAUDE.md): state approach, identify reusable code, list constraints.
 
-Routes to: `docs/_internal/incoming/` spec -> ROADMAP intake (rule 12)
+Routes to: `docs/_internal/incoming/` spec -> ROADMAP intake (Spec -> ROADMAP intake, CLAUDE.md)
 
 ### Section 1a: Reuse Inventory (mandatory)
 
@@ -77,7 +77,7 @@ For every NEW or PARTIAL capability in the build plan, document your search:
 |------------|----------|-------|---------|-------------|
 | [feature] | [where you looked — specific dirs/files/methods-index] | [what exists] | [what you'll call/extend] | [only what doesn't exist yet] |
 
-This section is auditable evidence that rule 6 was followed. **Missing = incomplete synthesis.** The architect gate will reject a synthesis without a reuse inventory.
+This section is auditable evidence that Reuse before reinventing (CLAUDE.md) was followed. **Missing = incomplete synthesis.** The architect gate will reject a synthesis without a reuse inventory.
 
 ### Section 1b: Simplicity Rationale (mandatory)
 
@@ -180,7 +180,7 @@ Run: /lattice:peer-review docs/_internal/incoming/{topic}-synthesis.md
 
 Write the synthesis to `docs/_internal/incoming/{topic}-synthesis.md`.
 
-The build plan section is a standard incoming spec — subject to ROADMAP intake (rule 12). If a peer review was incorporated, link to the review file and note which findings changed the plan.
+The build plan section is a standard incoming spec — subject to ROADMAP intake (Spec -> ROADMAP intake, CLAUDE.md). If a peer review was incorporated, link to the review file and note which findings changed the plan.
 
 ## Constraints
 
@@ -188,7 +188,7 @@ The build plan section is a standard incoming spec — subject to ROADMAP intake
 - **Merit-driven decisions.** If two approaches exist (one simpler but less scientifically correct, one harder but right), choose the right one. State the merit rationale.
 - **Trace every plan item to a research finding.** No implementation tasks without a research-backed justification.
 - **Don't add scope.** If the research didn't identify it as a gap, don't invent features. The research is the scope boundary.
-- **Research gaps are not deferrals.** A research gap means "we need to learn more before deciding." A deferral means "we decided not to do it." Research gaps get a next `/lattice:research` cycle. Deferrals require user approval (rule 14).
+- **Research gaps are not deferrals.** A research gap means "we need to learn more before deciding." A deferral means "we decided not to do it." Research gaps get a next `/lattice:research` cycle. Deferrals require user approval (No unprompted deferrals, CLAUDE.md).
 - **Six mandatory sections.** The synthesis output must contain: (1) Build Plan, (1a) Reuse Inventory, (1b) Simplicity Rationale, (1c) Test Strategy, (2) Research Gaps, (3) Data & Coverage Gaps. Missing any section = incomplete synthesis. The `/lattice:architect` gate will reject it.
 - **Science preservation.** When proposing to simplify, refactor, or restructure existing code, state what analytical output changes. If any output changes, flag it explicitly in the build plan — the architect gate checks for this.
 

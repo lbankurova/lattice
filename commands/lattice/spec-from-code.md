@@ -81,7 +81,7 @@ For each gap found:
 
 Also add these gaps to the spec's verification checklist as known limitations.
 
-### 5. ROADMAP intake (rule 12)
+### 5. ROADMAP intake (Spec -> ROADMAP intake, CLAUDE.md)
 
 Before presenting the spec, classify and track it:
 
@@ -103,4 +103,4 @@ Show the user the generated spec AND the ROADMAP entry. They may adjust either b
 
 After the spec is finalized:
 - Run `/review` — it will detect the spec and run the full evidence trace
-- Normal doc lifecycle (rule 7) applies from here forward
+- Normal Doc lifecycle (CLAUDE.md) applies from here forward

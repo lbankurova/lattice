@@ -303,7 +303,7 @@ If the changed file is consumed by 3+ views (utilities in `lib/`, shared compone
 - Navigate to at least 2 different views that use the changed code
 - Verify both render correctly
 
-### Step 5: Data verification (mandatory for spec work with empirical claims — CLAUDE.md rule 18)
+### Step 5: Data verification (mandatory for spec work with empirical claims — Verify empirical claims, CLAUDE.md)
 
 For every numeric/cardinality claim in the spec's acceptance criteria, re-run the check against the actual generated JSON. This is INDEPENDENT of visual verification — Playwright tells you "did it render", data verification tells you "should it have content at all". Run both.
 
@@ -418,8 +418,14 @@ If no bug fix component exists, state: `BUG SWEEP: N/A — no bug-fix component 
 ## Step 7: Commit gate (all work)
 
 When ALL checks pass:
-1. Tell the user: **"All checks pass. Ready to commit. Here's what changed: [file list + summary]. Shall I commit?"**
-2. If user approves, **acquire the commit lock and merge shared state:**
+1. **Write the review gate file** (mandatory — the pre-commit hook and Claude Code hooks BLOCK commits without it):
+   ```bash
+   bash scripts/write-review-gate.sh "pass" "Review passed — {one-line summary}"
+   ```
+   This gate file is **single-use**: the pre-commit hook deletes it after a successful commit. Every commit needs a fresh review.
+
+2. Tell the user: **"All checks pass. Ready to commit. Here's what changed: [file list + summary]. Shall I commit?"**
+3. If user approves, **acquire the commit lock and merge shared state:**
    ```bash
    bash scripts/acquire-lock.sh "{topic-or-branch}" --poll
    bash scripts/merge-shared-state.sh
@@ -428,13 +434,13 @@ When ALL checks pass:
    
    If `merge-shared-state.sh` reports conflicts (rare), inspect the conflict markers and resolve them before staging.
 
-3. Stage files, create the commit
-4. After committing, **release the lock and clean up:**
+4. Stage files, create the commit
+5. After committing, **release the lock and clean up:**
    ```bash
    bash scripts/release-lock.sh
    rm -f .lattice/engine-changed .lattice/validation-compared 2>/dev/null
    ```
-5. Append to `.lattice/decisions.log`:
+6. Append to `.lattice/decisions.log`:
    ```
    {timestamp}	review	{PASS|FAIL}	{commit hash}	files:{count} deviations:{count} deferred:{count}	{one-line summary}
    ```

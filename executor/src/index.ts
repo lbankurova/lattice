@@ -14,6 +14,7 @@ export { executeWorkflow } from './engine.js';
 export { loadPortfolioState, checkCoherence, isTopicSafe, formatReport } from './coherence.js';
 export { reconcileStates, formatReconciliation } from './reconcile.js';
 export { runAutopilot } from './autopilot.js';
+export { tryAutoResolve } from './auto-resolve.js';
 export type {
   Workflow, WorkflowNode, WorkflowRun, NodeResult,
   PlatformAdapter, ExecutionLayer, NodeType, TriggerRule,

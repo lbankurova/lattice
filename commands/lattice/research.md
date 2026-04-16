@@ -157,8 +157,8 @@ Given the gaps identified in Phase 2, propose capabilities that would solve them
 
 - Describe each as a **user outcome** — what the practitioner can now do that they couldn't before
 - Do NOT describe implementation tasks — that's for `/synthesize`
-- Do NOT filter by difficulty — rule 13 (merit-driven decisions) applies
-- Do NOT defer to "future work" — rule 14 (no unprompted deferrals) applies
+- Do NOT filter by difficulty — Merit-driven decisions (CLAUDE.md) applies
+- Do NOT defer to "future work" — No unprompted deferrals (CLAUDE.md) applies
 - For each proposal, cite which gap it addresses and which sources informed it
 
 ### Phase 3b: Audience Bias Check

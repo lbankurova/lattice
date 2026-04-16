@@ -12,6 +12,13 @@
  *   - Architect REJECT (fundamental approach wrong)
  *   - Coherence conflicts (cross-topic subsystem contention)
  *
+ * Auto-resolve layer (new):
+ *   - Coherence conflicts that can be resolved by targeted distill analysis
+ *   - subsystem-overlap: compatible/read-only interactions
+ *   - stale-blueprint: newer research doesn't invalidate
+ *   - science-flag-propagation: SF is deferred/contextual
+ *   - prerequisite and BREAKS remain human-only
+ *
  * Everything else is autonomous:
  *   - Classification (auto-decide: full/spike/bugfix)
  *   - Phase transitions (research -> blueprint -> build seamlessly)
@@ -30,6 +37,7 @@ import type { TopicState, Conflict, CoherenceReport } from './coherence.js';
 import { loadWorkflow, resolveWorkflowPath } from './loader.js';
 import { executeWorkflow } from './engine.js';
 import { reconcileStates, formatReconciliation } from './reconcile.js';
+import { tryAutoResolve } from './auto-resolve.js';
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -63,6 +71,8 @@ export interface AutopilotResult {
   topicsFailed: string[];
   pendingDecisions: HumanDecision[];
   coherenceReport: CoherenceReport;
+  /** Conflicts that were auto-resolved (no human needed) */
+  autoResolved: string[];
 }
 
 // ── Phase-to-workflow mapping ───────────────────────────────
@@ -124,6 +134,7 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
     topicsAdvanced: [],
     topicsFailed: [],
     pendingDecisions: [],
+    autoResolved: [],
     coherenceReport: {
       timestamp: new Date().toISOString(),
       activeTopics: 0,
@@ -136,6 +147,7 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
   };
 
   let madeProgress = true;
+  let autoResolveAttempted = false; // Prevent infinite auto-resolve loops
 
   while (madeProgress) {
     madeProgress = false;
@@ -192,7 +204,31 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
     }
 
     if (advanceable.length === 0) {
-      await adapter.sendMessage('\nNo topics can be advanced. Autopilot pausing.');
+      // Before giving up, try to auto-resolve blocker conflicts
+      const blockerConflicts = report.conflicts.filter(c => c.severity === 'blocker');
+
+      if (blockerConflicts.length > 0 && !dryRun && !autoResolveAttempted) {
+        autoResolveAttempted = true; // Only try once per autopilot run
+        await adapter.sendMessage('\nNo topics can be advanced. Attempting auto-resolve...');
+
+        const resolveResults = await tryAutoResolve(blockerConflicts, topics, cwd, adapter);
+        const resolved = resolveResults.filter(r => r.verdict === 'RESOLVED');
+
+        if (resolved.length > 0) {
+          for (const r of resolved) {
+            result.autoResolved.push(`[${r.conflict.type}] ${r.conflict.topics.join(' + ')}: ${r.justification.slice(0, 100)}`);
+          }
+          await adapter.sendMessage(`\nAuto-resolved ${resolved.length}/${blockerConflicts.length} conflict(s). Re-running coherence...`);
+          // State files were updated by applyResolution — re-run coherence
+          // and loop again to see if topics are now advanceable
+          madeProgress = true;
+          continue;
+        }
+
+        await adapter.sendMessage('\nAuto-resolve could not unblock any topics. Collecting human decisions.');
+      } else {
+        await adapter.sendMessage('\nNo topics can be advanced. Autopilot pausing.');
+      }
 
       // Collect pending decisions from blocked topics
       collectPendingDecisions(topics, report, result);
@@ -239,6 +275,7 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
         if (run.status === 'completed') {
           result.topicsAdvanced.push(topic.topic);
           madeProgress = true;
+          autoResolveAttempted = false; // Reset — new conflicts may be resolvable
           await adapter.sendMessage(`  ${topic.topic}: COMPLETED`);
         } else if (run.status === 'paused') {
           // Hit a human-required gate inside the workflow
@@ -295,6 +332,7 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
   await adapter.sendMessage(`Loops: ${result.loopsCompleted}`);
   await adapter.sendMessage(`Advanced: ${result.topicsAdvanced.length} (${result.topicsAdvanced.join(', ') || 'none'})`);
   await adapter.sendMessage(`Failed: ${result.topicsFailed.length} (${result.topicsFailed.join(', ') || 'none'})`);
+  await adapter.sendMessage(`Auto-resolved: ${result.autoResolved.length}`);
   await adapter.sendMessage(`Pending decisions: ${result.pendingDecisions.length}`);
   await adapter.sendMessage(`Blocked topics: ${result.coherenceReport.blocked.length}`);
 

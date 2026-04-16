@@ -29,7 +29,7 @@ Then proceed:
    - CLAUDE.md (design decisions, hard rules)
    - `docs/_internal/knowledge/code-quality-guardrails.md`
    - Domain knowledge map (`.claude/rules/domain-knowledge-map.md`) for relevant topics
-   - All files the spec proposes to modify (rule 11: read before writing)
+   - All files the spec proposes to modify (Pre-write protocol, CLAUDE.md: read before writing)
 
 3. **Present the execution plan to the user.** Brief — 5-10 lines max:
    ```
@@ -50,15 +50,15 @@ Then proceed:
 
 For each phase in the spec's build plan, in order:
 
-### Step A: Pre-write (rule 11)
+### Step A: Pre-write (Pre-write protocol, CLAUDE.md)
 
 State your approach in 3-5 bullets:
 - What you'll build
-- What you'll reuse (rule 6 — search first)
+- What you'll reuse (Reuse before reinventing, CLAUDE.md — search first)
 - What constraints apply (design decisions, field contracts)
 - What files you'll modify
 
-### Step A.5: Design (rule 19 — frontend phases only)
+### Step A.5: Design (Frontend UI gate — frontend phases only)
 
 If this phase introduces new UI elements (charts, panels, tables, panes), run `/lattice:design` BEFORE writing code. The design step:
 1. Checks whether the element is needed (redundancy check)
@@ -73,10 +73,10 @@ If this phase introduces new UI elements (charts, panels, tables, panes), run `/
 ### Step B: Implement
 
 Write the code. Follow all CLAUDE.md rules. Key ones:
-- Rule 6: Reuse before reinventing
-- Rule 13: Merit-driven decisions
-- Rule 14: No unprompted deferrals
-- Rule 15: Science preservation gate
+- Reuse before reinventing (CLAUDE.md)
+- Merit-driven decisions (CLAUDE.md)
+- No unprompted deferrals (CLAUDE.md)
+- Science preservation gate (CLAUDE.md)
 
 ### Step C: Check
 
@@ -91,7 +91,7 @@ Run `/ops:check` (build + Python syntax + import smoke test + engine-change dete
 
 Verify acceptance criteria from the spec for this phase. If a criterion can be tested programmatically (e.g., "computeGLower(2.0, 5, 5, 0.80) returns value within 0.05 of..."), test it now. Log results.
 
-**Empirical claim verification (CLAUDE.md rule 18).** For every acceptance criterion that makes a numeric or cardinality claim about data behavior — examples: "count drops to ≤ 2", "shows N rows", "matches the chart", "subject appears on days 8, 15", "ratio < 0.8 on the driving pairwise" — you MUST run that claim against the actual generated `unified_findings.json` before marking the criterion PASS. Acceptable forms:
+**Empirical claim verification (Verify empirical claims, CLAUDE.md).** For every acceptance criterion that makes a numeric or cardinality claim about data behavior — examples: "count drops to ≤ 2", "shows N rows", "matches the chart", "subject appears on days 8, 15", "ratio < 0.8 on the driving pairwise" — you MUST run that claim against the actual generated `unified_findings.json` before marking the criterion PASS. Acceptable forms:
 
 1. A Python one-liner: `backend/venv/Scripts/python.exe -c "import json; data = json.load(open('backend/generated/{study}/unified_findings.json')); ..."`
 2. A fixture-based test that loads the real file (see `frontend/tests/loo-sensitivity-pane-logic.test.ts` "PointCross BW data fixture" describe block for the pattern)
@@ -148,7 +148,7 @@ DECISIONS MADE DURING IMPLEMENTATION:
 |----------|-----|---------------------|
 | [what] | [merit rationale] | [what else was possible] |
 
-DEFERRED (requires user approval per rule 14):
+DEFERRED (requires user approval per No unprompted deferrals, CLAUDE.md):
 | Item | Blocking dependency | Suggested next step |
 |------|-------------------|-------------------|
 | [if any] | [real dependency] | [what to do] |

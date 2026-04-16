@@ -100,7 +100,7 @@ Read the `cascades` section of capabilities.yaml. Each cascade entry lists:
 
 Check the `state_by_dimension` tables in each pillar. An item that affects multiple species (e.g., species magnitude thresholds for dog+NHP+rabbit) outranks one affecting a single species, all else equal.
 
-**Do NOT evaluate effort.** Rule 13 — merit only. The question is "should we do this?" not "can we do this quickly?"
+**Do NOT evaluate effort.** Merit-driven decisions (CLAUDE.md) — merit only. The question is "should we do this?" not "can we do this quickly?"
 
 **Wave grouping.** When items share a root cause or sit within the same pillar/dimension, group them as a "wave" with a collective priority. Example: "term recognition wave" = coverage expansion + quick wins + dictionary update — all in the term-recognition pillar.
 

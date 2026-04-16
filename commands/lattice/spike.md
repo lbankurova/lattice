@@ -13,14 +13,14 @@ A spike is a time-boxed exploration. You build the thing to learn whether the ap
 
 **All CLAUDE.md hard rules still apply**, especially:
 
-- **Rule 10 (bug fix protocol)** — if you hit bugs during the spike, don't patch blindly
-- **Rule 11 (pre-write protocol)** — this is MORE important during spikes, not less. Read existing code, find reusable patterns, state your approach before writing. The whole point of this skill is to prevent the "sometimes great, sometimes awful" variance in exploratory work.
-- **Rule 6 (reuse before reinventing)** — search before building
+- **Bug fix protocol (CLAUDE.md)** — if you hit bugs during the spike, don't patch blindly
+- **Pre-write protocol (CLAUDE.md)** — this is MORE important during spikes, not less. Read existing code, find reusable patterns, state your approach before writing. The whole point of this skill is to prevent the "sometimes great, sometimes awful" variance in exploratory work.
+- **Reuse before reinventing (CLAUDE.md)** — search before building
 - **Design decisions** — every visual/UI constraint in CLAUDE.md applies. Spikes don't get design exemptions.
 
 ## What is suspended during a spike
 
-- Doc lifecycle (rule 7) — no spec archival, no knowledge extraction
+- Doc lifecycle (CLAUDE.md) — no spec archival, no knowledge extraction
 - MANIFEST.md updates — no staleness tracking for exploratory work
 - Post-implementation review — skipped. If the spike succeeds, run `/spec-from-code` then `/review` instead.
 - Commit checklist items for spec/MANIFEST/incoming/TODO/ROADMAP — only build, tests, UI components, architecture, and null guards still apply
@@ -34,7 +34,7 @@ Ask the user (if not already stated): **What are you trying to learn?** A spike 
 - "Does the cross-study join work with mismatched dose groups?"
 - "What does the cohort view feel like with temporal filtering?"
 
-### 2. Pre-write (mandatory — rule 11)
+### 2. Pre-write (mandatory — Pre-write protocol, CLAUDE.md)
 
 Before writing any code:
 
