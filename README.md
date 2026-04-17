@@ -220,6 +220,7 @@ Built into `/lattice:distill`:
 
 | Script | Purpose |
 |--------|---------|
+| `install-hooks.sh` | Install git hooks from `hooks/` to `.git/hooks/` (copy + marker, cross-platform) |
 | `sync-skills.sh` | Sync skills, agents, scripts from lattice to project repo |
 | `write-review-gate.sh` | Mechanical checks before writing review gate file |
 | `validation-ratchet.sh` | Capture/compare analytical validation scores |
@@ -239,6 +240,7 @@ Templates for new projects:
 - `.lattice/budget.yaml` — per-workflow and per-topic cost limits
 - `.lattice/e2e.yaml` — E2E testing gate suite configuration
 - `scripts/write-review-gate.sh` — mechanical checks before writing review gate
+- `hooks/pre-commit` — pre-commit hook template (review gate + project-specific checks)
 - `complexity-check.sh` + `eslint-complexity-rules.js` + `ruff.toml` — code complexity guardrails
 - `docs/_internal/` — full directory structure with:
   - `TODO.md`, `ROADMAP.md`, `MANIFEST.md` — backlog and tracking
@@ -261,7 +263,7 @@ Templates for new projects:
 7. Copy `scripts/validation-ratchet.sh` to `scripts/` -- adapt for your validation suite
 8. Copy `scaffold/.lattice/budget.yaml` to `.lattice/budget.yaml` -- set cost limits per workflow and topic
 9. Copy `scaffold/.lattice/e2e.yaml` to `.lattice/e2e.yaml` -- configure test suites
-10. Install pre-commit hook: adapt from framework's `.git/hooks/pre-commit` (review gate + build checks)
+10. Install pre-commit hook: `bash scripts/install-hooks.sh` (copies from `hooks/` to `.git/hooks/`, re-run after pulling updates)
 11. Run `bash scripts/sync-skills.sh` to sync skills to the project (re-run after lattice updates)
 12. In `.claude/settings.json`: replace placeholder patterns (PIPELINE_MODULES, ENGINE_FILES) with your project's regexes
 13. Create `.claude/rules/domain-knowledge-map.md` -- topic-to-file lookup for your domain

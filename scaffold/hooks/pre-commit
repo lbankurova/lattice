@@ -1,0 +1,91 @@
+#!/bin/bash
+#
+# Pre-commit hook: review gate + project-specific checks.
+# Install: bash scripts/install-hooks.sh (or copy to .git/hooks/pre-commit)
+#
+# Customize the CHECKS section below for your project's stack.
+#
+
+REPO_ROOT="$(git rev-parse --show-toplevel)"
+STAGED_FILES=$(git diff --cached --name-only)
+
+echo "========================================"
+echo "  Pre-commit hook: running checks..."
+echo "========================================"
+echo ""
+
+# --- Review gate (BLOCKS) ---
+GATE_FILE="$REPO_ROOT/.lattice/review-gate.json"
+GATE_MAX_AGE=1800
+
+if [ -f "$GATE_FILE" ]; then
+    GATE_TIME=$(stat -c %Y "$GATE_FILE" 2>/dev/null || stat -f %m "$GATE_FILE" 2>/dev/null || echo 0)
+    NOW=$(date +%s)
+    GATE_AGE=$((NOW - GATE_TIME))
+
+    if [ "$GATE_AGE" -gt "$GATE_MAX_AGE" ]; then
+        echo "  REVIEW GATE: Gate file is stale (${GATE_AGE}s old, max ${GATE_MAX_AGE}s)."
+        echo "  Re-run /lattice:review before committing."
+        exit 1
+    fi
+
+    echo "--- Review gate: PASS (age: ${GATE_AGE}s) ---"
+    echo ""
+else
+    echo "========================================"
+    echo "  COMMIT BLOCKED: No review gate found."
+    echo ""
+    echo "  Every commit requires /lattice:review to pass first."
+    echo "  Run /lattice:review -- it writes the gate file when all checks pass."
+    echo ""
+    echo "  For trivial commits (docs-only, typo, comment):"
+    echo "  bash scripts/write-review-gate.sh pass \"trivial fix\""
+    echo "========================================"
+    exit 1
+fi
+
+# ==============================================================
+# CHECKS — customize for your project
+# ==============================================================
+
+# Example: TypeScript build check
+# STAGED_TS=$(echo "$STAGED_FILES" | grep -cE '\.(ts|tsx)$' || true)
+# if [ "$STAGED_TS" -gt 0 ]; then
+#     echo "--- TypeScript build ---"
+#     if (cd "$REPO_ROOT/frontend" && npx tsc --noEmit); then
+#         echo "  Build passed."
+#     else
+#         echo "  COMMIT ABORTED: TypeScript build failed."
+#         exit 1
+#     fi
+# fi
+
+# Example: Python syntax check
+# STAGED_PY=$(echo "$STAGED_FILES" | grep -cE '\.py$' || true)
+# if [ "$STAGED_PY" -gt 0 ]; then
+#     echo "--- Python syntax ---"
+#     FAILED=""
+#     for f in $(echo "$STAGED_FILES" | grep '\.py$'); do
+#         python3 -c "import ast; ast.parse(open('$f').read())" 2>/dev/null || FAILED="$FAILED $f"
+#     done
+#     if [ -n "$FAILED" ]; then
+#         echo "  COMMIT ABORTED: Syntax errors in:$FAILED"
+#         exit 1
+#     fi
+# fi
+
+echo "No project-specific checks configured."
+echo "Edit hooks/pre-commit to add checks for your stack."
+echo ""
+
+# --- Cleanup: Consume the review gate (single-use) ---
+if [ -f "$GATE_FILE" ]; then
+    rm -f "$GATE_FILE"
+    echo "  Review gate consumed (next commit needs fresh /lattice:review)."
+    echo ""
+fi
+
+echo "========================================"
+echo "  All pre-commit checks passed."
+echo "========================================"
+exit 0

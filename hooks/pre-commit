@@ -1,211 +1,130 @@
 #!/bin/bash
 #
-# Pre-commit hook: runs frontend tests, build, and complexity advisories.
-# Tests/build failures abort the commit. Complexity warnings are advisory.
+# Pre-commit hook: review gate check, executor TypeScript build, advisories.
+# Gate and build failures abort the commit. Advisories are non-blocking.
 #
-# Install: cp hooks/pre-commit <project>/.git/hooks/pre-commit && chmod +x <project>/.git/hooks/pre-commit
-#
+# Install: cp this file to <project>/.git/hooks/pre-commit && chmod +x
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-FRONTEND_DIR="$REPO_ROOT/frontend"
+EXECUTOR_DIR="$REPO_ROOT/executor"
+
+STAGED_FILES=$(git diff --cached --name-only)
 
 echo "========================================"
 echo "  Pre-commit hook: running checks..."
 echo "========================================"
 echo ""
 
-# --- Step 1: Frontend tests (if frontend changed) ---
-STAGED_FRONTEND=$(git diff --cached --name-only | grep -c "^frontend/" || true)
-if [ "$STAGED_FRONTEND" -gt 0 ]; then
-    echo "--- Step 1/4: Running frontend tests (npm test) ---"
-    echo ""
+# --- Step 0: Review gate check (BLOCKS) ---
+GATE_FILE="$REPO_ROOT/.lattice/review-gate.json"
+GATE_MAX_AGE=1800
 
-    if (cd "$FRONTEND_DIR" && npm test); then
-        echo ""
-        echo "--- Tests passed. ---"
-        echo ""
-    else
-        echo ""
-        echo "========================================"
-        echo "  COMMIT ABORTED: Frontend tests failed."
-        echo "  Fix the failing tests before committing."
-        echo "========================================"
+if [ -f "$GATE_FILE" ]; then
+    GATE_TIME=$(stat -c %Y "$GATE_FILE" 2>/dev/null || stat -f %m "$GATE_FILE" 2>/dev/null || echo 0)
+    NOW=$(date +%s)
+    GATE_AGE=$((NOW - GATE_TIME))
+
+    if [ "$GATE_AGE" -gt "$GATE_MAX_AGE" ]; then
+        echo "  REVIEW GATE: Gate file is stale (${GATE_AGE}s old, max ${GATE_MAX_AGE}s)."
+        echo "  Re-run /lattice:review before committing."
         exit 1
     fi
 
-    # --- Step 2: Frontend build ---
-    echo "--- Step 2/4: Running frontend build (npm run build) ---"
+    echo "--- Review gate: PASS (age: ${GATE_AGE}s) ---"
     echo ""
+else
+    echo "========================================"
+    echo "  COMMIT BLOCKED: No review gate found."
+    echo ""
+    echo "  Every commit requires /lattice:review to pass first."
+    echo "  Run /lattice:review -- it writes the gate file when all checks pass."
+    echo ""
+    echo "  For trivial commits (docs-only, typo, comment):"
+    echo "  bash scripts/write-review-gate.sh pass \"trivial fix\""
+    echo "========================================"
+    exit 1
+fi
 
-    if (cd "$FRONTEND_DIR" && npm run build); then
+# --- Step 1: Executor TypeScript build (if executor changed) ---
+STAGED_EXECUTOR=$(echo "$STAGED_FILES" | grep -c "^executor/" || true)
+if [ "$STAGED_EXECUTOR" -gt 0 ]; then
+    echo "--- Step 1: Executor TypeScript build ---"
+    echo ""
+    if (cd "$EXECUTOR_DIR" && npx tsc --noEmit); then
         echo ""
-        echo "--- Build passed. ---"
+        echo "  Build passed."
         echo ""
     else
         echo ""
         echo "========================================"
-        echo "  COMMIT ABORTED: Frontend build failed."
-        echo "  Fix TypeScript / build errors before committing."
+        echo "  COMMIT ABORTED: Executor TypeScript build failed."
+        echo "  Run: cd executor && npx tsc --noEmit"
         echo "========================================"
         exit 1
     fi
 else
-    echo "No frontend changes staged -- skipping frontend checks."
+    echo "No executor changes staged -- skipping TypeScript check."
     echo ""
 fi
 
-# --- Step 3: Index freshness checks (warnings, blocking on MANIFEST) ---
-echo "--- Step 3/4: Index freshness checks ---"
+# --- Step 2: Index freshness advisories (non-blocking) ---
+echo "--- Step 2: Index freshness ---"
 echo ""
 
 INDEX_WARNINGS=""
-STAGED_FILES=$(git diff --cached --name-only)
-CODE_FILE_COUNT=$(echo "$STAGED_FILES" | grep -cE '\.(py|ts|tsx|js|jsx)$' || true)
+CODE_FILE_COUNT=$(echo "$STAGED_FILES" | grep -cE '\.(ts|md|yaml|sh)$' || true)
 
-# 3a: MANIFEST staleness — if staged files appear in MANIFEST dependencies, MANIFEST should be staged too
-if [ -f "$REPO_ROOT/docs/_internal/MANIFEST.md" ]; then
-    MANIFEST_STAGED=$(echo "$STAGED_FILES" | grep -c "MANIFEST.md" || true)
-    if [ "$MANIFEST_STAGED" -eq 0 ]; then
-        # Check if any staged file is a MANIFEST dependency
-        MANIFEST_DEPS=""
-        while IFS= read -r SF; do
-            [ -z "$SF" ] && continue
-            BASENAME=$(basename "$SF")
-            if grep -q "$BASENAME" "$REPO_ROOT/docs/_internal/MANIFEST.md" 2>/dev/null; then
-                MANIFEST_DEPS="${MANIFEST_DEPS}    ${SF}\n"
-            fi
-        done <<< "$STAGED_FILES"
-        if [ -n "$MANIFEST_DEPS" ]; then
-            INDEX_WARNINGS="${INDEX_WARNINGS}  MANIFEST: These staged files are MANIFEST dependencies but MANIFEST.md was not updated:\n${MANIFEST_DEPS}  Update 'Last validated' date in MANIFEST.md, or mark specs as STALE.\n\n"
-        fi
-    fi
-fi
-
-# 3b: TODO.md freshness — large changes should update TODO
 if [ "$CODE_FILE_COUNT" -gt 3 ]; then
     TODO_STAGED=$(echo "$STAGED_FILES" | grep -c "TODO.md" || true)
     if [ "$TODO_STAGED" -eq 0 ]; then
-        INDEX_WARNINGS="${INDEX_WARNINGS}  TODO.md: ${CODE_FILE_COUNT} code files changed but TODO.md was not updated.\n  Large changes usually resolve or create TODO items. Review docs/_internal/TODO.md.\n\n"
-    fi
-fi
-
-# 3c: Spec archival — if commit message references an incoming/ spec, it should be archived
-# (Can only check staged files, not commit message — check if incoming/ files were modified but not moved)
-INCOMING_MODIFIED=$(echo "$STAGED_FILES" | grep "docs/_internal/incoming/[^a]" | grep -v "archive/" || true)
-if [ -n "$INCOMING_MODIFIED" ]; then
-    INDEX_WARNINGS="${INDEX_WARNINGS}  INCOMING SPECS: Modified but not archived:\n"
-    while IFS= read -r SPEC; do
-        [ -n "$SPEC" ] && INDEX_WARNINGS="${INDEX_WARNINGS}    ${SPEC}\n"
-    done <<< "$INCOMING_MODIFIED"
-    INDEX_WARNINGS="${INDEX_WARNINGS}  If these specs are now implemented, move to incoming/archive/ (rule 7).\n\n"
-fi
-
-# 3d: ROADMAP freshness — if incoming/ specs were archived, ROADMAP should be updated
-ARCHIVED=$(echo "$STAGED_FILES" | grep "incoming/archive/" || true)
-if [ -n "$ARCHIVED" ]; then
-    ROADMAP_STAGED=$(echo "$STAGED_FILES" | grep -c "ROADMAP.md" || true)
-    if [ "$ROADMAP_STAGED" -eq 0 ]; then
-        INDEX_WARNINGS="${INDEX_WARNINGS}  ROADMAP: Specs were archived but ROADMAP.md was not updated.\n  Mark completed items in docs/_internal/ROADMAP.md.\n\n"
+        INDEX_WARNINGS="${INDEX_WARNINGS}  TODO.md: ${CODE_FILE_COUNT} files changed but TODO.md was not updated.\n"
     fi
 fi
 
 if [ -n "$INDEX_WARNINGS" ]; then
-    echo "  Index freshness issues (non-blocking):"
-    echo ""
+    echo "  Advisories (non-blocking):"
     echo -e "$INDEX_WARNINGS"
 else
     echo "  All indexes look fresh."
-    echo ""
 fi
+echo ""
 
-# --- Step 4: Complexity advisories (warnings only, never blocks) ---
-echo "--- Step 4/4: Complexity advisories ---"
+# --- Step 3: Complexity advisories (non-blocking) ---
+echo "--- Step 3: Complexity advisories ---"
 echo ""
 
 COMPLEXITY_WARNINGS=""
 
-# 4a: File size warnings
 while IFS= read -r FILE; do
     [ -z "$FILE" ] && continue
-    [ ! -f "$FILE" ] && continue
-
-    LINE_COUNT=$(wc -l < "$FILE" 2>/dev/null)
+    [ ! -f "$REPO_ROOT/$FILE" ] && continue
     case "$FILE" in
-        *.py)
-            if [ "$LINE_COUNT" -gt 500 ]; then
-                COMPLEXITY_WARNINGS="${COMPLEXITY_WARNINGS}  WARNING: ${FILE} is ${LINE_COUNT} lines (Python threshold: 500)\n"
-            fi
-            ;;
-        *.ts|*.tsx)
+        *.ts)
+            LINE_COUNT=$(wc -l < "$REPO_ROOT/$FILE" 2>/dev/null)
             if [ "$LINE_COUNT" -gt 800 ]; then
-                COMPLEXITY_WARNINGS="${COMPLEXITY_WARNINGS}  WARNING: ${FILE} is ${LINE_COUNT} lines (TS/TSX threshold: 800)\n"
+                COMPLEXITY_WARNINGS="${COMPLEXITY_WARNINGS}  WARNING: ${FILE} is ${LINE_COUNT} lines (threshold: 800)\n"
+            fi
+            ;;
+        *.md)
+            LINE_COUNT=$(wc -l < "$REPO_ROOT/$FILE" 2>/dev/null)
+            if [ "$LINE_COUNT" -gt 500 ]; then
+                COMPLEXITY_WARNINGS="${COMPLEXITY_WARNINGS}  ADVISORY: ${FILE} is ${LINE_COUNT} lines -- consider splitting\n"
             fi
             ;;
     esac
 done <<< "$STAGED_FILES"
-
-# 4b: New source files without test coverage
-NEW_FILES=$(git diff --cached --name-only --diff-filter=A)
-while IFS= read -r FILE; do
-    [ -z "$FILE" ] && continue
-    case "$FILE" in
-        *.test.*|*.spec.*|*__test__*|*/tests/*)
-            continue  # Skip test files themselves
-            ;;
-        backend/*.py|frontend/src/*.ts|frontend/src/*.tsx)
-            BASENAME=$(basename "$FILE" | sed 's/\.[^.]*$//')
-            if ! echo "$STAGED_FILES" | grep -qE "(test|spec).*${BASENAME}|${BASENAME}.*(test|spec)"; then
-                COMPLEXITY_WARNINGS="${COMPLEXITY_WARNINGS}  ADVISORY: New file ${FILE} has no corresponding test file staged\n"
-            fi
-            ;;
-    esac
-done <<< "$NEW_FILES"
-
-# 4c: Bare lint exemptions
-while IFS= read -r FILE; do
-    [ -z "$FILE" ] && continue
-    [ ! -f "$FILE" ] && continue
-    case "$FILE" in
-        *.py)
-            BARE=$(git diff --cached -- "$FILE" | grep "^+" | grep "# noqa:" | grep -v "#.*noqa:.*#\|#.*noqa:.*--" || true)
-            if [ -n "$BARE" ]; then
-                COMPLEXITY_WARNINGS="${COMPLEXITY_WARNINGS}  WARNING: Bare # noqa: in ${FILE} -- add justification comment (CLAUDE.md rule 15)\n"
-            fi
-            ;;
-        *.ts|*.tsx)
-            BARE=$(git diff --cached -- "$FILE" | grep "^+" | grep "eslint-disable" | grep -v "//.*eslint-disable.*--\|//.*eslint-disable.*//" || true)
-            if [ -n "$BARE" ]; then
-                COMPLEXITY_WARNINGS="${COMPLEXITY_WARNINGS}  WARNING: Bare eslint-disable in ${FILE} -- add justification comment (CLAUDE.md rule 15)\n"
-            fi
-            ;;
-    esac
-done <<< "$STAGED_FILES"
-
-# 4d: Science advisory
-SCIENCE_FILES=$(git diff --cached --name-only -- \
-    'backend/services/analysis/*.py' \
-    'backend/generator/*.py' \
-    'shared/rules/*.yaml' \
-    'shared/rules/*.json' \
-    'shared/config/*.json' \
-    'shared/config/*.yaml' \
-    2>/dev/null)
-
-if [ -n "$SCIENCE_FILES" ]; then
-    COMPLEXITY_WARNINGS="${COMPLEXITY_WARNINGS}\n  SCIENCE ADVISORY: The following domain-critical files changed:\n"
-    while IFS= read -r SF; do
-        [ -n "$SF" ] && COMPLEXITY_WARNINGS="${COMPLEXITY_WARNINGS}    $SF\n"
-    done <<< "$SCIENCE_FILES"
-    COMPLEXITY_WARNINGS="${COMPLEXITY_WARNINGS}  Consider: bash scripts/regenerate-validation.sh\n"
-fi
 
 if [ -n "$COMPLEXITY_WARNINGS" ]; then
-    echo "  Advisories (non-blocking):"
-    echo ""
     echo -e "$COMPLEXITY_WARNINGS"
-    echo ""
 else
     echo "  No advisories."
+fi
+echo ""
+
+# --- Cleanup: Consume the review gate (single-use) ---
+if [ -f "$GATE_FILE" ]; then
+    rm -f "$GATE_FILE"
+    echo "  Review gate consumed (next commit needs fresh /lattice:review)."
     echo ""
 fi
 
