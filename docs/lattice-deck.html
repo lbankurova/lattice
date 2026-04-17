@@ -1,0 +1,661 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Lattice Framework</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+<style>
+  :root {
+    --r-background-color: #0d1117;
+    --r-main-color: #c9d1d9;
+    --r-heading-color: #e6edf3;
+    --r-link-color: #58a6ff;
+    --r-heading-font: system-ui, -apple-system, sans-serif;
+    --r-main-font: system-ui, -apple-system, sans-serif;
+    --r-code-font: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --r-main-font-size: 28px;
+    --r-heading1-size: 1.8em;
+    --r-heading2-size: 1.4em;
+    --r-heading3-size: 1.1em;
+  }
+  .reveal { font-weight: 300; }
+  .reveal strong { color: #e6edf3; font-weight: 600; }
+  .reveal h1, .reveal h2, .reveal h3 { font-weight: 600; letter-spacing: -0.02em; }
+  .reveal h3 { color: #8b949e; font-weight: 400; }
+  .reveal code { background: #161b22; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; color: #79c0ff; }
+  .reveal pre { box-shadow: none; }
+  .reveal pre code { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px 20px; font-size: 0.55em; line-height: 1.5; max-height: 420px; }
+  .reveal table { margin: 0 auto; border-collapse: collapse; font-size: 0.65em; }
+  .reveal table th { background: #161b22; color: #58a6ff; font-weight: 600; text-transform: uppercase; font-size: 0.85em; letter-spacing: 0.05em; }
+  .reveal table td, .reveal table th { border: 1px solid #30363d; padding: 8px 14px; }
+  .reveal table tr:nth-child(even) { background: rgba(22, 27, 34, 0.5); }
+  .reveal .dim { color: #8b949e; }
+  .reveal .accent { color: #58a6ff; }
+  .reveal .warn { color: #d29922; }
+  .reveal .fail { color: #f85149; }
+  .reveal .pass { color: #3fb950; }
+  .reveal ul { list-style: none; padding-left: 0; }
+  .reveal ul li { margin-bottom: 0.5em; }
+  .reveal ul li::before { content: ""; display: inline-block; width: 6px; height: 6px; background: #58a6ff; border-radius: 50%; margin-right: 12px; vertical-align: middle; }
+  .reveal .problem { text-align: left; max-width: 800px; margin: 0 auto; }
+  .reveal .problem .incident { background: #1c1208; border-left: 3px solid #d29922; padding: 12px 18px; border-radius: 0 6px 6px 0; font-size: 0.7em; margin-bottom: 24px; color: #e3b341; }
+  .reveal .problem .fix { background: #0d1f0d; border-left: 3px solid #3fb950; padding: 12px 18px; border-radius: 0 6px 6px 0; font-size: 0.7em; color: #56d364; }
+  .reveal .lesson { border-top: 1px solid #30363d; margin-top: 28px; padding-top: 16px; font-size: 0.7em; color: #8b949e; font-style: italic; }
+  .reveal .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 700px; margin: 0 auto; }
+  .reveal .stat-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: center; }
+  .reveal .stat-box .num { font-size: 2em; font-weight: 700; color: #58a6ff; display: block; }
+  .reveal .stat-box .label { font-size: 0.6em; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; }
+  .reveal .timeline { text-align: left; max-width: 750px; margin: 0 auto; font-size: 0.6em; }
+  .reveal .timeline .week { margin-bottom: 16px; }
+  .reveal .timeline .week-label { color: #58a6ff; font-weight: 600; font-size: 1.1em; margin-bottom: 4px; }
+  .reveal .slide-number { font-size: 12px; color: #484f58; }
+  .title-slide h1 { font-size: 1.6em !important; line-height: 1.2; }
+  .title-slide h3 { font-size: 0.7em !important; margin-top: 20px; }
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ============================================================ -->
+<!-- SLIDE 1: Title -->
+<!-- ============================================================ -->
+<section class="title-slide">
+  <h1>Lattice</h1>
+  <h3>What happens when you let LLMs build<br>a scientific app for 4 months</h3>
+  <p style="margin-top: 40px; font-size: 0.5em; color: #484f58;">An evolving framework for LLM-assisted development</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 2: The product -->
+<!-- ============================================================ -->
+<section>
+  <h2>The product</h2>
+  <p style="font-size: 0.75em; color: #8b949e; margin-bottom: 30px;">SENDEX &mdash; pre-clinical regulatory study data explorer</p>
+  <div class="stat-grid">
+    <div class="stat-box"><span class="num">~170K</span><span class="label">Lines of code</span></div>
+    <div class="stat-box"><span class="num">25</span><span class="label">Subsystems</span></div>
+    <div class="stat-box"><span class="num">13</span><span class="label">Validated studies</span></div>
+    <div class="stat-box"><span class="num">1</span><span class="label">Developer + Claude</span></div>
+  </div>
+  <p style="margin-top: 16px; font-size: 0.5em; color: #484f58;">
+    72K Python (generator + services + routers) &bull; 100K TypeScript/TSX &bull; +30K tests &bull; +48K docs
+  </p>
+  <p style="margin-top: 30px; font-size: 0.6em; color: #8b949e;">
+    FastAPI + React &bull; XPT files &rarr; REST API &rarr; interactive analysis views<br>
+    The interesting part isn't the app. It's what we learned about how LLMs fail at sustained development.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 3: The knowledge base -->
+<!-- ============================================================ -->
+<section>
+  <h2>The knowledge base it built</h2>
+  <h3>Not just code &mdash; a structured knowledge system</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 16px; font-size: 0.52em; max-width: 900px; margin: 16px auto 0; text-align: left;">
+    <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px;">
+      <div style="color: #58a6ff; font-weight: 600; margin-bottom: 8px;">Research corpus</div>
+      <code>docs/_internal/research/</code><br>
+      134 files &bull; peer-reviewed, decided, or dormant<br>
+      <code>REGISTRY.md</code> (777 lines) &mdash; stream status, cross-dependencies, invariants at risk<br>
+      <code>INDEX.md</code> &mdash; inventory with per-file status tags
+    </div>
+    <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px;">
+      <div style="color: #58a6ff; font-weight: 600; margin-bottom: 8px;">Domain knowledge</div>
+      <code>docs/_internal/knowledge/</code><br>
+      <code>system-manifest.md</code> &mdash; 25 subsystems, data flow, invariants<br>
+      <code>scoring-engine-model.md</code> &mdash; 17-step scoring pipeline<br>
+      <code>species-profiles.md</code> &mdash; rat, dog, NHP, rabbit, guinea pig<br>
+      <code>vehicle-profiles.md</code> &bull; <code>methods-index.md</code> &bull; <code>field-contracts.md</code>
+    </div>
+    <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px;">
+      <div style="color: #58a6ff; font-weight: 600; margin-bottom: 8px;">Operational state</div>
+      <code>.lattice/decisions.log</code> &mdash; 424 entries, append-only experiment memory<br>
+      <code>.lattice/cycle-state/</code> &mdash; 47 topic YAML files (phase, checkpoints, cost, science flags)<br>
+      <code>.lattice/commit-topics.tsv</code> &mdash; retroactive commit annotations
+    </div>
+    <div style="background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px;">
+      <div style="color: #58a6ff; font-weight: 600; margin-bottom: 8px;">Validation</div>
+      <code>docs/validation/references/</code> &mdash; 16 ground truth study cards<br>
+      <code>.lattice/validation-baseline.json</code> &mdash; signal detection scores<br>
+      <code>docs/_internal/TODO.md</code> &mdash; 1,076 lines, single backlog source of truth
+    </div>
+  </div>
+  <p style="font-size: 0.5em; color: #8b949e; margin-top: 16px;">Every artifact is read by specific skills. Nothing is documentation for its own sake.</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 4: Starting point -->
+<!-- ============================================================ -->
+<section>
+  <h2>Starting point</h2>
+  <h3>Week 1: just skills</h3>
+  <pre><code>User: /lattice:research {topic}
+       LLM reads prompt, does research, writes output
+
+User: /lattice:implement {spec}
+       LLM reads spec, writes code
+
+User: /lattice:review
+       LLM reviews its own code, commits</code></pre>
+  <p style="font-size: 0.65em; margin-top: 20px;">
+    Markdown prompt files. Tell the LLM what to do, it does it.<br>
+    <span class="pass">Works for:</span> simple features, one-shot tasks, known territory.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 4: Self-review -->
+<!-- ============================================================ -->
+<section>
+  <h2>Problem 1</h2>
+  <h3>Self-review is worthless</h3>
+  <div class="problem">
+    <div class="incident">
+      The LLM reviews code it just wrote. The rationale for every decision is in its context window. It literally cannot see its own blind spots. Reviews pass with "LGTM" when there are real issues.
+    </div>
+    <div class="fix">
+      <strong>Fix: Independent context.</strong> Peer review, architect review, and decision audit each run in a <strong>separate agent</strong> with no access to the main conversation. The reviewer sees only the artifact, not the reasoning that produced it.
+    </div>
+    <div class="lesson">
+      LLMs can review. They can't review themselves. Context is the enemy of objectivity.
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 5: Independent agents detail -->
+<!-- ============================================================ -->
+<section>
+  <h2>Three independent reviewers</h2>
+  <table>
+    <tr>
+      <th>Agent</th>
+      <th>Reviews for</th>
+      <th>Why separate</th>
+    </tr>
+    <tr>
+      <td><code>peer-review</code></td>
+      <td>Scientific correctness, evidence gaps</td>
+      <td>Author's rationale biases review</td>
+    </tr>
+    <tr>
+      <td><code>architect-reviewer</code></td>
+      <td>Overengineering, science preservation</td>
+      <td>Builder sees complexity as necessary</td>
+    </tr>
+    <tr>
+      <td><code>decision-auditor</code></td>
+      <td>Merit-driven choices, unprompted deferrals</td>
+      <td>Agent can't audit its own rule compliance</td>
+    </tr>
+  </table>
+  <p style="font-size: 0.6em; margin-top: 24px; color: #8b949e;">
+    Two-round peer review with a hard cap. No Round 3 &mdash; that's always bikeshedding.<br>
+    Unresolved disagreements escalate to the human with both positions and evidence.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 6: Research doesn't compound -->
+<!-- ============================================================ -->
+<section>
+  <h2>Problem 2</h2>
+  <h3>Research doesn't compound</h3>
+  <div class="problem">
+    <div class="incident">
+      After 20+ research files, the LLM researches something we already know, or contradicts a prior finding without realizing it. Each session starts fresh &mdash; no memory of the corpus. Now we have <strong>134 research files</strong> and a <strong>777-line REGISTRY</strong> tracking cross-stream dependencies.
+    </div>
+    <div class="fix">
+      <strong>Fix: <code>/lattice:distill</code></strong> &mdash; corpus-level reasoning across ALL accumulated research.<br><br>
+      &bull; Reads <code>REGISTRY.md</code> (stream status, dependencies, invariants at risk)<br>
+      &bull; Reads <code>INDEX.md</code> (per-file status: decided / dormant / superseded)<br>
+      &bull; Four modes: answer, thesis, audit, adapt<br>
+      &bull; Every claim tagged: <span class="pass">decided</span> &gt; <span class="accent">peer-reviewed</span> &gt; <span class="warn">unreviewed</span> &gt; <span class="fail">cross-document inference</span>
+    </div>
+    <div class="lesson">
+      Research without synthesis is trivia collection. The value is in connections between findings.
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 7b: REGISTRY sample -->
+<!-- ============================================================ -->
+<section>
+  <h2>Research Registry</h2>
+  <h3>777 lines &mdash; every research stream tracked with cross-dependencies</h3>
+  <pre><code style="font-size: 0.46em; line-height: 1.55;">### loo-discount
+- Status: decided (implemented)
+- Conclusion: LOO stability discount modifies sigmoid(gLower) in Step 10
+  statistical component only; does not modify clinical boost multiplier.
+  Fragility is a property of the estimate, not the finding.
+- Touches subsystems: S02 (gLower -- read only), S10 (signal formula)
+- Affects: signal-scoring, outlier-sentinel, noael-determination
+- Depends on: signal-scoring-architecture, evidence-scoring-overhaul
+- Invariants at risk: X1 (clinical floor), X2 (sigmoid bound),
+  X3 (gLower 0.3 gate -- CRITICAL: must not mutate ep.gLower)
+- Validation: 48/49 signals, 81/82 design checks -- unchanged.
+  PointCross: 86 stable (>=0.8), 49 fragile (<0.8), 13 maximally fragile.
+- Decision date: 2026-04-02</code></pre>
+  <p style="font-size: 0.55em; color: #8b949e; margin-top: 12px;">
+    Read by <code>/lattice:probe</code> (cross-impact), <code>/lattice:distill</code> (freshness check), and the <strong>coherence engine</strong> (subsystem graph).
+    Not documentation &mdash; operational state that drives automation.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 8: Bugs recur -->
+<!-- ============================================================ -->
+<section>
+  <h2>Problem 3</h2>
+  <h3>Fixing a bug doesn't prevent the next one</h3>
+  <div class="problem">
+    <div class="incident">
+      LLM fixes a bug in module A. The exact same pattern exists in modules B, C, D. Nobody checks. Same bug surfaces two days later in module B.
+    </div>
+    <div class="fix">
+      <strong>Fix: <code>/ops:bug-stress</code></strong> &mdash; mandatory post-fix QC:<br><br>
+      1. Classify the bug (10 pattern families) &rarr; logged to <code>.lattice/bug-patterns.md</code><br>
+      2. Search the <strong>entire</strong> codebase for the same pattern<br>
+      3. Fix ALL instances, not just the one reported<br>
+      4. Add tests that catch the pattern going forward<br><br>
+      <code>/ops:bug</code> captures during QA &rarr; <code>BUG-SWEEP.md</code> (structured log).<br>
+      3+ bugs in the same family &rarr; extract a pattern test suite.
+    </div>
+    <div class="lesson">
+      A bug is never just one bug. It's a pattern with N instances. Fix the class, not the instance.
+    </div>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 8: Human bottleneck -->
+<!-- ============================================================ -->
+<section>
+  <h2>Problem 4</h2>
+  <h3>The human is the bottleneck</h3>
+  <div class="problem">
+    <div class="incident">
+      Each cycle requires the human to invoke ~8 skills in the right order, make routing decisions, and remember where they left off across sessions. The workflow knowledge lives in the human's head.
+    </div>
+    <div class="fix">
+      <strong>Fix: Phase-scoped orchestrators</strong> that auto-detect entry points and run autonomously.
+    </div>
+  </div>
+  <pre><code>/lattice:cycle {topic}            auto-detect phase, dispatch to:
+  /lattice:research-cycle          7 steps, 2 peer review rounds
+  /lattice:blueprint-cycle         7 steps, architect gate + 2 plan reviews
+  /lattice:build-cycle             4 steps, E2E gate + quality review</code></pre>
+  <p class="lesson" style="font-size: 0.65em;">The human's role shifts from "invoke the next step" to "make the hard decisions."</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 9: Prose rules fail -->
+<!-- ============================================================ -->
+<section>
+  <h2>Problem 5</h2>
+  <h3>Prose rules don't work</h3>
+  <div class="problem">
+    <div class="incident">
+      CLAUDE.md says "run validation before committing." The LLM skips it ~40% of the time. Not maliciously &mdash; it gets focused on the task and forgets. Rules written as prose are suggestions, not constraints.
+    </div>
+  </div>
+  <table style="font-size: 0.6em; margin-top: 12px;">
+    <tr><th>Prose rule</th><th>Mechanical enforcement</th><th>Artifact</th></tr>
+    <tr><td>"Review before committing"</td><td>Pre-commit hook <span class="fail">BLOCKS</span> without gate file</td><td><code>review-gate.json</code> (single-use, consumed)</td></tr>
+    <tr><td>"Don't add Co-Authored-By"</td><td>PostToolUse hook <span class="fail">BLOCKS</span> the write</td><td><code>settings.json</code> hook</td></tr>
+    <tr><td>"Tag commits with Topic:"</td><td>PreToolUse hook <span class="warn">WARNS</span> on missing trailer</td><td><code>commit-topics.tsv</code> for retro fixes</td></tr>
+    <tr><td>"Check validation scores"</td><td>Pre-commit hook <span class="fail">BLOCKS</span> without ratchet</td><td><code>validation-baseline.json</code></td></tr>
+    <tr><td>"Don't repeat failed approaches"</td><td>Agents read log at session start</td><td><code>decisions.log</code> (424 entries)</td></tr>
+  </table>
+  <p class="lesson" style="font-size: 0.65em;">If the machine can skip it, the machine will skip it. Make constraints mechanical.</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 10: YAML DAG layer -->
+<!-- ============================================================ -->
+<section>
+  <h2>The DAG layer</h2>
+  <h3>Separate orchestration from behavior</h3>
+  <p style="font-size: 0.65em; color: #8b949e; margin-bottom: 16px;">
+    Skills = what each node does (markdown prompts).<br>
+    DAGs = when it runs, what depends on what, how routing works (YAML).
+  </p>
+  <pre><code>nodes:
+  research:
+    type: skill
+    skill: lattice/research
+    checkpoint: { state_key: research.1, phase: research }
+
+  peer-review-r1:
+    type: skill
+    skill: lattice/peer-review
+    depends_on: [research]
+    context: fresh              # separate agent
+
+  evaluate:
+    type: gate
+    depends_on: [peer-review-r1]
+    evaluate:
+      - condition: "...contains('FLAWED')"
+        route: escalate
+      - condition: default
+        route: incorporate</code></pre>
+  <p style="font-size: 0.55em; color: #8b949e;">5 node types: <code>bash</code>, <code>skill</code>, <code>gate</code>, <code>approval</code>, <code>parallel</code> &bull; 7 workflow DAGs &bull; Same YAML, different executors</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 11: Parallel topics conflict -->
+<!-- ============================================================ -->
+<section>
+  <h2>Problem 6</h2>
+  <h3>Parallel topics conflict silently</h3>
+  <div class="problem">
+    <div class="incident">
+      Topic A and Topic B both modify the scoring engine. Topic A's blueprint was validated before Topic B's research found a new requirement. Neither knows about the other. Both build. One overwrites the other.
+    </div>
+    <div class="fix">
+      <strong>Fix: Coherence engine</strong> &mdash; reads all <strong>47 topic state files</strong> in <code>.lattice/cycle-state/</code>, maps subsystems from <code>system-manifest.md</code> (25 subsystems), detects conflicts.
+    </div>
+  </div>
+  <table style="font-size: 0.58em; margin-top: 12px;">
+    <tr><th>Conflict type</th><th>What</th></tr>
+    <tr><td>Subsystem overlap</td><td>Two topics modify the same subsystem (S01-S25 codes)</td></tr>
+    <tr><td>Stale blueprint</td><td>Blueprint validated before newer relevant research</td></tr>
+    <tr><td>Unresolved cascade</td><td>Science flag in topic A propagates to topic B</td></tr>
+    <tr><td>Prerequisite violation</td><td>Topic B depends on unfinished topic A</td></tr>
+    <tr><td>Science flag propagation</td><td>Analytical output changes ripple across topics</td></tr>
+  </table>
+  <p class="lesson" style="font-size: 0.65em;">Single-topic quality gates are necessary but insufficient. Portfolio-level awareness prevents integration disasters.</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 12: Autopilot -->
+<!-- ============================================================ -->
+<section>
+  <h2>Autopilot</h2>
+  <h3>The endgame: human makes only the hard decisions</h3>
+  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 20px; font-size: 0.6em; max-width: 800px; margin: 20px auto 0;">
+    <div style="background: #0d1f0d; border: 1px solid #238636; border-radius: 8px; padding: 16px;">
+      <div style="color: #3fb950; font-weight: 600; margin-bottom: 10px;">AUTONOMOUS</div>
+      <div style="line-height: 1.8;">
+        Classification (full/spike/bugfix)<br>
+        Phase transitions<br>
+        CONDITIONAL findings (auto-accept)<br>
+        Architect SIMPLIFY (auto-apply)<br>
+        Bikeshed detection (side with R1)<br>
+        Commit (when review passes)
+      </div>
+    </div>
+    <div style="background: #1c1208; border: 1px solid #9e6a03; border-radius: 8px; padding: 16px;">
+      <div style="color: #d29922; font-weight: 600; margin-bottom: 10px;">STOPS FOR HUMAN</div>
+      <div style="line-height: 1.8;">
+        SCIENCE-FLAG (analytical changes)<br>
+        Persistent FLAWED (genuine disagreement)<br>
+        BREAKS (system integrity)<br>
+        Architect REJECT<br>
+        Validation degradation<br>
+        Unresolvable coherence conflicts
+      </div>
+    </div>
+  </div>
+  <p style="font-size: 0.55em; color: #8b949e; margin-top: 20px;">
+    <strong>Auto-resolve layer:</strong> Some coherence conflicts resolved by targeted distill analysis against research docs.<br>
+    Every auto-decision logged to <code>decisions.log</code> (424 entries). Human can audit and re-enter at any step.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 13: decisions.log sample -->
+<!-- ============================================================ -->
+<section>
+  <h2>Decisions log</h2>
+  <h3>Append-only experiment memory &mdash; 424 entries</h3>
+  <pre><code style="font-size: 0.48em; line-height: 1.6;">blueprint-cycle  COMPLETED  hcd-informed-z-scoring
+  steps:0-7  Scope: Proposal 1 only (continuous percentile D4).
+  Architect: SCIENCE-FLAG->resolved->PASS. Probe: 0 BREAKS.
+  Plan R1: 0 FLAWED, 6 CONDITIONAL incorporated.
+  Plan R2: 0 FLAWED, 4 CONDITIONAL incorporated.
+  5 features, ~80 LOC. Key decisions: OM excluded (GAP-257),
+  direction-aware suppression, 30% grade shift hard gate.
+  Proposals 2-4 deferred (genuine independence, not effort).
+
+blueprint-cycle  AUTO-ACCEPT-R2  hcd-informed-z-scoring
+  R2: 7 findings, 0 FLAWED, 4 CONDITIONAL, 3 SOUND.
+  All R1 findings RESOLVED. Build plan VALIDATED.
+
+peer-review  CONDITIONAL  reference-change-values-rcv-r2
+  findings:8 FLAWED:1 CONDITIONAL:7 SOUND:0
+  NF1 FLAWED: empirical RCV formula omits mean-centering,
+  cannot account for age drift as claimed.</code></pre>
+  <p style="font-size: 0.55em; color: #8b949e; margin-top: 12px;">
+    Read at session start &mdash; prevents re-trying failed approaches. Every auto-accept, escalation, and SCIENCE-FLAG is traceable.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 14: State reconciliation -->
+<!-- ============================================================ -->
+<section>
+  <h2>Problem 7</h2>
+  <h3>State files drift from reality</h3>
+  <div class="problem">
+    <div class="incident">
+      Cycle-state YAML files go stale. An agent crashes without updating state, another agent commits without the trailer, someone manually edits a file. Stored state is inherently unreliable.
+    </div>
+    <div class="fix">
+      <strong>Fix: Truth lives in git, not in YAML.</strong><br><br>
+      Every commit carries a <code>Topic:</code> trailer. The reconciliation engine greps <code>git log</code>, compares against 47 state files in <code>.lattice/cycle-state/</code>, auto-corrects drift. Legacy commits without trailers are handled via <code>.lattice/commit-topics.tsv</code> (retroactive annotations). <code>lattice status</code> runs reconciliation first, always.
+    </div>
+  </div>
+  <pre><code>feat: continuous HCD percentile in D4 confidence dimension
+
+Topic: hcd-informed-z-scoring
+Phase: complete
+Coverage: HCD/LB, interpretation engine</code></pre>
+  <p class="lesson" style="font-size: 0.65em;">Derived state > stored state. If you can reconstruct it from commits, do that.</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 14: E2E gate -->
+<!-- ============================================================ -->
+<section>
+  <h2>Problem 8</h2>
+  <h3>"It builds" is not "it works"</h3>
+  <div class="problem">
+    <div class="incident">
+      Build passes, tests pass, review passes. But a scoring formula "simplification" changed 15% of signal detection results. Nobody tested the actual analytical output.
+    </div>
+    <div class="fix">
+      <strong>Fix: Branch-comparison E2E testing.</strong><br>
+      Run test suites on the base state AND the changed state. Compare results. Auto-detect mode:
+    </div>
+  </div>
+  <table style="font-size: 0.6em; margin-top: 12px;">
+    <tr><th>Mode</th><th>Compares</th><th>When</th></tr>
+    <tr><td><code>branch</code></td><td>Feature branch vs base</td><td>On a feature branch</td></tr>
+    <tr><td><code>uncommitted</code></td><td>Stash dirty, run clean, compare</td><td>Uncommitted changes on trunk</td></tr>
+    <tr><td><code>last-commit</code></td><td>HEAD~1 vs HEAD</td><td>After committing on trunk</td></tr>
+  </table>
+  <p style="font-size: 0.55em; color: #8b949e; margin-top: 16px;">
+    Validation ratchet compares <code>validation-baseline.json</code> (analytical scores) against <strong>16 ground truth study cards</strong> in <code>docs/validation/references/*.yaml</code>.<br>
+    E2E gate compares behavioral output. Together they catch "correct code, wrong science."
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 15: Cost tracking -->
+<!-- ============================================================ -->
+<section>
+  <h2>Cost tracking</h2>
+  <h3>The pre-headless requirement</h3>
+  <p style="font-size: 0.65em; color: #8b949e; margin-bottom: 20px;">
+    Headless mode (VPS, no human) is coming. Without cost tracking, that's a blank check.
+  </p>
+  <pre><code>[research]   OK ($1.2340)
+[implement]  OK ($3.8421)
+[review]     OK ($0.7503)
+-------------------------------
+Cost: $5.0761
+Tokens: 85.2K in / 42.1K out</code></pre>
+  <p style="font-size: 0.6em; margin-top: 20px;">
+    Real token counts from Claude CLI JSON output &mdash; not estimates.<br>
+    Limits configured in <code>.lattice/budget.yaml</code> (per node, per workflow, per topic).<br>
+    Cost persisted to each topic's <code>cycle-state/*.yaml</code> &mdash; accumulates across runs.<br>
+    Budget exceeded &rarr; workflow <span class="fail">hard stop</span>. Logged as <code>BUDGET_EXCEEDED</code> in <code>decisions.log</code>.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 16: What exists today -->
+<!-- ============================================================ -->
+<section>
+  <h2>What exists today</h2>
+  <div class="stat-grid" style="grid-template-columns: 1fr 1fr 1fr; max-width: 800px;">
+    <div class="stat-box"><span class="num">16</span><span class="label">Process rules</span></div>
+    <div class="stat-box"><span class="num">27</span><span class="label">Skills + ops commands</span></div>
+    <div class="stat-box"><span class="num">3</span><span class="label">Independent agents</span></div>
+    <div class="stat-box"><span class="num">7</span><span class="label">Workflow DAGs</span></div>
+    <div class="stat-box"><span class="num">14</span><span class="label">Executor modules</span></div>
+    <div class="stat-box"><span class="num">13</span><span class="label">Enforcement mechanisms</span></div>
+  </div>
+  <p style="font-size: 0.55em; color: #8b949e; margin-top: 24px;">
+    Everything traces back to an observed failure.
+    Nothing was designed up front.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 17: Failure -> Fix map -->
+<!-- ============================================================ -->
+<section>
+  <h2>Failure &rarr; fix map</h2>
+  <table style="font-size: 0.58em;">
+    <tr><th>Observed failure</th><th>Mechanism</th></tr>
+    <tr><td>Self-review doesn't work</td><td>Independent context agents</td></tr>
+    <tr><td>Research doesn't compound</td><td>Corpus-level distill</td></tr>
+    <tr><td>Bugs recur in other modules</td><td>Pattern-based bug-stress</td></tr>
+    <tr><td>Human invokes 8 steps manually</td><td>Phase-scoped orchestrators</td></tr>
+    <tr><td>Prose rules get ignored</td><td>Hooks, gates, locks</td></tr>
+    <tr><td>Parallel topics conflict</td><td>Coherence engine</td></tr>
+    <tr><td>State files go stale</td><td>Git-based reconciliation</td></tr>
+    <tr><td>"It builds" but behavior changed</td><td>E2E gate + validation ratchet</td></tr>
+    <tr><td>Unattended = blank check</td><td>Token tracking + budgets</td></tr>
+  </table>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 18: What works -->
+<!-- ============================================================ -->
+<section>
+  <h2>What works</h2>
+  <div style="text-align: left; max-width: 750px; margin: 0 auto; font-size: 0.65em; line-height: 1.8;">
+    <p><span class="pass">1.</span> <strong>Independent context for review.</strong><br>
+    <span class="dim">Single most impactful change. Catches issues self-review misses 100% of the time.</span></p>
+
+    <p><span class="pass">2.</span> <strong>Mechanical enforcement > prose rules.</strong><br>
+    <span class="dim">Hooks, gate files consumed after use, locks with stale recovery.</span></p>
+
+    <p><span class="pass">3.</span> <strong>YAML DAGs for orchestration.</strong><br>
+    <span class="dim">Versionable, diffable, executable by different platforms.</span></p>
+
+    <p><span class="pass">4.</span> <strong>Portfolio-level awareness.</strong><br>
+    <span class="dim">Single-topic quality is table stakes. Cross-topic coherence prevents integration disasters.</span></p>
+
+    <p><span class="pass">5.</span> <strong>Git as source of truth for state.</strong><br>
+    <span class="dim">Commit trailers + reconciliation > manually maintained state files.</span></p>
+
+    <p><span class="pass">6.</span> <strong>Two-round peer review with a hard cap.</strong><br>
+    <span class="dim">Round 3 is always bikeshedding. Escalate to human after 2.</span></p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 19: What doesn't work -->
+<!-- ============================================================ -->
+<section>
+  <h2>What doesn't work</h2>
+  <div style="text-align: left; max-width: 750px; margin: 0 auto; font-size: 0.65em; line-height: 1.8;">
+    <p><span class="fail">1.</span> <strong>LLM self-assessment of any kind.</strong><br>
+    <span class="dim">Not for review, not for quality estimation, not for rule compliance. Separate agent or mechanical check.</span></p>
+
+    <p><span class="fail">2.</span> <strong>Natural language constraints.</strong><br>
+    <span class="dim">"You should always..." gets ignored under cognitive load. Convert to hooks or gate checks.</span></p>
+
+    <p><span class="fail">3.</span> <strong>Stored state without reconciliation.</strong><br>
+    <span class="dim">Any file the LLM maintains will drift. Derive from git or reconcile constantly.</span></p>
+
+    <p><span class="fail">4.</span> <strong>One-shot bug fixes.</strong><br>
+    <span class="dim">The LLM fixes the symptom, not the pattern. Search for same pattern everywhere.</span></p>
+
+    <p><span class="fail">5.</span> <strong>Cost estimation without measurement.</strong><br>
+    <span class="dim">Token counts vary 10x for "similar" tasks. Measure, don't estimate.</span></p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 20: The meta-lesson -->
+<!-- ============================================================ -->
+<section>
+  <h2>The meta-lesson</h2>
+  <p style="font-size: 0.8em; max-width: 700px; margin: 40px auto; line-height: 1.6;">
+    The framework isn't 50 files of<br>
+    <em>"tell the LLM what to do."</em>
+  </p>
+  <p style="font-size: 0.8em; max-width: 700px; margin: 0 auto; line-height: 1.6;">
+    It's 50 files of<br>
+    <strong>"prevent the LLM from doing<br>what it naturally does wrong."</strong>
+  </p>
+  <p style="font-size: 0.6em; color: #8b949e; margin-top: 40px; max-width: 600px; margin-left: auto; margin-right: auto;">
+    Every capability exists because we observed a failure mode and built a constraint.
+    The framework is a catalog of LLM failure modes with mechanical fixes.
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<!-- SLIDE 21: Timeline -->
+<!-- ============================================================ -->
+<section>
+  <h2>Timeline</h2>
+  <h3>3 weeks, evolved alongside the product</h3>
+  <div class="timeline">
+    <div class="week">
+      <div class="week-label">Week 1 &mdash; Mar 28-31</div>
+      Initial skills, product thesis, research pipeline, peer review, orchestrator v1
+    </div>
+    <div class="week">
+      <div class="week-label">Week 2 &mdash; Apr 1-7</div>
+      Architect system, bug-stress, distill, enforcement layer, three phase-scoped cycles, sync-skills
+    </div>
+    <div class="week">
+      <div class="week-label">Week 3 &mdash; Apr 9-17</div>
+      YAML DAG executor, coherence engine, autopilot, state reconciliation,
+      E2E testing gate, token tracker, mechanical hooks
+    </div>
+  </div>
+  <p style="font-size: 0.55em; color: #8b949e; margin-top: 24px;">
+    The product (SENDEX) is real &mdash; used by scientists. The framework emerged from building it, not the other way around.
+  </p>
+</section>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script>
+  Reveal.initialize({
+    hash: true,
+    slideNumber: 'c/t',
+    transition: 'none',
+    center: true,
+    width: 1200,
+    height: 700,
+    margin: 0.08,
+  });
+</script>
+</body>
+</html>
