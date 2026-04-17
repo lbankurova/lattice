@@ -13,6 +13,19 @@
 - Uses `claude --output-format json` to get real token counts and cost from CLI (no Phase 2 dependency).
 - Phase 2 deferred: cost trend charts, per-model breakdown, Slack budget alerts, cost anomaly detection.
 
+### ~~ENH-03: Topic lifecycle states + zombie detection~~ d57401b
+- Done. `LifecycleState` type (`active`/`paused`/`archived`) in coherence.ts, `lifecycle_state` and `pause_reason` YAML fields, lock info extraction.
+- Zombie detection: active phase + no lock + no checkpoint in 48h = warning conflict.
+- Autopilot skips paused topics, archived topics not loaded.
+
+### ~~ENH-04: WIP checkpoint commits~~ d57401b
+- Done. Engine creates `wip:` commits when uncommitted file count exceeds 15 during workflow run.
+- Uses `--no-verify` to skip hooks. Gets squashed in final review commit.
+
+### ~~ENH-05: Autopilot-safe classification in prioritize~~ d57401b
+- Done. Prioritize skill tags recommendations as `[autopilot]` or `[human]` based on safety criteria.
+- Safe: research-complete needing synthesis, clean probe, bug fixes. Not safe: UI epics, SCIENCE-FLAG, paused.
+
 ### ENH-01: Vector search for corpus load (Zabaca/lattice integration)
 - **Skill affected:** `/lattice:distill` Step 0 Layer 3, `/lattice:research` Step 0
 - **What:** Replace title-scanning of INDEX.md with semantic vector search for selecting which research files to deep-read. Use [Zabaca/lattice](https://github.com/Zabaca/lattice) (DuckDB + Voyage AI embeddings) as the search backend.
