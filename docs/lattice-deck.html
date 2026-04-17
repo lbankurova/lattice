@@ -599,6 +599,41 @@ Tokens: 85.2K in / 42.1K out</code></pre>
 </section>
 
 <!-- ============================================================ -->
+<!-- PRIOR ART -->
+<!-- ============================================================ -->
+<section>
+  <h2>Built on the shoulders of</h2>
+  <div style="text-align: left; max-width: 800px; margin: 20px auto 0; font-size: 0.65em; line-height: 1.7;">
+    <p>
+      <strong><span class="accent">karpathy/autoresearch</span></strong><br>
+      <span class="dim">Autonomous LLM research: modify code, train 5 min, measure val_bpb, keep or revert. Repeat forever.</span><br>
+      Borrowed: <strong>the oracle pattern</strong> (fixed metric the agent can't modify &rarr; validation ratchet),
+      <strong>append-only experiment log</strong> (results.tsv &rarr; decisions.log),
+      <strong>autonomous loop</strong> ("NEVER STOP" &rarr; autopilot),
+      <strong>read-only evaluation harness</strong> (prepare.py &rarr; ground truth study cards).
+    </p>
+    <p>
+      <strong><span class="accent">obra/superpowers</span></strong><br>
+      <span class="dim">Complete dev methodology: brainstorm &rarr; spec &rarr; plan &rarr; subagent-per-task &rarr; review. Cross-platform plugin.</span><br>
+      Borrowed: <strong>spike</strong> (time-boxed exploration, keep or discard &rarr; /lattice:spike + /spec-from-code),
+      <strong>fresh-context subagents</strong> for review.
+      <span class="dim">Didn't adopt the waterfall flow &mdash; Lattice inverts it (build first, spec after).</span>
+    </p>
+    <p>
+      <strong><span class="accent">alexfazio/plankton</span></strong><br>
+      <span class="dim">Write-time quality enforcement via PostToolUse hooks. Tamper-proof linter config.</span><br>
+      Borrowed: <strong>hook enforcement architecture</strong> (PreToolUse blocks, PostToolUse warns &rarr; .claude/settings.json).
+    </p>
+    <p>
+      <strong><span class="accent">coleam00/archon</span></strong><br>
+      <span class="dim">AI agent builder with validation PR workflow and cost management.</span><br>
+      Borrowed: <strong>E2E branch comparison</strong> (run tests on both branches &rarr; e2e.ts),
+      <strong>budget caps</strong> (error_max_budget_usd &rarr; budget.yaml).
+    </p>
+  </div>
+</section>
+
+<!-- ============================================================ -->
 <!-- TIMELINE -->
 <!-- ============================================================ -->
 <section>
