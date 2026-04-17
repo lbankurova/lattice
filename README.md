@@ -108,6 +108,7 @@ The framework enforces quality through constraints, not just instructions:
 | **Independent decision audit** (`agents/decision-auditor.md`) | Evaluates merit rationale and catches unprompted deferrals | Separate agent — prevents self-assessment of rules 12-13 |
 | **Claude Code hooks** (`.claude/settings.json`) | Review gate, commit lock, topic trailer, co-author block, build check | Mechanical — agent cannot skip |
 | **Autopilot auto-resolve** (`executor/src/auto-resolve.ts`) | Targeted distill analysis for coherence conflicts | Resolves subsystem-overlap, stale-blueprint, SF-propagation automatically |
+| **Token tracker / budget** (`executor/src/budget.ts`) | Per-node token counting, cost aggregation, budget enforcement | Warns at threshold (default 80%), blocks workflow when budget exceeded |
 | **Autonomous execution** | Research cycle runs without human until critical decisions | Stops only on: genuine disagreements, SCIENCE-FLAG, REJECT, validation degradation |
 
 See [WORKFLOW.md](WORKFLOW.md) for full enforcement layer documentation.
@@ -159,6 +160,7 @@ Templates for new projects:
 - `.claude/settings.json` — commit hooks (review gate, commit lock, topic trailer, co-author block)
 - `.claude/rules/design-decisions.md` — project-specific design decisions (Layer 2)
 - `scripts/write-review-gate.sh` — mechanical checks before writing review gate
+- `.lattice/budget.yaml` — per-workflow and per-topic cost limits
 - `docs/_internal/TODO.md` — tactical backlog
 - `docs/_internal/ROADMAP.md` — strategic roadmap
 - `docs/_internal/MANIFEST.md` — doc staleness tracker
@@ -177,9 +179,10 @@ Templates for new projects:
 4. Copy `scaffold/.claude/` to `.claude/` -- settings.json (hooks) + rules/design-decisions.md
 5. Copy `scaffold/scripts/write-review-gate.sh` to `scripts/` -- adapt checks for your stack
 6. Copy `scripts/validation-ratchet.sh` to `scripts/` -- adapt for your validation suite
-7. Install pre-commit hook: adapt from framework's `.git/hooks/pre-commit` (review gate + build checks)
-8. In `.claude/settings.json`: replace placeholder patterns (PIPELINE_MODULES, ENGINE_FILES) with your project's regexes, update absolute paths
-9. Create `.claude/rules/domain-knowledge-map.md` -- topic-to-file lookup for your domain
+7. Copy `scaffold/.lattice/budget.yaml` to `.lattice/budget.yaml` -- set cost limits per workflow and topic
+8. Install pre-commit hook: adapt from framework's `.git/hooks/pre-commit` (review gate + build checks)
+9. In `.claude/settings.json`: replace placeholder patterns (PIPELINE_MODULES, ENGINE_FILES) with your project's regexes, update absolute paths
+10. Create `.claude/rules/domain-knowledge-map.md` -- topic-to-file lookup for your domain
 
 ### Existing project
 Cherry-pick what you need. CLAUDE.md rules are the foundation -- everything else builds on them.

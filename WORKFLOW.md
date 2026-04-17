@@ -17,6 +17,7 @@ The canonical workflow for research-driven development of scientific apps.
 /lattice:implement {spec}                  -- autonomous spec implementation, phase by phase
 /lattice:spike {feature}                   -- exploratory build (no spec ceremony)
 /lattice:review                            -- quality gate (includes architect review) + commit
+lattice cost [topic]                       -- per-topic cost report (CLI command, not a skill)
 /lattice:distill <question>                -- answer a question from accumulated research
 /lattice:distill --thesis <claim>          -- construct evidence-based argument from corpus
 /lattice:distill --adapt <target>          -- domain transfer analysis
@@ -217,6 +218,14 @@ checkpoints:
     constraints: [...]
     output: "path/to/output"
     next_needs: "what the next step needs"
+cost:                          # accumulated across all workflow runs
+  total_usd: 12.50
+  total_input_tokens: 85000
+  total_output_tokens: 42000
+  last_run: {ISO timestamp}
+  nodes:
+    research: { cost_usd: 3.20, input_tokens: 25000, output_tokens: 18000 }
+    implement: { cost_usd: 5.40, input_tokens: 35000, output_tokens: 15000 }
 ```
 
 ## Peer Review Protocol
@@ -371,7 +380,36 @@ The pre-commit hook provides a second layer: it verifies the gate file exists an
 
 Template hooks for new projects live in `hooks/claude-hooks.json` (legacy reference) and `scaffold/.claude/settings.json` (current). Replace `PIPELINE_MODULES_PATTERN` and `ENGINE_FILES_PATTERN` with project-specific regexes.
 
-### 6. Autonomous Execution Model
+### 6. Token Tracker / Budget (`executor/src/budget.ts`)
+
+Per-node token counting and cost enforcement. Skill nodes run `claude --output-format json`, which returns real `cost_usd` and token counts. Cost accumulates in `WorkflowRun` during execution and persists to the topic's cycle-state YAML across runs.
+
+**Config:** `.lattice/budget.yaml` (optional — no file = no limits)
+
+```yaml
+per_workflow:
+  research-cycle: 15.00       # max USD per workflow run
+  build-cycle: 10.00
+per_topic: 40.00               # max USD accumulated across all runs for a topic
+per_node:                       # max USD per individual node execution
+  research: 5.00
+alert_threshold: 0.8           # warn at 80% of any limit
+```
+
+**Behavior:**
+- Below threshold: cost logged per node (`[implement] OK ($0.3842)`)
+- At threshold: `[BUDGET WARNING]` message via adapter
+- At limit: `[BUDGET EXCEEDED]` — workflow stops, cost persisted, decision logged as `BUDGET_EXCEEDED`
+
+**CLI:**
+- `lattice cost` — summary table across all topics (sorted by cost)
+- `lattice cost {topic}` — detailed per-node breakdown for one topic
+- `lattice status` — shows `$X.XX` per topic in the status output
+- Run summary at workflow end includes cost breakdown when >$0
+
+**What it does NOT do (Phase 2):** cost trend charts, per-model breakdown, Slack budget alerts, anomaly detection.
+
+### 7. Autonomous Execution Model
 
 All three cycles run autonomously by default. They stop only at critical decision points:
 
