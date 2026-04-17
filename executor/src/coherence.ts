@@ -16,11 +16,21 @@ import yaml from 'js-yaml';
 
 // ── Types ───────────────────────────────────────────────────
 
+export type LifecycleState = 'active' | 'paused' | 'archived';
+
 export interface TopicState {
   topic: string;
   phase: string;
   currentStep: string;
   startedAt: string;
+  /** Explicit lifecycle state — active (default), paused (intentional hold), archived */
+  lifecycleState: LifecycleState;
+  /** Reason for pause (only when lifecycleState === 'paused') */
+  pauseReason: string;
+  /** Whether this topic currently holds a lock in .lattice/cycle-lock/ */
+  hasLock: boolean;
+  /** Who holds the lock (e.g., 'build-cycle', 'blueprint-cycle') */
+  lockHolder: string | null;
   subsystems: string[];          // S01, S02, etc. — merged from state + docs
   scienceFlags: ScienceFlag[];
   breaks: BreaksEntry[];
@@ -64,9 +74,17 @@ export interface SubsystemInteraction {
 
 export type ConflictSeverity = 'blocker' | 'warning' | 'info';
 
+export type ConflictType =
+  | 'subsystem-overlap'
+  | 'stale-blueprint'
+  | 'unresolved-cascade'
+  | 'prerequisite'
+  | 'science-flag-propagation'
+  | 'zombie-topic';
+
 export interface Conflict {
   severity: ConflictSeverity;
-  type: 'subsystem-overlap' | 'stale-blueprint' | 'unresolved-cascade' | 'prerequisite' | 'science-flag-propagation';
+  type: ConflictType;
   topics: string[];              // Topics involved
   subsystems: string[];          // Subsystems at the intersection
   description: string;
@@ -87,6 +105,7 @@ export interface CoherenceReport {
 
 const SUBSYSTEM_RE = /S(\d{2})/g;
 const COMPLETED_PHASES = new Set(['complete', 'build-complete']);
+const SKIP_LIFECYCLE = new Set<LifecycleState>(['archived']);
 
 /**
  * Read all cycle state files and extract topic states.
@@ -97,6 +116,7 @@ export function loadPortfolioState(cycleStateDir: string, projectRoot?: string):
   if (!existsSync(cycleStateDir)) return [];
 
   const files = readdirSync(cycleStateDir).filter(f => f.endsWith('.yaml'));
+  const lockDir = cycleStateDir.replace(/cycle-state\/?$/, 'cycle-lock');
   const topics: TopicState[] = [];
 
   for (const file of files) {
@@ -109,7 +129,16 @@ export function loadPortfolioState(cycleStateDir: string, projectRoot?: string):
       const phase = String(data['phase'] ?? '');
       if (COMPLETED_PHASES.has(phase)) continue; // skip completed topics
 
-      const topic = extractTopicState(file.replace('.yaml', ''), data, content, path);
+      const lifecycleState = parseLifecycleState(data['lifecycle_state']);
+      if (SKIP_LIFECYCLE.has(lifecycleState)) continue; // skip archived topics
+
+      const topicName = file.replace('.yaml', '');
+      const topic = extractTopicState(topicName, data, content, path);
+
+      // Populate lock info
+      const lockMeta = readLockMeta(lockDir, topicName);
+      topic.hasLock = lockMeta !== null;
+      topic.lockHolder = lockMeta?.holder ?? null;
 
       // Deep extraction: read referenced docs for richer subsystem data
       if (projectRoot) {
@@ -123,6 +152,24 @@ export function loadPortfolioState(cycleStateDir: string, projectRoot?: string):
   }
 
   return topics;
+}
+
+function parseLifecycleState(raw: unknown): LifecycleState {
+  if (raw === 'paused' || raw === 'archived') return raw;
+  return 'active';
+}
+
+function readLockMeta(lockDir: string, topic: string): { holder: string; acquired: string } | null {
+  const metaPath = `${lockDir}/${topic}/meta`;
+  if (!existsSync(metaPath)) return null;
+  try {
+    const content = readFileSync(metaPath, 'utf-8');
+    const holder = content.match(/holder:\s*(.+)/)?.[1]?.trim() ?? 'unknown';
+    const acquired = content.match(/acquired:\s*(.+)/)?.[1]?.trim() ?? '';
+    return { holder, acquired };
+  } catch {
+    return null;
+  }
 }
 
 function extractTopicState(
@@ -169,6 +216,10 @@ function extractTopicState(
     phase,
     currentStep,
     startedAt: String(data['started'] ?? data['started_at'] ?? ''),
+    lifecycleState: parseLifecycleState(data['lifecycle_state']),
+    pauseReason: String(data['pause_reason'] ?? ''),
+    hasLock: false,       // populated by loadPortfolioState after extraction
+    lockHolder: null,     // populated by loadPortfolioState after extraction
     subsystems,
     scienceFlags,
     breaks,
@@ -656,6 +707,9 @@ export function checkCoherence(topics: TopicState[]): CoherenceReport {
   // 5. Unresolved BREAKS cascading to other topics
   conflicts.push(...detectBreaksCascade(topics, heatmap));
 
+  // 6. Zombie topics — active phase, no lock, no recent checkpoint
+  conflicts.push(...detectZombieTopics(topics));
+
   // Classify topics
   const blockedSet = new Set<string>();
   const needsHumanSet = new Set<string>();
@@ -672,7 +726,12 @@ export function checkCoherence(topics: TopicState[]): CoherenceReport {
 
   const advanceable = new Set(['research-complete', 'blueprint-complete', 'blueprint', 'research', 'build', 'spike']);
   const safe = topics
-    .filter(t => advanceable.has(t.phase) && !blockedSet.has(t.topic) && !needsHumanSet.has(t.topic))
+    .filter(t =>
+      advanceable.has(t.phase) &&
+      t.lifecycleState === 'active' &&
+      !blockedSet.has(t.topic) &&
+      !needsHumanSet.has(t.topic)
+    )
     .map(t => t.topic);
 
   return {
@@ -957,6 +1016,45 @@ function detectBreaksCascade(
   return conflicts;
 }
 
+/**
+ * Detect zombie topics — active phase but no lock and no recent checkpoint.
+ * These are topics that appear to be in progress but aren't actually being worked on.
+ * Severity is warning (not blocker) because the user may have a valid reason.
+ */
+const ZOMBIE_THRESHOLD_MS = 48 * 60 * 60 * 1000; // 48 hours
+const ZOMBIE_PHASES = new Set(['research', 'blueprint', 'build', 'spike', 'bugfix']);
+
+function detectZombieTopics(topics: TopicState[]): Conflict[] {
+  const conflicts: Conflict[] = [];
+  const now = Date.now();
+
+  for (const topic of topics) {
+    if (topic.lifecycleState !== 'active') continue;
+    if (!ZOMBIE_PHASES.has(topic.phase)) continue;
+    if (topic.hasLock) continue; // actively locked -- not a zombie
+
+    // Check last checkpoint age
+    if (!topic.lastCheckpoint) continue; // no timestamp to judge
+    const lastTime = new Date(topic.lastCheckpoint).getTime();
+    if (isNaN(lastTime)) continue;
+
+    const ageMs = now - lastTime;
+    if (ageMs > ZOMBIE_THRESHOLD_MS) {
+      const ageHours = Math.round(ageMs / (60 * 60 * 1000));
+      conflicts.push({
+        severity: 'warning',
+        type: 'zombie-topic',
+        topics: [topic.topic],
+        subsystems: topic.subsystems,
+        description: `${topic.topic} is in phase "${topic.phase}" but has no lock and last checkpoint was ${ageHours}h ago.`,
+        recommendation: `Resume with \`lattice run ${topic.phase}-cycle --topic ${topic.topic}\`, pause with lifecycle_state: paused, or archive.`,
+      });
+    }
+  }
+
+  return conflicts;
+}
+
 // ── Report formatting ───────────────────────────────────────
 
 /**
@@ -993,6 +1091,18 @@ export function formatReport(report: CoherenceReport): string {
     lines.push('-'.repeat(70));
     for (const c of warnings) {
       lines.push(`  [${c.type}] ${c.description}`);
+      lines.push(`  -> ${c.recommendation}`);
+      lines.push('');
+    }
+  }
+
+  // Zombies
+  const zombies = report.conflicts.filter(c => c.type === 'zombie-topic');
+  if (zombies.length > 0) {
+    lines.push('ZOMBIE TOPICS (active phase, no lock, stale checkpoint)');
+    lines.push('-'.repeat(70));
+    for (const c of zombies) {
+      lines.push(`  ${c.description}`);
       lines.push(`  -> ${c.recommendation}`);
       lines.push('');
     }

@@ -5,14 +5,20 @@
  * through their full lifecycle (no phase-transition gates), collects
  * STOP conditions into a human decision batch.
  *
+ * Topic lifecycle states:
+ *   - active   — eligible for advancement (default)
+ *   - paused   — intentionally on hold, skipped by autopilot
+ *   - archived — removed from portfolio, not loaded
+ *
  * Human intervention ONLY for:
  *   - SCIENCE-FLAG (analytical output changes)
  *   - Persistent FLAWED (genuine scientific disagreement)
  *   - BREAKS (system integrity)
  *   - Architect REJECT (fundamental approach wrong)
  *   - Coherence conflicts (cross-topic subsystem contention)
+ *   - Zombie topics (active phase, no lock, stale — needs resume/pause/archive decision)
  *
- * Auto-resolve layer (new):
+ * Auto-resolve layer:
  *   - Coherence conflicts that can be resolved by targeted distill analysis
  *   - subsystem-overlap: compatible/read-only interactions
  *   - stale-blueprint: newer research doesn't invalidate
@@ -189,10 +195,17 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
 
     // 3. Identify advanceable topics (filtered if --filter provided)
     const advanceable: { topic: TopicState; action: AdvanceAction }[] = [];
+    const paused: string[] = [];
 
     for (const topicState of topics) {
       // Apply filter if provided
       if (opts.filter && !topicState.topic.includes(opts.filter)) continue;
+
+      // Skip paused topics — they need explicit user decision to resume
+      if (topicState.lifecycleState === 'paused') {
+        paused.push(topicState.topic);
+        continue;
+      }
 
       const safety = isTopicSafe(topicState.topic, report);
       if (!safety.safe) continue;
@@ -201,6 +214,10 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
       if (!action) continue;
 
       advanceable.push({ topic: topicState, action });
+    }
+
+    if (paused.length > 0) {
+      await adapter.sendMessage(`Paused (skipping): ${paused.join(', ')}`);
     }
 
     if (advanceable.length === 0) {
@@ -423,6 +440,7 @@ function mapConflictToDecisionType(conflict: Conflict): HumanDecision['type'] {
   switch (conflict.type) {
     case 'science-flag-propagation': return 'science-flag';
     case 'unresolved-cascade': return 'breaks';
+    case 'zombie-topic': return 'coherence-conflict';
     case 'subsystem-overlap': return 'coherence-conflict';
     case 'stale-blueprint': return 'coherence-conflict';
     case 'prerequisite': return 'coherence-conflict';

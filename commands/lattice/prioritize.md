@@ -104,6 +104,27 @@ Check the `state_by_dimension` tables in each pillar. An item that affects multi
 
 **Wave grouping.** When items share a root cause or sit within the same pillar/dimension, group them as a "wave" with a collective priority. Example: "term recognition wave" = coverage expansion + quick wins + dictionary update — all in the term-recognition pillar.
 
+## Step 3b: Classify Autopilot Safety
+
+For each item, determine whether autopilot can advance it without human oversight.
+
+### Autopilot-safe criteria (ALL must be true)
+- Phase is `research-complete` needing synthesis, OR `blueprint-complete` with clean probe, OR a bug fix with clear reproduction steps
+- No unresolved `SCIENCE-FLAG` (active scope)
+- No persistent `FLAWED` findings from peer review
+- No `BREAKS` in probe results
+- `lifecycle_state` is `active` (not `paused`)
+- Not a complex UI epic requiring design decisions
+
+### Human-required criteria (ANY makes it human-only)
+- Topic is `paused` — needs explicit user decision to resume
+- Has active `SCIENCE-FLAG` — analytical output changes need scientist review
+- Complex UI work — layout, interaction design, multi-view coordination
+- Cross-cutting architectural change — touches 3+ subsystems with MODIFIES relationship
+- User has expressed specific opinions about direction (check MEMORY.md)
+
+Tag each recommendation with `[autopilot]` or `[human]` in the output.
+
 ## Step 4: Recommend
 
 Present a ranked priority list with rationale:
@@ -112,13 +133,13 @@ Present a ranked priority list with rationale:
 ## Priority Recommendations
 
 ### Do Next (highest value)
-1. **[item]** — [bucket] — [one-line rationale tied to scientist value]
+1. **[item]** `[autopilot|human]` — [bucket] — [one-line rationale tied to scientist value]
    Next step: [specific command or action]
 
-2. **[item]** — [bucket] — [rationale]
+2. **[item]** `[autopilot|human]` — [bucket] — [rationale]
    Next step: [command]
 
-3. **[item]** — [bucket] — [rationale]
+3. **[item]** `[autopilot|human]` — [bucket] — [rationale]
    Next step: [command]
 
 ### Should Do Soon (high value, not urgent)

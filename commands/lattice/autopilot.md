@@ -38,6 +38,10 @@ Read the output. Identify:
 
 If a filter was provided, apply it. Otherwise, select up to `max` topics from the safe list.
 
+**Paused topics are skipped.** Topics with `lifecycle_state: paused` in their cycle-state YAML are listed but not advanced. They need an explicit user decision to resume (set `lifecycle_state: active`) or archive (`lifecycle_state: archived`).
+
+**Zombie topics are flagged.** Topics in an active phase with no lock and no checkpoint in 48+ hours appear as warnings in the coherence report. Present them in the human decisions batch for resume/pause/archive.
+
 For each selected topic, determine the action based on phase:
 - `research-complete` → run `/lattice:blueprint-cycle {topic}`
 - `blueprint-complete` → run `/lattice:build-cycle {topic}`
@@ -95,6 +99,7 @@ Blocked: {count}
 - BREAKS — system integrity at risk
 - Architect REJECT — fundamental approach wrong
 - Coherence conflicts — cross-topic subsystem contention
+- Zombie topics — active phase but no lock and stale checkpoint (resume/pause/archive?)
 
 ## Autonomous (proceed without asking)
 

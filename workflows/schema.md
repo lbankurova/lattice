@@ -172,6 +172,20 @@ Conditions support:
 
 7. **Failure propagation.** A failed node blocks all downstream dependents. `on_failure: skip` allows downstream nodes with `depends_on` the failed node to evaluate their own conditions.
 
+8. **WIP checkpoint commits.** When uncommitted file count exceeds 15 during a workflow run, the engine creates a `wip: {topic} checkpoint {step}` commit with `--no-verify` (skips hooks). These get squashed in the final review commit.
+
+## Cycle-State Lifecycle
+
+Each `.lattice/cycle-state/{topic}.yaml` file can include a `lifecycle_state` field:
+
+| State | Meaning | Autopilot behavior |
+|---|---|---|
+| `active` (default) | Topic is in normal operation | Eligible for advancement |
+| `paused` | Intentionally on hold | Skipped, listed in summary |
+| `archived` | Removed from portfolio | Not loaded at all |
+
+Set `lifecycle_state: paused` with an optional `pause_reason: "..."` to hold a topic without archiving it. The coherence engine detects **zombie topics** (active phase, no lock, no checkpoint in 48h) and flags them as warnings for human decision.
+
 ## Multi-Platform Execution
 
 The YAML DAG is the API contract between execution environments:

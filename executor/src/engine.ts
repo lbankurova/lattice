@@ -7,6 +7,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import yaml from 'js-yaml';
 import type {
   Workflow, WorkflowNode, WorkflowRun, WorkflowCost, NodeResult, NodeStatus,
@@ -239,6 +240,8 @@ export async function executeWorkflow(
           const node = wf.nodes[result.nodeId];
           if (node.checkpoint) {
             writeCheckpoint(wf, inputs, cwd, node.checkpoint.state_key, node.checkpoint.phase, result);
+            // WIP commit if too many uncommitted files accumulate
+            await maybeWipCommit(cwd, topicName, node.checkpoint.state_key, adapter);
           }
         }
 
@@ -550,6 +553,42 @@ function writeCostToState(
   };
 
   writeFileSync(path, yaml.dump(data, { lineWidth: -1 }), 'utf-8');
+}
+
+// ── WIP checkpoint commits ─────────────────────────────────
+
+const WIP_UNCOMMITTED_THRESHOLD = 15;
+
+/**
+ * Create a WIP commit if the uncommitted file count exceeds the threshold.
+ * These get squashed in the final review commit.
+ */
+async function maybeWipCommit(
+  cwd: string,
+  topicName: string,
+  stateKey: string,
+  adapter: PlatformAdapter,
+): Promise<void> {
+  if (!topicName) return;
+
+  try {
+    const status = execSync('git status --porcelain', { cwd, encoding: 'utf-8', timeout: 10000 });
+    const changedFiles = status.split('\n').filter(line => line.trim().length > 0);
+
+    if (changedFiles.length < WIP_UNCOMMITTED_THRESHOLD) return;
+
+    await adapter.sendMessage(
+      `  [wip] ${changedFiles.length} uncommitted files (threshold: ${WIP_UNCOMMITTED_THRESHOLD}) -- creating checkpoint commit`
+    );
+
+    execSync('git add -A', { cwd, timeout: 10000 });
+    const msg = `wip: ${topicName} checkpoint ${stateKey}\n\nTopic: ${topicName}`;
+    execSync(`git commit -m "${msg}" --no-verify`, { cwd, encoding: 'utf-8', timeout: 30000 });
+
+    await adapter.sendMessage(`  [wip] Checkpoint commit created`);
+  } catch {
+    // Non-fatal -- if git fails, just continue without the WIP commit
+  }
 }
 
 // ── Decision logging ────────────────────────────────────────
