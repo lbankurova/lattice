@@ -24,8 +24,13 @@ export type {
   E2EConfig, SuiteConfig, E2EResult, SuiteComparison,
   SuiteRunResult, TestabilityResult, Classification, ComparisonMode,
 } from './e2e.js';
+export {
+  loadBudgetConfig, checkNodeBudget, checkWorkflowBudget,
+  checkTopicBudget, readTopicCost, formatAlert, formatCostSummary,
+} from './budget.js';
 export type {
-  Workflow, WorkflowNode, WorkflowRun, NodeResult,
+  Workflow, WorkflowNode, WorkflowRun, WorkflowCost, NodeResult, NodeCost,
   PlatformAdapter, ExecutionLayer, NodeType, TriggerRule,
   BashNode, SkillNode, GateNode, ApprovalNode, ParallelNode,
+  TokenUsage, BudgetConfig, BudgetAlert, AlertLevel,
 } from './types.js';

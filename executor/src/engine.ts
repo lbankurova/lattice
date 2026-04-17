@@ -9,14 +9,18 @@
 import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
 import yaml from 'js-yaml';
 import type {
-  Workflow, WorkflowNode, WorkflowRun, NodeResult, NodeStatus,
-  PlatformAdapter, GateNode, ApprovalNode, ParallelNode,
+  Workflow, WorkflowNode, WorkflowRun, WorkflowCost, NodeResult, NodeStatus,
+  PlatformAdapter, GateNode, ApprovalNode, ParallelNode, BudgetConfig, BudgetAlert,
 } from './types.js';
 import { buildExecutionLayers } from './dag.js';
 import { buildInitialContext, resolveTemplate, type TemplateContext } from './template.js';
 import { executeNode, checkTriggerRule } from './nodes.js';
 import { loadPortfolioState, checkCoherence, isTopicSafe, formatReport } from './coherence.js';
 import { resolve } from 'node:path';
+import {
+  loadBudgetConfig, checkNodeBudget, checkWorkflowBudget,
+  checkTopicBudget, readTopicCost, formatAlert, formatCostSummary,
+} from './budget.js';
 
 export interface EngineOptions {
   /** Working directory for bash commands and state files */
@@ -96,6 +100,7 @@ export async function executeWorkflow(
                 status: 'paused',
                 nodeResults: {},
                 activeRoutes: new Set(),
+                totalCost: { totalUSD: 0, totalInputTokens: 0, totalOutputTokens: 0, byNode: {} },
               };
             }
             await adapter.sendMessage('Coherence override accepted. Proceeding with known conflicts.');
@@ -125,7 +130,14 @@ export async function executeWorkflow(
     status: 'running',
     nodeResults: {},
     activeRoutes: new Set(),
+    totalCost: { totalUSD: 0, totalInputTokens: 0, totalOutputTokens: 0, byNode: {} },
   };
+
+  // Load budget config (optional)
+  const budget = loadBudgetConfig(cwd);
+  const priorTopicCost = topicName
+    ? readTopicCost(resolveStatePath(wf, inputs, cwd) ?? '')
+    : 0;
 
   await adapter.sendMessage(
     `[${wf.name}] Starting workflow (${Object.keys(wf.nodes).length} nodes, ${layers.length} layers)`
@@ -179,10 +191,43 @@ export async function executeWorkflow(
         run.nodeResults[result.nodeId] = result;
         ctx.nodes[result.nodeId] = result;
 
-        // Log result
+        // Accumulate cost
+        if (result.cost) {
+          run.totalCost.totalUSD += result.cost.costUSD;
+          run.totalCost.totalInputTokens += result.cost.usage.inputTokens;
+          run.totalCost.totalOutputTokens += result.cost.usage.outputTokens;
+          run.totalCost.byNode[result.nodeId] = result.cost;
+        }
+
+        // Log result (include cost if present)
         const statusIcon = result.status === 'completed' ? 'OK' :
                           result.status === 'skipped' ? 'SKIP' : 'FAIL';
-        await adapter.sendMessage(`  [${result.nodeId}] ${statusIcon}${result.route ? ` -> ${result.route}` : ''}`);
+        const costTag = result.cost ? ` ($${result.cost.costUSD.toFixed(4)})` : '';
+        await adapter.sendMessage(`  [${result.nodeId}] ${statusIcon}${costTag}${result.route ? ` -> ${result.route}` : ''}`);
+
+        // Budget checks
+        if (budget && result.cost) {
+          const alerts: BudgetAlert[] = [
+            ...checkNodeBudget(result.nodeId, result.cost.costUSD, budget),
+            ...checkWorkflowBudget(wf.name, run.totalCost, budget),
+            ...checkTopicBudget(topicName, priorTopicCost + run.totalCost.totalUSD, budget),
+          ];
+
+          for (const alert of alerts) {
+            await adapter.sendMessage(`  ${formatAlert(alert)}`);
+          }
+
+          // Block on budget exceeded
+          if (alerts.some(a => a.level === 'block')) {
+            await adapter.sendMessage(`[${wf.name}] STOPPED -- budget exceeded`);
+            run.status = 'failed';
+            run.completedAt = new Date().toISOString();
+            writeCostToState(wf, inputs, cwd, run.totalCost);
+            logDecision(cwd, wf.name, 'BUDGET_EXCEEDED', inputs,
+              `$${run.totalCost.totalUSD.toFixed(4)} spent`);
+            return run;
+          }
+        }
 
         // Update active routes for gate/approval nodes
         if (result.route) {
@@ -204,6 +249,7 @@ export async function executeWorkflow(
             await adapter.sendMessage(`[${wf.name}] STOPPED -- ${result.nodeId} failed: ${result.error}`);
             run.status = 'failed';
             run.completedAt = new Date().toISOString();
+            writeCostToState(wf, inputs, cwd, run.totalCost);
             logDecision(cwd, wf.name, 'FAILED', inputs, `${result.nodeId}: ${result.error}`);
             return run;
           }
@@ -219,8 +265,17 @@ export async function executeWorkflow(
   run.status = 'completed';
   run.completedAt = new Date().toISOString();
 
+  // Persist cost to state file
+  if (run.totalCost.totalUSD > 0) {
+    writeCostToState(wf, inputs, cwd, run.totalCost);
+  }
+
   await adapter.sendMessage(`[${wf.name}] Workflow completed`);
-  logDecision(cwd, wf.name, 'COMPLETED', inputs, `${Object.keys(run.nodeResults).length} nodes executed`);
+  if (run.totalCost.totalUSD > 0) {
+    await adapter.sendMessage(formatCostSummary(run.totalCost));
+  }
+  logDecision(cwd, wf.name, 'COMPLETED', inputs,
+    `${Object.keys(run.nodeResults).length} nodes, $${run.totalCost.totalUSD.toFixed(4)}`);
 
   return run;
 }
@@ -442,6 +497,56 @@ function writeCheckpoint(
     completed: new Date().toISOString(),
     node: result.nodeId,
     status: result.status,
+  };
+
+  writeFileSync(path, yaml.dump(data, { lineWidth: -1 }), 'utf-8');
+}
+
+// ── Cost persistence ───────────────────────────────────────
+
+function writeCostToState(
+  wf: Workflow,
+  inputs: Record<string, string | number | boolean>,
+  cwd: string,
+  cost: WorkflowCost,
+): void {
+  const path = resolveStatePath(wf, inputs, cwd);
+  if (!path) return;
+
+  let data: Record<string, unknown> = {};
+  if (existsSync(path)) {
+    try {
+      data = yaml.load(readFileSync(path, 'utf-8')) as Record<string, unknown> ?? {};
+    } catch {
+      data = {};
+    }
+  }
+
+  // Merge with existing cost data (accumulates across workflow runs)
+  const existing = (data['cost'] as Record<string, unknown>) ?? {};
+  const priorUSD = typeof existing['total_usd'] === 'number' ? existing['total_usd'] : 0;
+  const priorIn = typeof existing['total_input_tokens'] === 'number' ? existing['total_input_tokens'] : 0;
+  const priorOut = typeof existing['total_output_tokens'] === 'number' ? existing['total_output_tokens'] : 0;
+  const priorNodes = (existing['nodes'] as Record<string, unknown>) ?? {};
+
+  // Merge per-node costs
+  const mergedNodes: Record<string, unknown> = { ...priorNodes };
+  for (const [nodeId, nc] of Object.entries(cost.byNode)) {
+    mergedNodes[nodeId] = {
+      cost_usd: nc.costUSD,
+      input_tokens: nc.usage.inputTokens,
+      output_tokens: nc.usage.outputTokens,
+      duration_ms: nc.durationMs,
+      model: nc.model,
+    };
+  }
+
+  data['cost'] = {
+    total_usd: priorUSD + cost.totalUSD,
+    total_input_tokens: priorIn + cost.totalInputTokens,
+    total_output_tokens: priorOut + cost.totalOutputTokens,
+    last_run: new Date().toISOString(),
+    nodes: mergedNodes,
   };
 
   writeFileSync(path, yaml.dump(data, { lineWidth: -1 }), 'utf-8');

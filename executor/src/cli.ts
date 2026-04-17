@@ -11,7 +11,8 @@
  */
 
 import { resolve, dirname } from 'node:path';
-import { readdirSync, existsSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import yaml from 'js-yaml';
 import { loadWorkflow, resolveWorkflowPath } from './loader.js';
 import { buildExecutionLayers } from './dag.js';
 import { executeWorkflow } from './engine.js';
@@ -24,6 +25,8 @@ import {
   detectComparisonMode, runBranchComparison, writeE2EResult,
   formatE2EResult, formatClassification,
 } from './e2e.js';
+import { formatCostSummary } from './budget.js';
+import type { WorkflowCost } from './types.js';
 
 // ── Argument parsing ────────────────────────────────────────
 
@@ -137,6 +140,11 @@ async function cmdRun(): Promise<void> {
   console.log(`Status: ${run.status}`);
   console.log(`Duration: ${duration(run.startedAt, run.completedAt)}`);
   console.log(`Nodes: ${Object.keys(run.nodeResults).length} executed`);
+
+  if (run.totalCost.totalUSD > 0) {
+    console.log('');
+    console.log(formatCostSummary(run.totalCost));
+  }
 
   const failed = Object.values(run.nodeResults).filter(r => r.status === 'failed');
   if (failed.length > 0) {
@@ -343,12 +351,15 @@ function cmdStatus(): void {
 
     for (const t of phaseTopics) {
       const activeSFs = t.scienceFlags.filter(sf => sf.scope === 'active').length;
-      const deferredSFs = t.scienceFlags.filter(sf => sf.scope === 'deferred').length;
-      const sfCount = activeSFs;
       const brkCount = t.breaks.length;
       const subs = t.subsystems.length > 0 ? `[${t.subsystems.slice(0, 6).join(',')}]` : '';
       const flags: string[] = [];
-      if (sfCount > 0) flags.push(`SF:${sfCount}`);
+
+      // Read cost from state file
+      const topicCost = readTopicCostFromFile(t.stateFile);
+      if (topicCost > 0) flags.push(`$${topicCost.toFixed(2)}`);
+
+      if (activeSFs > 0) flags.push(`SF:${activeSFs}`);
       if (brkCount > 0) flags.push(`BRK:${brkCount}`);
       if (t.prerequisites.length > 0) flags.push(`prereq:${t.prerequisites.join(',')}`);
       const flagStr = flags.length > 0 ? ` ${flags.join(' ')}` : '';
@@ -463,6 +474,111 @@ function cmdE2E(): void {
   }
 }
 
+// ── Cost report ──────────────────────────────────────────
+
+function cmdCost(): void {
+  const topic = args[1]; // optional: specific topic
+  const cwd = process.cwd();
+  const stateDir = resolve(cwd, '.lattice/cycle-state');
+
+  if (!existsSync(stateDir)) {
+    console.error(`No cycle state directory at ${stateDir}`);
+    process.exit(1);
+  }
+
+  const files = readdirSync(stateDir).filter(f => f.endsWith('.yaml') || f.endsWith('.yml'));
+
+  if (files.length === 0) {
+    console.log('No topics found.');
+    return;
+  }
+
+  // Collect cost data from all state files
+  const costs: { topic: string; cost: Record<string, unknown> }[] = [];
+  let grandTotalUSD = 0;
+
+  for (const file of files) {
+    const path = resolve(stateDir, file);
+    try {
+      const data = yaml.load(readFileSync(path, 'utf-8')) as Record<string, unknown>;
+      const topicName = file.replace(/\.ya?ml$/, '');
+
+      if (topic && topicName !== topic) continue;
+
+      const cost = data?.['cost'] as Record<string, unknown> | undefined;
+      if (cost && typeof cost['total_usd'] === 'number' && cost['total_usd'] > 0) {
+        costs.push({ topic: topicName, cost });
+        grandTotalUSD += cost['total_usd'] as number;
+      }
+    } catch { /* skip corrupt files */ }
+  }
+
+  if (costs.length === 0) {
+    console.log(topic ? `No cost data for topic "${topic}".` : 'No cost data recorded yet.');
+    return;
+  }
+
+  // Sort by cost descending
+  costs.sort((a, b) => (b.cost['total_usd'] as number) - (a.cost['total_usd'] as number));
+
+  console.log('COST REPORT');
+  console.log('='.repeat(70));
+
+  if (topic && costs.length === 1) {
+    // Detailed single-topic view
+    const c = costs[0].cost;
+    console.log(`Topic: ${costs[0].topic}`);
+    console.log(`Total: $${(c['total_usd'] as number).toFixed(4)}`);
+    console.log(`Tokens: ${fmtK(c['total_input_tokens'] as number ?? 0)} in / ${fmtK(c['total_output_tokens'] as number ?? 0)} out`);
+    if (c['last_run']) console.log(`Last run: ${c['last_run']}`);
+
+    const nodes = c['nodes'] as Record<string, Record<string, unknown>> | undefined;
+    if (nodes && Object.keys(nodes).length > 0) {
+      console.log('');
+      console.log('Per node:');
+      const sorted = Object.entries(nodes).sort(
+        (a, b) => ((b[1]['cost_usd'] as number) ?? 0) - ((a[1]['cost_usd'] as number) ?? 0)
+      );
+      for (const [nodeId, nc] of sorted) {
+        const usd = (nc['cost_usd'] as number) ?? 0;
+        const tok = ((nc['input_tokens'] as number) ?? 0) + ((nc['output_tokens'] as number) ?? 0);
+        const dur = ((nc['duration_ms'] as number) ?? 0) / 1000;
+        const model = nc['model'] ? `  ${nc['model']}` : '';
+        console.log(`  ${nodeId.padEnd(30)} $${usd.toFixed(4)}  ${fmtK(tok)} tok  ${dur.toFixed(1)}s${model}`);
+      }
+    }
+  } else {
+    // Summary table across topics
+    console.log(`${'Topic'.padEnd(45)} ${'Cost'.padStart(10)} ${'Tokens'.padStart(12)} ${'Last run'.padStart(20)}`);
+    console.log('-'.repeat(70));
+
+    for (const { topic: t, cost: c } of costs) {
+      const usd = `$${(c['total_usd'] as number).toFixed(4)}`;
+      const tok = fmtK(((c['total_input_tokens'] as number) ?? 0) + ((c['total_output_tokens'] as number) ?? 0));
+      const lastRun = (c['last_run'] as string ?? '').slice(0, 10);
+      console.log(`${t.padEnd(45)} ${usd.padStart(10)} ${tok.padStart(12)} ${lastRun.padStart(20)}`);
+    }
+
+    console.log('-'.repeat(70));
+    console.log(`${'TOTAL'.padEnd(45)} ${('$' + grandTotalUSD.toFixed(4)).padStart(10)}`);
+  }
+}
+
+function readTopicCostFromFile(stateFile: string): number {
+  try {
+    const data = yaml.load(readFileSync(stateFile, 'utf-8')) as Record<string, unknown>;
+    const cost = data?.['cost'] as Record<string, unknown> | undefined;
+    if (cost && typeof cost['total_usd'] === 'number') return cost['total_usd'];
+  } catch { /* missing or corrupt */ }
+  return 0;
+}
+
+function fmtK(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}K`;
+  return String(n);
+}
+
 // ── Helpers ─────────────────────────────────────────────────
 
 function duration(start: string, end?: string): string {
@@ -506,6 +622,9 @@ switch (command) {
   case 'e2e':
     cmdE2E();
     break;
+  case 'cost':
+    cmdCost();
+    break;
   default:
     console.log('Lattice Executor v0.1.0\n');
     console.log('Commands:');
@@ -519,5 +638,6 @@ switch (command) {
     console.log('                                           Advance safe topics, batch human decisions');
     console.log('  lattice e2e run [--base main]             Branch-comparison E2E testing gate');
     console.log('  lattice e2e classify [--base main]        Testability classification');
+    console.log('  lattice cost [topic]                      Per-topic cost report');
     process.exit(command ? 1 : 0);
 }

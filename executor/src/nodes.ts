@@ -10,7 +10,7 @@ import { execSync, type ExecSyncOptionsWithStringEncoding } from 'node:child_pro
 import { createInterface } from 'node:readline';
 import type {
   WorkflowNode, BashNode, SkillNode, GateNode, ApprovalNode, ParallelNode,
-  NodeResult, PlatformAdapter, TriggerRule,
+  NodeResult, NodeCost, PlatformAdapter, TriggerRule,
 } from './types.js';
 import type { TemplateContext } from './template.js';
 import { resolveTemplate, resolveTemplates } from './template.js';
@@ -152,24 +152,23 @@ async function executeSkill(
     };
   }
 
-  // Phase 1: invoke Claude Code CLI
+  // Phase 1: invoke Claude Code CLI with JSON output for token tracking
   // Phase 2+: will use Claude API directly
   const context = resolved.context ?? 'inherit';
 
   await adapter.sendMessage(`[${nodeId}] Executing skill: ${resolved.skill ?? 'inline prompt'}`);
 
   try {
-    const args = [
+    const cliArgs = [
       '--print',
-      '--output-format', 'text',
+      '--output-format', 'json',
     ];
 
     if (context === 'fresh') {
-      args.push('--no-context');
+      cliArgs.push('--no-context');
     }
 
-    // Use claude CLI
-    const command = `claude ${args.join(' ')} ${shellQuote(prompt)}`;
+    const command = `claude ${cliArgs.join(' ')} ${shellQuote(prompt)}`;
     const stdout = execSync(command, {
       cwd,
       encoding: 'utf-8',
@@ -178,19 +177,32 @@ async function executeSkill(
       env: { ...process.env },
     });
 
+    const { text, cost } = parseClaudeJsonOutput(stdout);
+
     return {
       nodeId,
       status: 'completed',
-      output: stdout.trim(),
+      output: text,
+      cost,
       startedAt,
       completedAt: new Date().toISOString(),
     };
   } catch (err: unknown) {
     const execErr = err as { stdout?: string; stderr?: string; message?: string };
+
+    // Try to extract cost even from failed runs (partial output)
+    let cost: NodeCost | undefined;
+    if (execErr.stdout) {
+      try {
+        ({ cost } = parseClaudeJsonOutput(execErr.stdout));
+      } catch { /* no usable JSON */ }
+    }
+
     return {
       nodeId,
       status: 'failed',
       output: (execErr.stdout ?? '').trim(),
+      cost,
       startedAt,
       completedAt: new Date().toISOString(),
       error: execErr.message ?? 'Skill execution failed',
@@ -358,6 +370,63 @@ export function checkTriggerRule(
     default:
       return true;
   }
+}
+
+// ── Claude JSON output parser ──────────────────────────────
+
+interface ClaudeJsonResponse {
+  result?: string;
+  is_error?: boolean;
+  usage?: {
+    input_tokens?: number;
+    output_tokens?: number;
+    cache_creation_input_tokens?: number;
+    cache_read_input_tokens?: number;
+  };
+  cost_usd?: number;
+  total_cost_usd?: number;
+  duration_ms?: number;
+  model?: string;
+}
+
+/**
+ * Parse Claude CLI `--output-format json` response.
+ * Extracts text result and token usage/cost metrics.
+ */
+function parseClaudeJsonOutput(raw: string): { text: string; cost?: NodeCost } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { text: '' };
+
+  let parsed: ClaudeJsonResponse;
+  try {
+    parsed = JSON.parse(trimmed);
+  } catch {
+    // Not valid JSON — treat as plain text (fallback)
+    return { text: trimmed };
+  }
+
+  const text = (parsed.result ?? '').trim();
+  const usage = parsed.usage;
+  const costUSD = parsed.cost_usd ?? parsed.total_cost_usd ?? 0;
+  const durationMs = parsed.duration_ms ?? 0;
+
+  if (!usage && costUSD === 0) {
+    return { text };
+  }
+
+  const cost: NodeCost = {
+    usage: {
+      inputTokens: usage?.input_tokens ?? 0,
+      outputTokens: usage?.output_tokens ?? 0,
+      cacheCreationTokens: usage?.cache_creation_input_tokens,
+      cacheReadTokens: usage?.cache_read_input_tokens,
+    },
+    costUSD,
+    durationMs,
+    model: parsed.model,
+  };
+
+  return { text, cost };
 }
 
 // ── Helpers ─────────────────────────────────────────────────

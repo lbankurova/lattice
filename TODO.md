@@ -8,11 +8,10 @@
 - Done. `executor/src/e2e.ts`, CLI `lattice e2e`, workflow nodes in build-cycle + bug-fix-cycle, scaffold template.
 - Phase 2 deferred: text_diff, custom comparison, parallel suites, screenshot perceptual diff, autopilot integration.
 
-### ENH-02: Token tracker / budget / alerting
-- **What:** Per-node token counting, per-workflow cost tracking, budget caps, cost-per-topic reporting.
-- **Why:** Headless mode (Phase 3) runs unattended — without cost tracking it's a blank check.
-- **Dependencies:** Claude API integration (Phase 2+). Currently skill nodes invoke Claude CLI, not API.
-- **Priority:** P1 (pre-Phase 3 requirement)
+### ~~ENH-02: Token tracker / budget / alerting~~
+- Done. `executor/src/budget.ts`, JSON output parsing in `nodes.ts`, cost aggregation in `engine.ts`, `lattice cost` CLI command, scaffold template.
+- Uses `claude --output-format json` to get real token counts and cost from CLI (no Phase 2 dependency).
+- Phase 2 deferred: cost trend charts, per-model breakdown, Slack budget alerts, cost anomaly detection.
 
 ### ENH-01: Vector search for corpus load (Zabaca/lattice integration)
 - **Skill affected:** `/lattice:distill` Step 0 Layer 3, `/lattice:research` Step 0

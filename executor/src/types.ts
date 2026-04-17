@@ -122,6 +122,22 @@ export interface NodeRetry {
   on?: string[];
 }
 
+// ── Token usage & cost ──────────────────────────────────────
+
+export interface TokenUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheCreationTokens?: number;
+  cacheReadTokens?: number;
+}
+
+export interface NodeCost {
+  usage: TokenUsage;
+  costUSD: number;
+  durationMs: number;
+  model?: string;
+}
+
 // ── Execution state ─────────────────────────────────────────
 
 export type NodeStatus = 'pending' | 'running' | 'completed' | 'failed' | 'skipped';
@@ -138,6 +154,8 @@ export interface NodeResult {
   route?: string;
   /** For approval nodes: which option was selected */
   selectedOption?: string;
+  /** Token usage and cost (skill nodes only) */
+  cost?: NodeCost;
 }
 
 export interface WorkflowRun {
@@ -149,6 +167,40 @@ export interface WorkflowRun {
   nodeResults: Record<string, NodeResult>;
   /** Active route — for gate/approval routing, tracks which path is live */
   activeRoutes: Set<string>;
+  /** Aggregated cost across all nodes in this run */
+  totalCost: WorkflowCost;
+}
+
+export interface WorkflowCost {
+  totalUSD: number;
+  totalInputTokens: number;
+  totalOutputTokens: number;
+  /** Per-node cost breakdown (nodeId -> cost) */
+  byNode: Record<string, NodeCost>;
+}
+
+// ── Budget ──────────────────────────────────────────────────
+
+export interface BudgetConfig {
+  /** Max USD per workflow run (by workflow name) */
+  perWorkflow?: Record<string, number>;
+  /** Max USD per topic (accumulated across all runs) */
+  perTopic?: number;
+  /** Max USD per individual node (by node ID) */
+  perNode?: Record<string, number>;
+  /** Fraction of budget at which to warn (0-1, default 0.8) */
+  alertThreshold?: number;
+}
+
+export type AlertLevel = 'info' | 'warn' | 'block';
+
+export interface BudgetAlert {
+  level: AlertLevel;
+  scope: 'node' | 'workflow' | 'topic';
+  label: string;
+  spentUSD: number;
+  limitUSD: number;
+  message: string;
 }
 
 // ── Adapter interface (CLI now, Slack/web later) ────────────
