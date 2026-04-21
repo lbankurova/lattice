@@ -62,6 +62,22 @@ Read the synthesis/spec file fully. Also read:
 - `docs/_internal/knowledge/code-quality-guardrails.md` (if exists)
 - The files the plan proposes to modify (to understand current state)
 
+### Step 1.5: Spec Value Audit (first pass)
+
+Before launching the architect-reviewer agent, run `docs/_internal/checklists/SPEC-VALUE-AUDIT.md` against the spec. This is the anti-featuritis gate — it catches specs that propose N features on categorical reasoning ("every inferred X should be overridable") rather than per-feature evidence.
+
+**Triggered when** the spec proposes more than one feature, UI surface, override, or pane. For single-feature specs, questions 1-3 still apply but the audit is lighter.
+
+Produce one of three verdicts:
+
+| Verdict | Action |
+|---------|--------|
+| **PASS** | Proceed to Step 2 (architect-reviewer agent). |
+| **SCOPE REDUCTION REQUIRED** | STOP. Write a scope-challenge doc in `docs/_internal/incoming/{spec-name}-scope-challenge.md` enumerating which features fail which audit questions. Return the challenge to the user; do NOT proceed to architect-reviewer. The spec needs rework first. |
+| **EVIDENCE GAP** | STOP. Tell the user which frequency / impact data is missing and where it would come from (validation corpus pull, user interview, production telemetry). Do not proceed until evidence is provided or the unknown is explicitly accepted. |
+
+A spec that can't answer audit questions 1-10 for every proposed feature should not absorb deeper architect-review attention. Deep architecture review on featuritis wastes the review slot and lets scope slip through.
+
 ### Step 2: Launch architect-reviewer agent
 
 **Launch a separate agent** with the architect-reviewer instructions. Provide:

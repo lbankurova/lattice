@@ -41,6 +41,8 @@ Run the standard review structure (Sections 1-7 below) focused on:
 - Whether the gap-to-feature mapping is complete (did synthesis miss research findings?)
 - Whether research gaps and data gaps are correctly classified (blocking vs non-blocking)
 
+**Also run the Spec Value Audit** (`docs/_internal/checklists/SPEC-VALUE-AUDIT.md`) per-feature — focus on questions 1 ("what concrete user problem does this solve?"), 2 ("evidence of frequency"), and 4 ("downstream impact when unfixed"). Challenge feature claims from a domain-expert lens: "You claim X is a problem — how often does it actually happen in a real study? What breaks if it goes unfixed?" Features that can't survive these challenges are findings in their own right (CONDITIONAL or FLAWED, depending on how speculative).
+
 ### If Standalone Claim:
 
 Run the standard review structure (Sections 1-7 below) as-is.

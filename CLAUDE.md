@@ -81,6 +81,8 @@ cd <project>/frontend && npm test         # Vitest
 
 16. **Verify empirical claims against actual data.** When a spec, plan, or criterion makes a numeric claim about data ("count drops to 2", "shows N rows"), verify against the actual generated output at spec-write, implementation, and review gates. Mirror-pattern tests do NOT satisfy this -- use fixture tests against real generated output. Don't infer from code -- read the output.
 
+17. **Spec value audit before build.** Any spec entering `docs/_internal/incoming/` that proposes more than one feature / UI surface / override / pane must pass `docs/_internal/checklists/SPEC-VALUE-AUDIT.md` before architect review signs off. The audit catches categorical "we infer N things, each needs a UI" reasoning — the spec author must document per-feature frequency, current workaround, and downstream impact rather than categorical justification. Reviewers produce PASS / SCOPE REDUCTION REQUIRED / EVIDENCE GAP; non-PASS verdicts block architect review and route the spec back for rework with a scope-challenge doc. Failure mode: spec ships featuritis that nobody catches until collision review during an unrelated spike.
+
 ## Workflow DAGs
 
 Development cycles are defined as YAML DAGs in `workflows/`. The DAG defines orchestration structure (what runs when, dependencies, gates, routing); markdown skills (`commands/lattice/*.md`) define what each node does.
@@ -280,5 +282,6 @@ Rules not in this file are enforced by hooks, rules files, or skill prompts:
 | Interactivity requirements | `docs/_internal/reference/interactivity-rule.md` | Reference |
 | Commit checklist | `docs/_internal/checklists/COMMIT-CHECKLIST.md` | Review gate hook blocks commits |
 | Post-implementation review | `docs/_internal/checklists/POST-IMPLEMENTATION-REVIEW.md` | Review gate hook blocks commits |
+| Spec value audit (rule 17) | `docs/_internal/checklists/SPEC-VALUE-AUDIT.md` | `/lattice:architect` gate Step 1.5 / `/lattice:peer-review` synthesis tier |
 | Topic trailers | PreToolUse hook | Hook warns on missing Topic: |
 | Empirical claim detail + example | `/lattice:implement`, `/lattice:review` | Skill prompt |
