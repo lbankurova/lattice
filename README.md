@@ -177,7 +177,7 @@ See [WORKFLOW.md](WORKFLOW.md) for detailed protocol documentation.
 
 ## Hard Rules (CLAUDE.md)
 
-16 process rules that apply to every task:
+17 process rules that apply to every task:
 
 | # | Rule | Why |
 |---|------|-----|
@@ -195,6 +195,7 @@ See [WORKFLOW.md](WORKFLOW.md) for detailed protocol documentation.
 | 14 | **Science preservation gate** | Cleanup that changes analytical behavior requires scientist review |
 | 15 | Impact analysis before touching shared code | Know what breaks before you edit |
 | 16 | Verify empirical claims against actual data | Don't infer from code -- read the output |
+| 17 | **Spec value audit before build** | Catch featuritis: per-feature frequency, workaround, and impact required before architect review signs off |
 
 ## Research Quality Controls
 

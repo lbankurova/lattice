@@ -251,7 +251,7 @@ Complements the validation ratchet (which checks analytical scores). E2E checks 
 ## Slide 15: The architecture — what exists today
 
 ```
-16 process rules (CLAUDE.md)
+17 process rules (CLAUDE.md)
 21 skills (commands/lattice/)
  6 ops commands (commands/ops/)
  3 independent reviewer agents

@@ -90,7 +90,10 @@ lattice inspect <workflow>                 -- show execution plan
 |       |  test strategy (6 sections gated)                                 |
 |       v                                                                   |
 |  Step 2: /lattice:architect gate         <-- separate agent              |
-|       |  PASS / SIMPLIFY / REJECT / SCIENCE-FLAG                          |
+|       |  Step 1.5: SPEC-VALUE-AUDIT first pass                            |
+|       |    (PASS / SCOPE REDUCTION REQUIRED / EVIDENCE GAP)               |
+|       |  Step 2: architect-reviewer                                       |
+|       |    (PASS / SIMPLIFY / REJECT / SCIENCE-FLAG)                      |
 |       v                                                                   |
 |  Step 3: /lattice:probe                  <-- build plan impact check     |
 |       v                                                                   |

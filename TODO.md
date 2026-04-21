@@ -26,6 +26,13 @@
 - Done. Prioritize skill tags recommendations as `[autopilot]` or `[human]` based on safety criteria.
 - Safe: research-complete needing synthesis, clean probe, bug fixes. Not safe: UI epics, SCIENCE-FLAG, paused.
 
+### ~~ENH-06: Spec value audit (anti-featuritis gate)~~ 2c82f43
+- Done. `SPEC-VALUE-AUDIT.md` checklist wired as CLAUDE.md rule 17.
+- `/lattice:architect` Mode 2 Gate: new Step 1.5 runs the audit BEFORE the architect-reviewer agent. Non-PASS verdicts (SCOPE REDUCTION REQUIRED / EVIDENCE GAP) short-circuit deep review and produce a scope-challenge doc.
+- `/lattice:peer-review` synthesis tier: uses audit questions 1, 2, 4 for domain-expert challenges.
+- Scaffold template so new Lattice projects inherit the checklist.
+- Originating precedent: pcc `study-design-override-surfaces` spec (9 of 14 features flagged featuritis).
+
 ### ENH-01: Vector search for corpus load (Zabaca/lattice integration)
 - **Skill affected:** `/lattice:distill` Step 0 Layer 3, `/lattice:research` Step 0
 - **What:** Replace title-scanning of INDEX.md with semantic vector search for selecting which research files to deep-read. Use [Zabaca/lattice](https://github.com/Zabaca/lattice) (DuckDB + Voyage AI embeddings) as the search backend.
