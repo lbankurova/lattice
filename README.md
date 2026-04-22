@@ -21,8 +21,10 @@ LLM-assisted development framework for exploratory development of scientific app
 
 ```
 lattice/
-  CLAUDE.md                     # Framework rules (16) + operational docs
-  WORKFLOW.md                   # Full pipeline reference
+  CLAUDE.md                     # Framework rules (17) + operational docs
+  WORKFLOW.md                   # Pipeline diagram, phase transitions, skill list
+  WORKFLOW-INTERNALS.md         # Executor, autopilot, coherence, peer-review protocol
+  ENFORCEMENT.md                # Review gate, ratchet, hooks, structural gates
   commands/lattice/             # 21 skills (AI agent prompts, .md)
   commands/ops/                 #  6 ops commands
   agents/                       #  3 independent reviewer agents
@@ -173,7 +175,7 @@ The framework enforces quality through constraints, not just instructions:
 | **Commit/topic locking** | Prevents concurrent commits and concurrent work on same topic | Atomic mkdir locks with stale recovery |
 | **Autonomous execution** | Cycles run without human until critical decisions | Stops on: SCIENCE-FLAG, REJECT, BREAKS, persistent FLAWED |
 
-See [WORKFLOW.md](WORKFLOW.md) for detailed protocol documentation.
+See [WORKFLOW.md](WORKFLOW.md) for the pipeline and skill list, [WORKFLOW-INTERNALS.md](WORKFLOW-INTERNALS.md) for protocol depth (peer-review rounds, autopilot stops, coherence conflict types), and [ENFORCEMENT.md](ENFORCEMENT.md) for the guardrail mechanisms.
 
 ## Hard Rules (CLAUDE.md)
 

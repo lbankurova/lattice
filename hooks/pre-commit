@@ -81,13 +81,12 @@ if [ "$CODE_FILE_COUNT" -gt 3 ]; then
     fi
 fi
 
-# Docs freshness: structural changes should update README/WORKFLOW
+# Docs freshness: structural changes should update README/WORKFLOW/WORKFLOW-INTERNALS/ENFORCEMENT
 STRUCT_CHANGES=$(echo "$STAGED_FILES" | grep -cE '^(executor/src/|commands/|workflows/|scripts/|agents/|hooks/|scaffold/)' || true)
 if [ "$STRUCT_CHANGES" -gt 0 ]; then
-    README_STAGED=$(echo "$STAGED_FILES" | grep -c "^README.md$" || true)
-    WORKFLOW_STAGED=$(echo "$STAGED_FILES" | grep -c "^WORKFLOW.md$" || true)
-    if [ "$README_STAGED" -eq 0 ] && [ "$WORKFLOW_STAGED" -eq 0 ]; then
-        INDEX_WARNINGS="${INDEX_WARNINGS}  DOCS: ${STRUCT_CHANGES} structural file(s) changed but README.md / WORKFLOW.md not updated.\n"
+    DOCS_STAGED=$(echo "$STAGED_FILES" | grep -cE '^(README\.md|WORKFLOW\.md|WORKFLOW-INTERNALS\.md|ENFORCEMENT\.md)$' || true)
+    if [ "$DOCS_STAGED" -eq 0 ]; then
+        INDEX_WARNINGS="${INDEX_WARNINGS}  DOCS: ${STRUCT_CHANGES} structural file(s) changed but README / WORKFLOW / WORKFLOW-INTERNALS / ENFORCEMENT not updated.\n"
     fi
 fi
 
