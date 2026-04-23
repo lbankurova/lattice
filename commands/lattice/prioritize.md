@@ -40,6 +40,13 @@ Read these sources in parallel to build a complete picture:
 - `docs/_internal/TODO.md` — bugs, individual GAP-* items, tech debt
 - `docs/_internal/incoming/*.md` — specs and synthesis docs waiting for action
 
+**TODO.md annotation filters (apply during classification, not during read):**
+
+- **`- **Research exhausted:** true`** on a `DATA-GAP-*` entry means research already ran and confirmed the data does not exist in public sources. Do NOT classify these as "research ready" or recommend `/lattice:research` on them. Either (a) surface under a **Data Acquisition / Partnership** bucket if there's a clear consortium/commissioning path, or (b) skip them entirely from the "what to do next" list. They do not count against the research-pipeline structural-gap metric in Step 5.
+- **`- **Category:** … — not a research task`** on a `DATA-GAP-*` entry means the ID lives in the data-gap namespace for cross-reference stability but the actual work is Engineering, Schema migration, or Docs. Reclassify into the named bucket for ranking. These do not count against research-pipeline metrics either.
+
+`grep "^- \*\*Research exhausted:\*\* true" docs/_internal/TODO.md -B1` and `grep "^- \*\*Category:\*\*.*not a research task" docs/_internal/TODO.md -B1` yield the current filtered sets.
+
 ### Research State
 - `docs/_internal/research/REGISTRY.md` — stream status, open questions, cross-stream dependencies
 - Each pillar in capabilities.yaml lists its research streams with current status
@@ -170,7 +177,7 @@ After recommendations, flag structural gaps using the capability model:
 
 - **Pillar gaps:** which pillars have the most gaps relative to shipped items? The `gaps` list per pillar is the source.
 - **Dimension gaps:** check the `hcd_matrix` and `species_overrides` tables. Which cells are empty? Which species have zero validation studies?
-- **Research pipeline:** for each pillar, what research is in-progress and what does it enable when complete?
+- **Research pipeline:** for each pillar, what research is in-progress and what does it enable when complete? **Exclude items flagged `Research exhausted: true`** — those are data-acquisition blockers, not pipeline work. Report them under a separate **Data Acquisition / Partnership Blockers** section.
 - **Blocked cascades:** which cascade entries have unmet `depends_on`?
 - **Stale specs:** incoming/ specs that haven't moved in weeks and aren't mapped to any pillar gap
 

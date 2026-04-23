@@ -27,6 +27,20 @@ Also flag:
 - Open bugs older than 60 days without activity (might be stale or already fixed)
 - Items marked as resolved but missing commit hash (incomplete resolution)
 
+### Step 1b: Annotation Flag Counts
+
+Count the two machine-readable annotations that distinguish actionable research from other work:
+
+```bash
+grep -c "^- \*\*Research exhausted:\*\* true" docs/_internal/TODO.md
+grep -c "^- \*\*Category:\*\*.*not a research task" docs/_internal/TODO.md
+```
+
+- **`Research exhausted: true`** — research ran, confirmed no public data exists. These are data-acquisition / partnership items, NOT research work. `/lattice:prioritize` filters them out of the research pipeline.
+- **`Category: … — not a research task`** — ID lives in `DATA-GAP-*` namespace for cross-reference stability but the actual work is Engineering / Schema migration / Docs. Prioritize reclassifies them into the named bucket.
+
+Report: `TODO.md annotations: {A} research-exhausted (data-acquisition), {B} mis-tagged (non-research work).`
+
 ## Step 2: ROADMAP.md Cross-Reference
 
 ROADMAP is the highest-impact index for prioritization accuracy. `/lattice:prioritize` reads it first. Stale ROADMAP entries directly cause bad recommendations (e.g., recommending features that already shipped).
@@ -180,6 +194,7 @@ Write a sweep report and record the timestamp:
 SWEEP REPORT — {ISO date}
 ===========================
 TODO.md:       {open} open, {resolved} resolved {fixes applied}
+TODO.md flags: {research-exhausted} research-exhausted (data-acq), {mis-tagged} mis-tagged (non-research)
 ROADMAP:       {active} active, {done} done (newly marked), {orphaned} orphaned
 incoming/:     {active} active, {archived} archived, {backlinks updated} ROADMAP backlinks
 MANIFEST:      {current} current, {stale} stale
