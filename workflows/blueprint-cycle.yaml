@@ -77,6 +77,12 @@ workflow:
         has_tests: "output.contains('Test Strategy')"
         has_research_gaps: "output.contains('Research Gaps')"
         has_data_gaps: "output.contains('Data Gaps')"
+        # Contract Triangles section is mandatory: list every contract field
+        # the build will touch with its declaration/enforcement/consumption
+        # sites, OR write "Contract Triangles: none" when no contract surface
+        # is touched. CLAUDE.md rule 18; reference docs/_internal/knowledge/
+        # contract-triangles.md for the live registry.
+        has_contract_triangles: "output.contains('Contract Triangles')"
         on_fail: retry
       checkpoint:
         state_key: blueprint.1

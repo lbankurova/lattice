@@ -23,7 +23,7 @@ The review MUST produce ALL of these named sections in its output. A missing sec
 2. **ARCHITECT REVIEW** — complexity and science preservation check (separate agent)
 3. **DECISION AUDIT** — merit-based evaluation of every architectural/method decision
 4. **REQUIREMENT TRACE** — four-dimension check (WHAT/WHEN/UNLESS/HOW) — adapted to context
-5. **MECHANICAL CHECKS** — build, lint, tests, code quality, VISUAL check (Playwright), and DATA check (fixture against generated JSON for any empirical claim in the spec). Both VISUAL and DATA sub-checks must appear for frontend work.
+5. **MECHANICAL CHECKS** — build, lint, tests, code quality, VISUAL check (Playwright), DATA check (fixture against generated JSON for any empirical claim in the spec), and TRIANGLE check (contract triangle synchronization per CLAUDE.md rule 18, when the diff modifies any contract surface). VISUAL and DATA sub-checks must appear for frontend work; TRIANGLE must appear whenever a contract field is touched.
 6. **DOCS UPDATE** — MANIFEST, specs, TODO
 7. **VERDICT** — pass/fail with evidence
 
@@ -345,9 +345,28 @@ DATA: PASS — [N] empirical claims verified against generated JSON
   - ...
 DATA: FAIL — [spec claim X] says {expected}, observed {actual} in {file}
 DATA: SKIPPED — [reason: no empirical claims in spec / no generated JSON for verification]
+
+TRIANGLE: PASS — [N] contract triangles touched, all three sites updated in this commit
+  - {field}: declaration={file:line}, enforcement={file:line}, consumption={file:line list}
+  - ...
+TRIANGLE: FAIL — [field] modified at {site} but {other site(s)} still reference old vocabulary
+TRIANGLE: SKIPPED — no contract surface modified (no enum/field/cardinality/nullability changes)
 ```
 
-Include screenshot path(s) so the user can inspect the visual. Include the cited JSON path and observed values for data verification. A VISUAL FAIL does not auto-block the review. A DATA FAIL DOES auto-block — empirical mismatch with the spec's claim is a scientific correctness issue, not a cosmetic one.
+Include screenshot path(s) so the user can inspect the visual. Include the cited JSON path and observed values for data verification. A VISUAL FAIL does not auto-block the review. A DATA FAIL DOES auto-block — empirical mismatch with the spec's claim is a scientific correctness issue, not a cosmetic one. A TRIANGLE FAIL DOES auto-block — silent declaration/enforcement/consumption divergence is the bug class CLAUDE.md rule 18 exists to prevent.
+
+### Triangle check protocol (when contract surface is touched)
+
+If the diff modifies any of: an enum constant, a JSON schema, a Pydantic model, a TS type union, a contract-doc table row, or a pytest invariant over generated JSON:
+
+1. Read `docs/_internal/knowledge/contract-triangles.md` (project-side, lives in the SENDEX submodule).
+2. Identify which triangle(s) the changed file appears in.
+3. For each affected triangle, run the straggler grep (the OLD vocabulary, across `backend/tests/`, `docs/_internal/knowledge/*field-contracts*.md`, `docs/_internal/architecture/`, `frontend/src/types/`, and `shared/rules/`).
+4. Verify all three sites (declaration, enforcement, consumption) are updated in THIS commit.
+5. If a new triangle was introduced (new contract field landing for the first time), require a new row in `contract-triangles.md`.
+6. If site count grew on an existing triangle (new renderer added, new enforcement test), update the row.
+
+The TRIANGLE check supersedes Step 2a's reuse audit for contract fields specifically — the reuse audit asks "is this duplicated"; the triangle check asks "is this synchronized."
 
 ### Anti-patterns
 
