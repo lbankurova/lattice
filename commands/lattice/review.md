@@ -357,14 +357,26 @@ Include screenshot path(s) so the user can inspect the visual. Include the cited
 
 ### Triangle check protocol (when contract surface is touched)
 
-If the diff modifies any of: an enum constant, a JSON schema, a Pydantic model, a TS type union, a contract-doc table row, or a pytest invariant over generated JSON:
+If the diff modifies any of: an enum constant, a JSON schema, a Pydantic model, a TS type union, a contract-doc table row, or a pytest invariant over generated JSON, run the automated audit:
 
-1. Read `docs/_internal/knowledge/contract-triangles.md` (project-side, lives in the SENDEX submodule).
-2. Identify which triangle(s) the changed file appears in.
-3. For each affected triangle, run the straggler grep (the OLD vocabulary, across `backend/tests/`, `docs/_internal/knowledge/*field-contracts*.md`, `docs/_internal/architecture/`, `frontend/src/types/`, and `shared/rules/`).
-4. Verify all three sites (declaration, enforcement, consumption) are updated in THIS commit.
-5. If a new triangle was introduced (new contract field landing for the first time), require a new row in `contract-triangles.md`.
-6. If site count grew on an existing triangle (new renderer added, new enforcement test), update the row.
+```bash
+cd <project-root> && python scripts/audit-contract-triangles.py
+```
+
+The script:
+1. Parses `docs/_internal/knowledge/contract-triangles.md` for triangles with explicit `Vocabulary: {...}` declarations.
+2. Verifies every cited file:line still resolves.
+3. Scans the registered scan directories for proper-subset literals (e.g., a 3-value `{adverse, warning, normal}` literal where the canonical vocabulary is 4-value) — the BFIELD-21 straggler shape.
+4. Diffs against `scripts/data/triangle-audit-baseline.txt` — only NEW stragglers fail the check; pre-existing ones in the baseline are tracked tech-debt.
+
+Exit code 0 = PASS; 1 = FAIL with new stragglers; 2 = config error (registry missing/unparseable).
+
+If the script reports NEW stragglers, walk each and either:
+- Fix it (widen the subset to match the canonical vocabulary), OR
+- Add `triangle-audit:exempt -- <rationale>` on the line if the subset is intentionally narrower (e.g., a sub-enum like BFIELD-27's `SEVERITY_NO_NORMAL`), OR
+- Run `python scripts/audit-contract-triangles.py --write-baseline` to accept the new state — but only after explicit triage and with the triage rationale in the commit body.
+
+If the diff introduced a new contract field (new enum value, new BFIELD), require a new row in `contract-triangles.md` with declaration/enforcement/consumption sites. If site count grew on an existing triangle, update the row.
 
 The TRIANGLE check supersedes Step 2a's reuse audit for contract fields specifically — the reuse audit asks "is this duplicated"; the triangle check asks "is this synchronized."
 
