@@ -149,7 +149,7 @@ workflow:
         - condition: "{{nodes.peer-review-r2.output.verdict}} == 'SOUND' || {{nodes.peer-review-r2.output.verdict}} == 'CONDITIONAL'"
           route: distill
         - condition: "{{nodes.peer-review-r2.output.has_new_flawed_on_sound}} == true"
-          route: evaluate-stop-bikeshed
+          route: evaluate-bikeshed-arbiter
         - condition: "{{nodes.peer-review-r2.output.has_persistent_flawed}} == true"
           route: evaluate-stop-disagreement
         - condition: default
@@ -157,19 +157,83 @@ workflow:
       checkpoint:
         state_key: research.5
 
+    # ── Bikeshed arbiter ────────────────────────────────────
+    # R2 raised new FLAWED on previously-SOUND material. Classify before
+    # escalating: presentation-only objections (wording / emphasis /
+    # ordering) auto-side with R1. Only factual disputes backed by
+    # testable evidence (source quote, data reference, file:line) reach
+    # the user. Preserves substantive R2 catches (fabricated claim,
+    # misread source, internal contradiction) while eliminating
+    # rubber-stamp gates on stylistic R2 objections.
+
+    evaluate-bikeshed-arbiter:
+      type: skill
+      skill: null
+      context: fresh
+      depends_on: [evaluate]
+      prompt_append: |
+        You are a bikeshed arbiter. Peer review R2 has raised new FLAWED
+        finding(s) on material that R1 marked SOUND. Classify each such
+        finding into one of three buckets:
+
+        - PRESENTATION_ONLY: R2's objection concerns only wording, ordering,
+          emphasis, redundancy, or similar surface presentation. R2 does NOT
+          dispute any of R1's factual claims.
+        - FACTUAL_DISPUTE: R2 disputes a factual claim -- either by
+          introducing a new source, or by reinterpreting a source R1 cited.
+          R2 provides testable evidence: a source quote, data reference,
+          file:line anchor, or code location that can be verified against
+          the actual artifact.
+        - FACTUAL_UNSUPPORTED: R2 disputes a factual claim but does NOT
+          provide testable evidence for the dispute. R2's counter-claim
+          cannot be verified.
+
+        Read R1's review (docs/_internal/research/peer-reviews/{{inputs.topic}}-review.md)
+        and R2's findings (captured at peer-review-r2). For each R2 finding
+        flagged on previously-SOUND material, output:
+
+          FINDING_ID: [identifier]
+          R1_CLAIM: [the factual assertion R1 marked SOUND]
+          R2_OBJECTION: [R2's objection summary, 1-2 lines]
+          CLASSIFICATION: PRESENTATION_ONLY | FACTUAL_DISPUTE | FACTUAL_UNSUPPORTED
+          R2_EVIDENCE: [source quote / data ref / file:line if FACTUAL_DISPUTE; N/A otherwise]
+
+        After all findings, output exactly one summary line:
+        ARBITER_VERDICT=auto_side_r1 | escalate_factual
+
+        Decision rule:
+        - Any finding classified FACTUAL_DISPUTE -> ARBITER_VERDICT=escalate_factual
+        - All findings PRESENTATION_ONLY or FACTUAL_UNSUPPORTED -> ARBITER_VERDICT=auto_side_r1
+
+        Unverifiable objections (FACTUAL_UNSUPPORTED) do not overturn R1's
+        analysis -- only testable disputes warrant user attention.
+      log: true
+
+    evaluate-bikeshed-route:
+      type: gate
+      depends_on: [evaluate-bikeshed-arbiter]
+      evaluate:
+        - condition: "{{nodes.evaluate-bikeshed-arbiter.output}}.contains('ARBITER_VERDICT=auto_side_r1')"
+          route: distill
+        - condition: default
+          route: evaluate-stop-bikeshed
+
     evaluate-stop-bikeshed:
       type: approval
-      depends_on: [evaluate]
-      prompt: >
-        R2 raised new FLAWED finding on previously-SOUND material.
-        Likely bikeshedding. Both positions presented below.
+      depends_on: [evaluate-bikeshed-route]
+      prompt: |
+        R2 raised factual dispute(s) on previously-SOUND material, with
+        testable evidence. The arbiter classified each finding:
+
+        {{nodes.evaluate-bikeshed-arbiter.output}}
+
         How do you want to proceed?
       options:
         - id: accept-r2
-          label: "Accept R2 finding"
-          route: incorporate-r1          # Re-incorporate and skip R2
+          label: "Accept R2 finding(s) -- re-incorporate revisions"
+          route: incorporate-r1
         - id: reject-r2
-          label: "Reject R2 finding -- original was correct"
+          label: "Reject R2 -- R1's reading stands"
           route: distill
         - id: abort
           label: "Abort research"

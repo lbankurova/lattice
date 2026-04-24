@@ -189,7 +189,7 @@ Update state: `current_step: research.5`.
 | R2 outcome | Action |
 |------------|--------|
 | All SOUND or CONDITIONAL | Validated — proceed autonomously to Step 6 |
-| New FLAWED on previously-SOUND | Likely bikeshedding — **STOP**, present both positions |
+| New FLAWED on previously-SOUND | Arbiter classifies each finding (PRESENTATION_ONLY / FACTUAL_DISPUTE / FACTUAL_UNSUPPORTED). Presentation-only or unsupported objections auto-side with R1. Only testable factual disputes **STOP** and surface the specific disputed claim + R2 evidence. |
 | Same FLAWED both rounds | Genuine disagreement — **STOP**, present both with evidence |
 
 Update state: `current_step: research.6`.

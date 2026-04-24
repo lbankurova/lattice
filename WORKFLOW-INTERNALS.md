@@ -113,10 +113,14 @@ Fresh agent checks revisions. With `--novel` flag, forces different sources than
 | Outcome | Action |
 |---------|--------|
 | All SOUND or CONDITIONAL | Proceed |
-| New FLAWED on previously-SOUND | Likely bikeshedding -- escalate to user |
+| New FLAWED on previously-SOUND | Arbiter classifies R2's objections. Presentation-only (wording / emphasis / redundancy) or FACTUAL_UNSUPPORTED (dispute without testable evidence) auto-side with R1. Only FACTUAL_DISPUTE (reinterpretation of source, new source, OR any factual claim with testable evidence — source quote, data ref, file:line) escalates, with the specific disputed claim and R2's evidence in the prompt. |
 | Same FLAWED both rounds | Genuine disagreement -- escalate with both positions |
 
 **No Round 3.** Unresolved issues require human judgment.
+
+### Bikeshed arbiter rubric
+
+Preserves substantive R2 catches (GAP-208 fabricated claim, GAP-194 internal contradiction, GAP-195 unverifiable source) — these surface as FACTUAL_DISPUTE and escalate. Eliminates rubber-stamp gates for R2 objections that are stylistic or unverifiable. The arbiter runs as a fresh-context skill (`evaluate-bikeshed-arbiter` in research-cycle.yaml, `plan-bikeshed-arbiter` in blueprint-cycle.yaml), reads R1 and R2 outputs, and emits one line: `ARBITER_VERDICT=auto_side_r1` or `ARBITER_VERDICT=escalate_factual`. Gate routes on that line.
 
 ### Escalation Format
 

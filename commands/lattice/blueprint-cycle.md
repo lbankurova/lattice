@@ -205,7 +205,7 @@ Same gate check and evaluation as research-cycle:
 | R2 outcome | Action |
 |------------|--------|
 | All SOUND or CONDITIONAL | Build plan validated — proceed |
-| New FLAWED on previously-SOUND | Likely bikeshedding — **STOP** |
+| New FLAWED on previously-SOUND | Arbiter classifies each finding (PRESENTATION_ONLY / FACTUAL_DISPUTE / FACTUAL_UNSUPPORTED). Presentation-only or unsupported objections auto-side with R1. Only testable factual disputes **STOP** and surface the specific disputed claim + R2 evidence. |
 | Same FLAWED both rounds | Genuine disagreement — **STOP** |
 
 Update state: `current_step: blueprint.7`.
