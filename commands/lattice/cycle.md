@@ -49,9 +49,9 @@ Read `.lattice/cycle-state/{topic}.yaml`:
 |-------|----------|
 | `phase: spike` | `/lattice:spike-cycle {topic}` (resumes mid-spike) |
 | `phase: research` | `/lattice:research-cycle {topic}` (resumes mid-phase) |
-| `phase: research-complete` | Ask: start blueprint? |
+| `phase: research-complete` | Auto-dispatch `/lattice:blueprint-cycle {topic}` |
 | `phase: blueprint` | `/lattice:blueprint-cycle {topic}` (resumes mid-phase) |
-| `phase: blueprint-complete` | Ask: ready to build? |
+| `phase: blueprint-complete` | Auto-dispatch `/lattice:build-cycle {topic}` |
 | `phase: build` | `/lattice:build-cycle {topic}` (resumes mid-phase) |
 | `phase: complete` | Report: "Cycle complete for {topic}." |
 | No state file | **→ Step 2: Classify** |
@@ -87,22 +87,21 @@ When there's no state file, classify the work to determine which path to take. R
 4. Does the topic name suggest engine/pipeline work?
 5. Is there an existing spec in `docs/_internal/incoming/`?
 
-**Present classification to the user:**
+**Apply classification deterministically.** Evaluate signals in priority order:
+
+1. **Explicit mode flag** (`--full`, `--spike`, `--bugfix`): route directly, no further evaluation.
+2. **Bug fix signals match AND no full-cycle signals match**: auto-dispatch `/lattice:bug-fix-cycle {topic}`.
+3. **Full-cycle signals match** (with or without bug signals — engine/scientific-method work always needs full ceremony): auto-dispatch `/lattice:research-cycle {topic}`.
+4. **All spike signals hold AND no bug/full signals match**: auto-dispatch `/lattice:spike-cycle {topic}`.
+5. **Signals conflict** (e.g., bug + scientific-method change, multiple paths plausible) **OR no signals match**: present a single approval gate with the recommended path pre-selected + evidence; user confirms or overrides. This is the only case where classification asks.
+
+Log the classification to `.lattice/decisions.log` either way:
 
 ```
-Classification: {topic}
-Signals: [list indicators found]
-Recommendation: {bugfix | spike | full} cycle
-Reason: [2-3 bullets]
-
-Options:
-1. Bug fix cycle (classify → investigate → fix → stress → review)
-2. Spike cycle (spike → spec-from-code → review)
-3. Full cycle (research → blueprint → build)
-4. Build only (already have a spec)
+{timestamp}\tcycle\tCLASSIFY\ttopic={topic}\tpath={bugfix|spike|full}\tsignals=[...]\tmode={auto|user-override|ambiguous-confirmed}
 ```
 
-**Wait for user confirmation.** The classification is a recommendation, not a decision.
+**Explicit override path:** users who want to bypass auto-classification pre-invocation use `--full`, `--spike`, or `--bugfix`. Users who want build-only (spec already exists) invoke `/lattice:build-cycle {topic}` directly.
 
 ### 3. Spike escalation
 
@@ -110,15 +109,21 @@ If the spike cycle determines the work needs research (user selects "Escalate to
 
 ### 4. Phase transitions
 
-When a sub-cycle completes, present the next phase boundary:
+When a sub-cycle completes, auto-dispatch to the next phase:
 
-- **Research complete →** "Research validated. Start blueprint?"
-- **Blueprint complete →** "Blueprint validated. Ready to build?"
+- **Research complete →** auto-dispatch `/lattice:blueprint-cycle {topic}`
+- **Blueprint complete →** auto-dispatch `/lattice:build-cycle {topic}`
 - **Spike complete →** "Done." (spike → spec-from-code → review is a single path, no transitions)
 - **Bug fix complete →** "Done." (classify → investigate → fix → stress → review is a single path)
 - **Build complete →** "Done."
 
-Phase transitions are explicit boundaries — ask before crossing.
+Phase transitions are deterministic — auto-dispatch and log to `.lattice/decisions.log` as:
+
+```
+{timestamp}\tcycle\tPHASE_TRANSITION\ttopic={topic}\tfrom={research-complete|blueprint-complete}\tto={blueprint|build}
+```
+
+To pause a topic in batch mode, set `lifecycle_state: paused` in its state file (autopilot skips paused topics). Direct `/lattice:cycle {topic}` invocation treats the explicit command as resume intent and advances regardless. Do not add in-cycle pause prompts.
 
 ## Usage
 

@@ -37,26 +37,36 @@ If the implementer's audit table lists decisions, verify them against the code �
 
 ## Step 2: Evaluate Each Decision
 
-For every decision, produce:
+For every decision, reason from **code behavior**, **domain references** (`knowledge/species-profiles.md`, `vehicle-profiles.md`, `methods-index.md`, `field-contracts.md`, `contract-triangles.md`), and **logged prior decisions** (`.lattice/decisions.log`) about whether any alternative would be measurably better for scientific correctness, data fidelity, or product value.
 
-```
-DECISION: [what was decided]
-ALTERNATIVES: [what else was possible — you must identify at least one]
-MERIT RATIONALE: [why this choice is scientifically/product correct — or why it isn't]
-VERDICT: MERIT-SOUND | EFFORT-BIASED | INSUFFICIENT-RATIONALE
-```
+You must do the comparison work yourself. Missing documentation is not a merit failure — if you cannot identify a measurably better alternative after genuine reasoning, the decision is `MERIT-SOUND`. Do not defer to the user for "clarification" when the question is whether the chosen approach is correct.
 
 ### Verdict criteria
 
-| Verdict | Meaning | Evidence |
-|---------|---------|----------|
-| **MERIT-SOUND** | Decision optimizes for scientific correctness or product value | Clear analytical advantage, data fidelity gain, or user workflow improvement |
-| **EFFORT-BIASED** | Decision chose the easier path when a harder path was more correct | Simpler approach sacrifices data quality, analytical accuracy, or user value |
-| **INSUFFICIENT-RATIONALE** | Can't determine merit from code alone | No comment, no obvious advantage, could go either way |
+| Verdict | Meaning | When to use |
+|---------|---------|-------------|
+| **MERIT-SOUND** | No better alternative identified after reasoning from code, domain references, and prior decisions | Chosen approach is correct, OR you cannot name a concretely better alternative |
+| **EFFORT-BIASED** | A specific, named alternative is measurably better for scientific correctness, data fidelity, or product value | You can cite evidence (domain reference, statistical appropriateness, data-fidelity comparison) for why the alternative wins |
 
 **EFFORT-BIASED is a FAIL.** The review cannot pass with any EFFORT-BIASED decisions.
 
-**INSUFFICIENT-RATIONALE is a flag** — present to user for clarification. The implementer must provide the rationale. If they can't, it's effectively EFFORT-BIASED.
+### Output block (per decision)
+
+For `MERIT-SOUND`:
+```
+DECISION: [what was decided, observed from code]
+ALTERNATIVES CONSIDERED: [each alternative you reasoned about]
+WHY CHOSEN APPROACH STANDS: [reason no alternative is measurably better]
+VERDICT: MERIT-SOUND
+```
+
+For `EFFORT-BIASED`:
+```
+DECISION: [chosen approach + behavior from code]
+BETTER ALTERNATIVE: [specific named alternative + its behavior]
+WHY BETTER: [evidence — domain reference with path, statistical appropriateness argument, or data-fidelity comparison]
+VERDICT: EFFORT-BIASED
+```
 
 ## Step 3: Deferral Litmus Test
 
@@ -100,10 +110,10 @@ A silent drop is worse than an unprompted deferral — it wasn't even acknowledg
 ## Decision Audit: [spec or topic name]
 
 ### Summary
-[1-2 sentence verdict: N decisions evaluated, N merit-sound, N flagged]
+[1-2 sentence verdict: N decisions evaluated, N MERIT-SOUND, N EFFORT-BIASED]
 
 ### Decisions
-[numbered list, each with the DECISION/ALTERNATIVES/MERIT RATIONALE/VERDICT block]
+[numbered list, each using the MERIT-SOUND or EFFORT-BIASED block from Step 2]
 
 ### Deferrals
 [numbered list, each with the DEFERRAL/REASON/BLOCKING DEPENDENCY/VERDICT block]
@@ -124,5 +134,6 @@ A silent drop is worse than an unprompted deferral — it wasn't even acknowledg
 2. **"It works" is not a merit rationale.** Many approaches work. The question is whether THIS approach was chosen because it's the most correct, or because it was easiest.
 3. **Don't penalize simplicity.** The simplest approach that is also the most correct gets MERIT-SOUND. Merit-driven doesn't mean complex.
 4. **Read the spec literally.** If the spec says "compute X for all dose groups" and the code computes it for 3 out of 5, that's a silent drop even if the other 2 are edge cases.
-5. **Domain decisions require domain reasoning.** If a statistical method was chosen, evaluate whether it's appropriate for the data characteristics (sample size, distribution, multiplicity). If you don't know, flag as INSUFFICIENT-RATIONALE — don't guess.
+5. **Domain decisions require domain reasoning.** If a statistical method was chosen, evaluate whether it's appropriate for the data characteristics (sample size, distribution, multiplicity). Check `methods-index.md` and species profiles — the answer is often in the knowledge base. Only if the knowledge base is genuinely silent on the question, treat the decision as MERIT-SOUND and do not flag.
 6. **The implementer's audit table is a claim, not evidence.** Verify every entry against the actual code. Implementers under-report deferrals and over-report justifications.
+7. **No EFFORT-BIASED verdict without a named alternative and cited evidence.** Missing comments, absent prose rationale, or "not obvious why this approach was chosen" are not merit failures. You may not escalate to the user for documentation clarification — merit is your job, not theirs. If you cannot name a concretely better alternative after reasoning from code behavior, domain references, and prior decisions, the verdict is MERIT-SOUND.

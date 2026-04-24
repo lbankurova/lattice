@@ -307,21 +307,13 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
         await adapter.sendMessage(`  ${topic.topic}: ERROR — ${err instanceof Error ? err.message : err}`);
       }
 
-      // 6. Re-run coherence after each advancement
-      // New findings from this topic may create conflicts for the next
-      const updatedTopics = loadPortfolioState(stateDir, cwd);
-      const updatedReport = checkCoherence(updatedTopics);
-      const newBlockers = updatedReport.conflicts.filter(c => c.severity === 'blocker').length;
-      const prevBlockers = report.conflicts.filter(c => c.severity === 'blocker').length;
-
-      if (newBlockers > prevBlockers) {
-        await adapter.sendMessage(`\n  COHERENCE: ${newBlockers - prevBlockers} new blocker(s) detected after advancing ${topic.topic}.`);
-        // Re-evaluate remaining batch against updated coherence
-        // (the outer loop will re-check on next iteration)
-      }
+      // No mid-batch coherence re-check -- the end-of-batch coherence
+      // on line ~325 catches any new blockers for decision collection.
+      // Latent issue: per-item safety is not re-evaluated against state
+      // changes from earlier batch items. Tracked as a follow-up.
     }
 
-    // 7. Collect decisions from blocked topics
+    // 6. Collect decisions from blocked topics
     const finalTopics = loadPortfolioState(stateDir, cwd);
     const finalReport = checkCoherence(finalTopics);
     result.coherenceReport = finalReport;
@@ -330,7 +322,7 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
     if (singlePass) break;
   }
 
-  // 8. Present human decision batch
+  // 7. Present human decision batch
   if (result.pendingDecisions.length > 0) {
     await adapter.sendMessage(`\n${'='.repeat(70)}`);
     await adapter.sendMessage(`HUMAN DECISIONS NEEDED: ${result.pendingDecisions.length}`);

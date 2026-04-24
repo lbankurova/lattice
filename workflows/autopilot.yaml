@@ -60,9 +60,9 @@ workflow:
         For each safe topic (up to max_advance):
         1. Determine workflow from phase (research-complete -> blueprint-cycle, etc.)
         2. Execute the workflow with skipCoherence=true
-        3. After each: re-run coherence check
-        4. If new blockers appear: stop advancing, collect decisions
+        3. Continue to the next batch item without re-running coherence.
         Phase transitions are automatic — no approval gates.
+        End-of-batch coherence (see re-check-coherence) catches any new blockers.
 
     re-check-coherence:
       type: skill
@@ -70,10 +70,11 @@ workflow:
       context: inherit
       depends_on: [advance-batch]
       prompt_append: |
-        Re-run coherence after advancements.
-        New findings may create new conflicts.
+        Run coherence ONCE after the entire batch has advanced.
+        Purpose: collect new blockers for the decision batch.
         If new blockers: route to collect-decisions.
         If more safe topics and not single_pass: route back to advance-batch.
+        Do not run coherence between batch items -- that's pure overhead.
 
     collect-decisions:
       type: skill

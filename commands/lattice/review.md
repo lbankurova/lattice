@@ -96,7 +96,6 @@ For all other work (spikes, bug fixes, ad-hoc):
 | Decision Auditor | FAIL: EFFORT-BIASED | **STOP** — present flagged decisions to user. Fix before continuing. |
 | Decision Auditor | FAIL: UNPROMPTED-DEFERRAL | **STOP** — present deferrals to user. Do the work now or get explicit approval to defer. |
 | Decision Auditor | FAIL: SILENT-DROP | **STOP** — present dropped requirements. Implement or get explicit approval to defer. |
-| Decision Auditor | INSUFFICIENT-RATIONALE | Present to user. If user provides rationale, continue. If not, treat as EFFORT-BIASED. |
 | Requirement Reviewer | Evidence table | Feed into Step 2 (four-dimension trace). Merge with your own verification. |
 
 **Any STOP verdict blocks the review** regardless of what the other agents returned. Process all STOP verdicts together — present them as a batch, not one at a time.

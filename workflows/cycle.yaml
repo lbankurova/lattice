@@ -89,11 +89,11 @@ workflow:
         - condition: "{{state.phase}} == 'research'"
           route: dispatch-research
         - condition: "{{state.phase}} == 'research-complete'"
-          route: transition-to-blueprint
+          route: dispatch-blueprint
         - condition: "{{state.phase}} == 'blueprint'"
           route: dispatch-blueprint
         - condition: "{{state.phase}} == 'blueprint-complete'"
-          route: transition-to-build
+          route: dispatch-build
         - condition: "{{state.phase}} == 'build'"
           route: dispatch-build
         - condition: "{{state.phase}} == 'complete'"
@@ -160,17 +160,40 @@ workflow:
         4. Does the topic name suggest engine/pipeline work?
         5. Is there an existing spec in docs/_internal/incoming/ for this?
 
-        Output exactly one line: RECOMMEND=bugfix or RECOMMEND=spike or RECOMMEND=full
-        Then 2-3 bullet justification.
+        Decision rules (apply in priority order):
+        1. If bug signals match AND no full-cycle signals match -> RECOMMEND=bugfix
+        2. If any full-cycle signal matches (engine / scientific method / cross-subsystem) -> RECOMMEND=full
+           (This applies even when bug signals also match -- engine changes need full ceremony.)
+        3. If ALL spike signals hold AND no bug/full signals match -> RECOMMEND=spike
+        4. If signals conflict in a way not covered above, or none match -> RECOMMEND=ambiguous
 
-    classify-verdict:
-      type: approval
+        Output exactly one line: RECOMMEND=bugfix | RECOMMEND=spike | RECOMMEND=full | RECOMMEND=ambiguous
+        Then 2-3 bullet justification citing the specific signals observed.
+        If RECOMMEND=ambiguous, state which two paths are plausible and which one you lean toward.
+
+    classify-route:
+      type: gate
       depends_on: [classify-auto]
+      evaluate:
+        - condition: "{{nodes.classify-auto.output}}.contains('RECOMMEND=bugfix')"
+          route: dispatch-bugfix
+        - condition: "{{nodes.classify-auto.output}}.contains('RECOMMEND=spike')"
+          route: dispatch-spike
+        - condition: "{{nodes.classify-auto.output}}.contains('RECOMMEND=full')"
+          route: dispatch-research
+        # RECOMMEND=ambiguous or anything unexpected falls through to user confirmation.
+        - condition: default
+          route: classify-ambiguous-approval
+
+    classify-ambiguous-approval:
+      type: approval
+      depends_on: [classify-route]
       prompt: |
-        Classification result for "{{inputs.topic}}":
+        Classification for "{{inputs.topic}}" is ambiguous -- signals support multiple paths.
+
         {{nodes.classify-auto.output}}
 
-        Agree with the recommendation, or override?
+        Confirm or override. (For explicit no-prompt dispatch next time, use --full / --spike / --bugfix.)
       options:
         - id: bugfix
           label: "Bug fix cycle (classify > investigate > fix > stress > review)"
@@ -198,29 +221,12 @@ workflow:
         - condition: default
           route: dispatch-build
 
-    # ── Layer 2: Phase transitions (approval gates) ──────────
-
-    transition-to-blueprint:
-      type: approval
-      depends_on: [detect-phase]
-      prompt: "Research validated for {{inputs.topic}}. Start blueprint?"
-      options:
-        - id: yes
-          label: "Start blueprint"
-          route: dispatch-blueprint
-        - id: no
-          label: "Not yet"
-
-    transition-to-build:
-      type: approval
-      depends_on: [detect-phase]
-      prompt: "Blueprint validated for {{inputs.topic}}. Ready to build?"
-      options:
-        - id: yes
-          label: "Start build"
-          route: dispatch-build
-        - id: no
-          label: "Not yet"
+    # ── Layer 2: Phase transitions ───────────────────────────
+    # Phase transitions are deterministic -- detect-phase routes
+    # {research,blueprint}-complete states directly to the next
+    # dispatch node. No approval gates. To pause a topic in batch
+    # mode, set lifecycle_state: paused in its state file (autopilot
+    # honors this). Direct /lattice:cycle invocation advances regardless.
 
     already-complete:
       type: bash

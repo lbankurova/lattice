@@ -55,8 +55,7 @@ For each selected topic, determine the action based on phase:
 For each selected topic:
 1. Announce: "Advancing {topic} ({phase}) via {cycle}"
 2. Run the appropriate cycle skill (it handles its own internal steps)
-3. After completion: re-run `lattice coherence` to check for new conflicts
-4. If new blockers appeared: stop advancing further topics, report
+3. Continue to the next batch item. Do NOT re-run `lattice coherence` between batch items — the end-of-batch check (Step 4) catches new blockers for decision collection.
 
 **Phase transitions are automatic.** Do NOT ask "start blueprint?" or "ready to build?" — if the coherence check passed, proceed.
 
@@ -68,7 +67,7 @@ Phase: {phase-completed}
 
 ### Step 4: Batch human decisions
 
-After advancing all selected topics (or when no more can advance), present the pending decisions from blocked topics:
+After advancing all selected topics (or when no more can advance), run `lattice coherence` ONCE to pick up any new blockers created during the batch. Then present pending decisions from blocked topics:
 
 ```
 HUMAN DECISIONS NEEDED:
