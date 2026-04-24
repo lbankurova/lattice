@@ -117,15 +117,15 @@ For each item, determine whether autopilot can advance it without human oversigh
 
 ### Autopilot-safe criteria (ALL must be true)
 - Phase is `research-complete` needing synthesis, OR `blueprint-complete` with clean probe, OR a bug fix with clear reproduction steps
-- No unresolved `SCIENCE-FLAG` (active scope)
 - No persistent `FLAWED` findings from peer review
 - No `BREAKS` in probe results
 - `lifecycle_state` is `active` (not `paused`)
 - Not a complex UI epic requiring design decisions
+- Active `SCIENCE-FLAG`s, if any, have ≥3 plausible literature sources (species profiles, methods-index, peer-reviewed research/) for Claude to cite in the decision memo. If citations are unavailable, the SF becomes a human-required item.
 
 ### Human-required criteria (ANY makes it human-only)
 - Topic is `paused` — needs explicit user decision to resume
-- Has active `SCIENCE-FLAG` — analytical output changes need scientist review
+- Active `SCIENCE-FLAG` with no citable literature grounding — Claude cannot author a defensible decision memo alone. (SCIENCE-FLAG with citable grounding is autopilot-safe — the autopilot authors the memo.)
 - Complex UI work — layout, interaction design, multi-view coordination
 - Cross-cutting architectural change — touches 3+ subsystems with MODIFIES relationship
 - User has expressed specific opinions about direction (check MEMORY.md)

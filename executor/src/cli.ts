@@ -256,23 +256,31 @@ function cmdCoherence(): void {
   const flags = parseArgs();
   const cwd = process.cwd();
   const stateDir = resolve(cwd, '.lattice/cycle-state');
+  const skipReconcile = 'skip-reconcile' in flags;
 
   if (!existsSync(stateDir)) {
     console.error(`No cycle state directory at ${stateDir}`);
     process.exit(1);
   }
 
-  // Reconcile state against git FIRST — always derive truth before analysis
-  const rawTopics = loadPortfolioState(stateDir, cwd);
-  const recon = reconcileStates(rawTopics, cwd, true); // write=true, fix stale states
-  const corrections = recon.filter(r => r.action === 'corrected');
-  if (corrections.length > 0) {
-    console.log(formatReconciliation(recon));
-    console.log('');
-  }
+  // Reconcile state against git FIRST — always derive truth before analysis.
+  // --skip-reconcile: caller already ran `lattice status` (or equivalent) in
+  // this session and state is known fresh; skip the redundant git scan.
+  let topics;
+  if (skipReconcile) {
+    topics = loadPortfolioState(stateDir, cwd);
+  } else {
+    const rawTopics = loadPortfolioState(stateDir, cwd);
+    const recon = reconcileStates(rawTopics, cwd, true); // write=true, fix stale states
+    const corrections = recon.filter(r => r.action === 'corrected');
+    if (corrections.length > 0) {
+      console.log(formatReconciliation(recon));
+      console.log('');
+    }
 
-  // Re-load after corrections
-  const topics = loadPortfolioState(stateDir, cwd);
+    // Re-load after corrections
+    topics = loadPortfolioState(stateDir, cwd);
+  }
 
   if (topics.length === 0) {
     console.log('No active topics found.');
@@ -282,8 +290,11 @@ function cmdCoherence(): void {
   const report = checkCoherence(topics);
   console.log(formatReport(report));
 
-  // If a specific topic was asked about, show its safety
-  const topic = flags['topic'] ?? args[1];
+  // If a specific topic was asked about, show its safety.
+  // args[1] may be a --flag (e.g. --skip-reconcile); only treat as topic
+  // if it doesn't start with '--'.
+  const positional = args[1] && !args[1].startsWith('--') ? args[1] : undefined;
+  const topic = flags['topic'] ?? positional;
   if (topic) {
     const safety = isTopicSafe(topic, report);
     console.log('');
@@ -633,7 +644,8 @@ switch (command) {
     console.log('  lattice list');
     console.log('  lattice inspect <workflow>');
     console.log('  lattice status                           Portfolio overview + coherence summary');
-    console.log('  lattice coherence [topic]                Full conflict analysis');
+    console.log('  lattice coherence [topic] [--skip-reconcile]');
+  console.log('                                           Full conflict analysis; --skip-reconcile when status was just run');
     console.log('  lattice autopilot [--dry-run] [--loop] [--max N] [--filter PATTERN]');
     console.log('                                           Advance safe topics, batch human decisions');
     console.log('  lattice e2e run [--base main]             Branch-comparison E2E testing gate');

@@ -73,7 +73,7 @@ For each affected subsystem, classify the implication:
 | **SAFE** | Change doesn't affect this consumer's behavior | Note why (e.g., "consumer only reads field X, change is to field Y") |
 | **PROPAGATES** | Change alters this consumer's input, but consumer handles it correctly | Note what propagates and why it's handled |
 | **BREAKS** | Change alters this consumer's input in a way it doesn't handle | Flag with specific failure mode |
-| **SCIENCE-FLAG** | Change alters analytical output (scores, classifications, verdicts) | Flag per Science preservation gate (CLAUDE.md) — requires scientist review |
+| **SCIENCE-FLAG** | Change alters analytical output (scores, classifications, verdicts) | Flag per Science preservation gate (CLAUDE.md). **Resolution contract:** decision memo with ≥3 literature citations (species profiles, methods-index, peer-reviewed sources in research/) documenting the chosen behavior and why. The gate's job is to force that decision-with-rationale, not to pause indefinitely for an absent SME. Only escalate to the user if citations cannot be found. |
 | **STALE** | Connection in manifest no longer exists in code | Flag for manifest update |
 
 ## Step 4: Check research registry
@@ -161,7 +161,7 @@ Probe is called from research-cycle (Step 7), blueprint-cycle (Step 3), `/ops:im
 
 - **Read the manifest, don't guess.** The adjacency graph is the source of truth for what connects to what. Don't infer connections from file names or intuition.
 - **3-hop limit.** Beyond 3 hops, the signal-to-noise ratio drops. If a 4th-hop implication is genuinely important, include it with a note that it's at the edge of the blast radius.
-- **SCIENCE-FLAG is non-negotiable.** Any change that alters analytical output (scores, classifications, verdicts, NOAEL values) for ANY input data gets flagged. No exceptions, no "it's a minor change." The scientist decides what's minor.
-- **Don't prescribe fixes for SCIENCE-FLAGs.** Present what changes and for what inputs. The scientist decides the correct response.
+- **SCIENCE-FLAG is non-negotiable as a trigger.** Any change that alters analytical output (scores, classifications, verdicts, NOAEL values) for ANY input data gets flagged. No exceptions, no "it's a minor change."
+- **SCIENCE-FLAG resolves via decision memo, not indefinite defer.** The probe reports what changes and for what inputs. A downstream cycle (blueprint/build/autopilot) then authors a decision memo with ≥3 literature citations justifying the chosen behavior, logs the decision in `decisions.log`, and proceeds. "Wait for SME review" is not a valid resolution in a Claude-authored codebase — there is no SME in the feedback loop. Escalate to the user ONLY when supporting citations cannot be found after genuine search.
 - **Stale connections are defects.** If the manifest says A -> B but the code doesn't reflect that, the manifest needs updating. Flag it.
 - **Keep it concrete.** "S10 might be affected" is useless. "S10 Signal Scoring reads gLower from S02; if the threshold changes from 0.3 to 0.5, findings currently scoring 0.35 would drop below the gate and lose their treatment-related flag" is useful.
