@@ -114,13 +114,17 @@ Fresh agent checks revisions. With `--novel` flag, forces different sources than
 |---------|--------|
 | All SOUND or CONDITIONAL | Proceed |
 | New FLAWED on previously-SOUND | Arbiter classifies R2's objections. Presentation-only (wording / emphasis / redundancy) or FACTUAL_UNSUPPORTED (dispute without testable evidence) auto-side with R1. Only FACTUAL_DISPUTE (reinterpretation of source, new source, OR any factual claim with testable evidence — source quote, data ref, file:line) escalates, with the specific disputed claim and R2's evidence in the prompt. |
-| Same FLAWED both rounds | Genuine disagreement -- escalate with both positions |
+| Same FLAWED both rounds | Arbiter diffs per-side evidence items (VERIFIABLE vs UNVERIFIABLE against repo / sources / prior decisions). Drops unverifiable items. Emits one of: `auto_resolve_r1` (R1 evidenced, R2 not), `auto_resolve_r2` (R2 evidenced, R1 not), `auto_synthesize` (both evidenced, no direct contradiction -- integrate both framings), `escalate_contradiction` (both evidenced and directly contradictory -- only this escalates). |
 
 **No Round 3.** Unresolved issues require human judgment.
 
 ### Bikeshed arbiter rubric
 
 Preserves substantive R2 catches (GAP-208 fabricated claim, GAP-194 internal contradiction, GAP-195 unverifiable source) — these surface as FACTUAL_DISPUTE and escalate. Eliminates rubber-stamp gates for R2 objections that are stylistic or unverifiable. The arbiter runs as a fresh-context skill (`evaluate-bikeshed-arbiter` in research-cycle.yaml, `plan-bikeshed-arbiter` in blueprint-cycle.yaml), reads R1 and R2 outputs, and emits one line: `ARBITER_VERDICT=auto_side_r1` or `ARBITER_VERDICT=escalate_factual`. Gate routes on that line.
+
+### Persistent-FLAWED arbiter rubric
+
+Companion arbiter for the "same FLAWED in both R1 and R2" path. Different failure mode than bikeshedding — both reviewers agree something is wrong, potentially for different reasons. The arbiter enumerates every evidence item each side cites, marks each VERIFIABLE (testable against repo / sources / logged decisions) or UNVERIFIABLE, drops unverifiable items, and compares what remains. Only direct contradiction between VERIFIABLE items on opposite sides reaches the user; evidence imbalance (one side has verifiable evidence, the other doesn't) or non-contradictory overlap (both verifiable, both could be simultaneously true) auto-resolves. The escalation prompt surfaces the specific contradicting pair and their sources, not two unstructured positions. Skills: `evaluate-persistent-arbiter` (research-cycle), `plan-persistent-arbiter` (blueprint-cycle). Verdict line: `ARBITER_VERDICT=auto_resolve_r1 | auto_resolve_r2 | auto_synthesize | escalate_contradiction`.
 
 ### Escalation Format
 

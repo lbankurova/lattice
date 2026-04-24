@@ -190,7 +190,7 @@ Update state: `current_step: research.5`.
 |------------|--------|
 | All SOUND or CONDITIONAL | Validated — proceed autonomously to Step 6 |
 | New FLAWED on previously-SOUND | Arbiter classifies each finding (PRESENTATION_ONLY / FACTUAL_DISPUTE / FACTUAL_UNSUPPORTED). Presentation-only or unsupported objections auto-side with R1. Only testable factual disputes **STOP** and surface the specific disputed claim + R2 evidence. |
-| Same FLAWED both rounds | Genuine disagreement — **STOP**, present both with evidence |
+| Same FLAWED both rounds | Arbiter diffs claimed evidence items per side (VERIFIABLE vs UNVERIFIABLE). auto_resolve_r1 / auto_resolve_r2 / auto_synthesize outcomes proceed with logged rationale; only escalate_contradiction (both sides have verifiable evidence that directly contradicts) **STOPS** and surfaces the specific contradiction. |
 
 Update state: `current_step: research.6`.
 

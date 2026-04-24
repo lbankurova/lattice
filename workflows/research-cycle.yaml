@@ -151,7 +151,7 @@ workflow:
         - condition: "{{nodes.peer-review-r2.output.has_new_flawed_on_sound}} == true"
           route: evaluate-bikeshed-arbiter
         - condition: "{{nodes.peer-review-r2.output.has_persistent_flawed}} == true"
-          route: evaluate-stop-disagreement
+          route: evaluate-persistent-arbiter
         - condition: default
           route: distill
       checkpoint:
@@ -239,12 +239,86 @@ workflow:
           label: "Abort research"
           route: release-lock
 
+    # ── Persistent-FLAWED arbiter ───────────────────────────
+    # Same FLAWED finding in both R1 and R2. Not bikeshedding -- both
+    # reviewers agree something is wrong but may disagree on what. Diff
+    # the evidence items, mark each VERIFIABLE or UNVERIFIABLE (testable
+    # against repo/sources), drop unverifiable, compare remaining
+    # verifiable evidence. Only direct factual contradiction between
+    # verifiable items reaches the user.
+
+    evaluate-persistent-arbiter:
+      type: skill
+      skill: null
+      context: fresh
+      depends_on: [evaluate]
+      prompt_append: |
+        You are a persistent-FLAWED arbiter. Peer review R1 and R2 both
+        flagged the same material as FLAWED. Your job is to diff the
+        evidence each side cites and determine whether this is a genuine
+        contradiction or a resolvable disagreement.
+
+        Read R1's review (docs/_internal/research/peer-reviews/{{inputs.topic}}-review.md)
+        and R2's review (captured at peer-review-r2). For each FLAWED
+        finding that persists across rounds, enumerate every evidence
+        item each side cites (sources, data references, file:line
+        anchors, prior decisions, etc.).
+
+        For each evidence item, output:
+          ITEM_ID: [identifier]
+          SIDE: R1 | R2
+          SOURCE: [citation / file:line / decision-log reference]
+          VERIFIABLE: YES | NO
+          (VERIFIABLE = YES only if you can test the claim against the
+           actual artifact -- the source exists, the quote matches, the
+           file:line resolves, the prior decision is logged. Partial
+           verifiability counts as NO. Do not guess.)
+          CONTRADICTS: [IDs of items on the other side whose truth is
+                        mutually exclusive with this one; N/A if none]
+
+        After enumerating, output a summary:
+          R1 verifiable evidence count: N
+          R2 verifiable evidence count: N
+          Direct contradictions (verifiable vs verifiable): [list pairs, or none]
+
+        Finally, output exactly one verdict line:
+        ARBITER_VERDICT=auto_resolve_r1 | auto_resolve_r2 | auto_synthesize | escalate_contradiction
+
+        Decision rule:
+        - R1 has verifiable evidence AND R2 has none (or only unverifiable) -> auto_resolve_r1
+        - R2 has verifiable evidence AND R1 has none (or only unverifiable) -> auto_resolve_r2
+        - Both sides have verifiable evidence AND no direct contradictions -> auto_synthesize
+          (both observations can be true simultaneously; the research doc
+          should integrate both framings)
+        - Both sides have verifiable evidence AND at least one direct
+          contradiction -> escalate_contradiction
+        - Neither side has verifiable evidence -> auto_resolve_r1
+          (status quo after R1 incorporation stands when the evidence
+          ledger is tied at zero; note this in the log)
+      log: true
+
+    evaluate-persistent-route:
+      type: gate
+      depends_on: [evaluate-persistent-arbiter]
+      evaluate:
+        - condition: "{{nodes.evaluate-persistent-arbiter.output}}.contains('ARBITER_VERDICT=auto_resolve_r1')"
+          route: distill
+        - condition: "{{nodes.evaluate-persistent-arbiter.output}}.contains('ARBITER_VERDICT=auto_resolve_r2')"
+          route: distill
+        - condition: "{{nodes.evaluate-persistent-arbiter.output}}.contains('ARBITER_VERDICT=auto_synthesize')"
+          route: distill
+        - condition: default
+          route: evaluate-stop-disagreement
+
     evaluate-stop-disagreement:
       type: approval
-      depends_on: [evaluate]
-      prompt: >
-        Same FLAWED finding persists across both peer review rounds.
-        Genuine disagreement. Both rounds' evidence presented.
+      depends_on: [evaluate-persistent-route]
+      prompt: |
+        Persistent FLAWED across R1 and R2, with verifiable evidence on
+        BOTH sides that directly contradicts. The arbiter's evidence diff:
+
+        {{nodes.evaluate-persistent-arbiter.output}}
+
         How do you want to proceed?
       options:
         - id: accept-r1
