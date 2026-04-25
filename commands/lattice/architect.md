@@ -91,7 +91,7 @@ A spec that can't answer audit questions 1-10 for every proposed feature should 
 | Verdict | Action |
 |---------|--------|
 | **PASS** | Tell the user: "Architecture review passed. Ready for implementation." |
-| **SIMPLIFY** | Present the specific cuts. Ask the user: "Accept these simplifications?" If yes, revise the spec. If no, note the user's decision and proceed. |
+| **SIMPLIFY** | Auto-apply the architect's simplification recommendations. Risk: None items (architect's classification) are by definition behavior-preserving — user approval would be rubber-stamp. Apply the cuts, log them in `decisions.log`, then re-gate. The user only enters the loop if the second-gate verdict is REJECT or surfaces SCIENCE-FLAG findings (which then resolve via the memo path below). If the second gate is again SIMPLIFY, that's a defect — the architect's recommendations didn't actually simplify the spec — escalate to user. |
 | **REJECT** | Present the alternative approach. Ask the user: "The plan is fundamentally overengineered. [Alternative]. Proceed with original, revise, or discuss?" |
 | **SCIENCE-FLAG** | For each flagged item: author a decision memo citing ≥3 sources (species profiles, methods-index, peer-reviewed research/) that justify either accepting the behavior change or keeping the current complexity. Log the decision in `decisions.log`. Proceed with the chosen path. Escalate to the user ONLY if supporting citations cannot be found after genuine search. Non-flagged items can proceed independently. |
 
