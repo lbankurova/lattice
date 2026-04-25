@@ -374,7 +374,7 @@ workflow:
         - condition: "{{nodes.probe.output.verdict}} == 'BREAKS'"
           route: probe-stop-breaks
         - condition: "{{nodes.probe.output.verdict}} == 'SCIENCE-FLAG'"
-          route: probe-stop-science
+          route: probe-science-memo
         - condition: default
           route: verify-gaps
 
@@ -395,14 +395,75 @@ workflow:
           label: "Abort"
           route: release-lock
 
+    # ── SCIENCE-FLAG memo resolution ────────────────────────
+    # Per the d8dd418 contract: SCIENCE-FLAG resolves by Claude authoring
+    # a decision memo with >=3 literature citations, NOT by waiting for
+    # an SME. User escalation only when citations cannot be found.
+
+    probe-science-memo:
+      type: skill
+      skill: null
+      context: fresh
+      depends_on: [probe-gate]
+      prompt_append: |
+        Probe raised SCIENCE-FLAG on research for topic {{inputs.topic}}
+        -- analytical behavior implications detected from cross-system
+        propagation analysis. For each flagged item, attempt to author
+        a decision memo with at least 3 literature citations that justify
+        either accepting the analytical behavior change or rejecting it
+        (revise research to address the implication).
+
+        Permitted sources for citations:
+        - docs/_internal/knowledge/species-profiles.md
+        - docs/_internal/knowledge/vehicle-profiles.md
+        - docs/_internal/knowledge/methods-index.md
+        - docs/_internal/knowledge/field-contracts.md
+        - peer-reviewed research streams in docs/_internal/research/
+        - prior validated decisions in .lattice/decisions.log
+
+        For each flag, output:
+          FLAG_ID: [identifier from probe output]
+          DESCRIPTION: [what the flag claims would change analytically]
+          DECISION: ACCEPT_CHANGE | REJECT_CHANGE
+          MEMO_PATH: [decisions.log entry, or research/ doc path if substantive]
+          CITATIONS: [list of >=3 cited sources with file:line or paper refs]
+          STATUS: RESOLVED | CITATIONS_NOT_FOUND
+
+        If a flag has fewer than 3 verifiable citations after genuine
+        search, output STATUS: CITATIONS_NOT_FOUND with what you
+        searched and what specific evidence was missing. Do not
+        manufacture citations.
+
+        Append RESOLVED memos to .lattice/decisions.log:
+        TIMESTAMP\tprobe\tSCIENCE_FLAG_RESOLVED\ttopic={{inputs.topic}}\tflag=<id>\tdecision=<accept|reject>\tcitations=<n>
+
+        Final summary line:
+        MEMO_VERDICT=all_resolved | MEMO_VERDICT=partial_unresolved
+      log: true
+
+    probe-science-route:
+      type: gate
+      depends_on: [probe-science-memo]
+      evaluate:
+        - condition: "{{nodes.probe-science-memo.output}}.contains('MEMO_VERDICT=all_resolved')"
+          route: verify-gaps
+        - condition: default
+          route: probe-stop-science
+
     probe-stop-science:
       type: approval
-      depends_on: [probe-gate]
-      prompt: >
-        Probe detected SCIENCE-FLAG -- analytical behavior changes that need scientist review.
+      depends_on: [probe-science-route]
+      prompt: |
+        SCIENCE-FLAG could not be fully resolved via the citation-memo
+        path -- one or more flags lacked >=3 verifiable citations after
+        genuine search. The arbiter's report:
+
+        {{nodes.probe-science-memo.output}}
+
+        How do you want to proceed?
       options:
         - id: accept
-          label: "Accept -- proceed"
+          label: "Accept -- note rationale in commit message"
           route: verify-gaps
         - id: reject
           label: "Reject -- revise research"

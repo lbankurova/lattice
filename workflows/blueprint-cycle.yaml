@@ -136,11 +136,11 @@ workflow:
         - condition: "{{nodes.architect-gate.output.verdict}} == 'REJECT'"
           route: architect-stop-reject
         - condition: "{{nodes.architect-gate.output.verdict}} == 'SCIENCE-FLAG'"
-          route: architect-stop-science
+          route: architect-science-memo
         - condition: "{{nodes.probe.output.verdict}} == 'BREAKS'"
           route: probe-stop-breaks
         - condition: "{{nodes.probe.output.verdict}} == 'SCIENCE-FLAG'"
-          route: architect-stop-science
+          route: architect-science-memo
         - condition: default
           route: plan-review-r1
 
@@ -188,7 +188,7 @@ workflow:
         - condition: "{{nodes.simplify-and-regate.output}}.contains('SECOND_GATE_VERDICT=REJECT')"
           route: architect-stop-reject
         - condition: "{{nodes.simplify-and-regate.output}}.contains('SECOND_GATE_VERDICT=SCIENCE-FLAG')"
-          route: architect-stop-science
+          route: architect-science-memo
         - condition: "{{nodes.simplify-and-regate.output}}.contains('SECOND_GATE_VERDICT=SIMPLIFY')"
           route: simplify-stop-twice
         - condition: default
@@ -235,18 +235,78 @@ workflow:
           label: "Abort"
           route: release-lock
 
+    # ── SCIENCE-FLAG memo resolution ────────────────────────
+    # Per the d8dd418 contract: SCIENCE-FLAG resolves by Claude authoring
+    # a decision memo with >=3 literature citations, NOT by waiting for
+    # an SME. Architect and probe both route SCIENCE-FLAG verdicts here.
+    # User escalation only when citations cannot be found.
+
+    architect-science-memo:
+      type: skill
+      skill: null
+      context: fresh
+      depends_on: [architect-verdict]
+      prompt_append: |
+        SCIENCE-FLAG raised by architect or probe on the build plan for
+        topic {{inputs.topic}}. For each flagged item, attempt to author
+        a decision memo with at least 3 literature citations that justify
+        either accepting the analytical behavior change or rejecting it
+        (revise synthesis to preserve current behavior).
+
+        Permitted sources for citations:
+        - docs/_internal/knowledge/species-profiles.md
+        - docs/_internal/knowledge/vehicle-profiles.md
+        - docs/_internal/knowledge/methods-index.md
+        - docs/_internal/knowledge/field-contracts.md
+        - peer-reviewed research streams in docs/_internal/research/
+        - prior validated decisions in .lattice/decisions.log
+
+        For each flag, output:
+          FLAG_ID: [identifier from architect / probe output]
+          DESCRIPTION: [what the flag claims would change analytically]
+          DECISION: ACCEPT_CHANGE | REJECT_CHANGE
+          MEMO_PATH: [decisions.log entry, or research/ doc path if substantive]
+          CITATIONS: [list of >=3 cited sources with file:line or paper refs]
+          STATUS: RESOLVED | CITATIONS_NOT_FOUND
+
+        If a flag has fewer than 3 verifiable citations after genuine
+        search, output STATUS: CITATIONS_NOT_FOUND with a list of what
+        you searched and what specific evidence was missing. Do not
+        manufacture citations.
+
+        Append RESOLVED memos to .lattice/decisions.log:
+        TIMESTAMP\tarchitect\tSCIENCE_FLAG_RESOLVED\ttopic={{inputs.topic}}\tflag=<id>\tdecision=<accept|reject>\tcitations=<n>
+
+        Final summary line:
+        MEMO_VERDICT=all_resolved | MEMO_VERDICT=partial_unresolved
+      log: true
+
+    architect-science-route:
+      type: gate
+      depends_on: [architect-science-memo]
+      evaluate:
+        - condition: "{{nodes.architect-science-memo.output}}.contains('MEMO_VERDICT=all_resolved')"
+          route: plan-review-r1
+        - condition: default
+          route: architect-stop-science
+
     architect-stop-science:
       type: approval
-      depends_on: [architect-verdict]
-      prompt: >
-        SCIENCE-FLAG raised. Analytical behavior changes need scientist review.
-        Each flag requires explicit accept or reject.
+      depends_on: [architect-science-route]
+      prompt: |
+        SCIENCE-FLAG could not be fully resolved via the citation-memo
+        path -- one or more flags lacked >=3 verifiable citations after
+        genuine search. The arbiter's report:
+
+        {{nodes.architect-science-memo.output}}
+
+        How do you want to proceed?
       options:
         - id: accept
-          label: "Accept all flags"
+          label: "Accept the change anyway -- note rationale in commit message"
           route: plan-review-r1
         - id: reject
-          label: "Reject -- revise synthesis"
+          label: "Reject -- revise synthesis to preserve current behavior"
           route: synthesize
         - id: abort
           label: "Abort"
