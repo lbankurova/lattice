@@ -271,7 +271,31 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
     }
 
     // 5. Execute topics sequentially (parallel in Phase 2+)
-    for (const { topic, action } of batch) {
+    //
+    // Per-item safety re-evaluation: the batch was selected from the
+    // upfront coherence report (line 191), but each completed/paused/failed
+    // item may have changed portfolio state (state files, decisions.log,
+    // research docs). Before items 2+, re-run coherence and skip any
+    // topic that became unsafe mid-batch. The first item's upfront
+    // determination is still fresh.
+    let skippedDueToStateChange = 0;
+    for (let i = 0; i < batch.length; i++) {
+      const { topic, action } = batch[i];
+
+      if (i > 0) {
+        const freshTopics = loadPortfolioState(stateDir, cwd);
+        const freshReport = checkCoherence(freshTopics);
+        const safety = isTopicSafe(topic.topic, freshReport);
+        if (!safety.safe) {
+          skippedDueToStateChange++;
+          const reason = safety.conflicts.length > 0
+            ? `${safety.conflicts[0].type}: ${safety.conflicts[0].description.slice(0, 80)}`
+            : 'new blocker after prior batch item';
+          await adapter.sendMessage(`  ${topic.topic}: SKIPPED (became unsafe mid-batch -- ${reason})`);
+          continue;
+        }
+      }
+
       await adapter.sendMessage(`\n--- Advancing: ${topic.topic} via ${action.workflow} ---`);
 
       try {
@@ -306,11 +330,10 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
         result.topicsFailed.push(topic.topic);
         await adapter.sendMessage(`  ${topic.topic}: ERROR — ${err instanceof Error ? err.message : err}`);
       }
+    }
 
-      // No mid-batch coherence re-check -- the end-of-batch coherence
-      // on line ~325 catches any new blockers for decision collection.
-      // Latent issue: per-item safety is not re-evaluated against state
-      // changes from earlier batch items. Tracked as a follow-up.
+    if (skippedDueToStateChange > 0) {
+      await adapter.sendMessage(`\nSkipped (became unsafe mid-batch): ${skippedDueToStateChange}`);
     }
 
     // 6. Collect decisions from blocked topics
