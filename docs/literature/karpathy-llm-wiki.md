@@ -4,7 +4,7 @@ authors: Andrej Karpathy
 year: 2025
 url: https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f
 type: gist
-read: 2026-04-26
+read: 2026-04-26; revised 2026-04-26 (audit)
 status: evaluating
 ---
 
@@ -36,17 +36,19 @@ What's missing is mostly the **lint operation** in its semantic form (lattice's 
 
 The hallucination-drift concern matches lattice rule 14 (science preservation gate) for code, but is not enforced for knowledge writes.
 
-## Borrowed
+## Borrowed (implemented)
 
-- **Three-layer separation.** Already in lattice (raw / knowledge / schema). Reinforced; not changed.
-- **Lint as a periodic operation.** Add `/lattice:lint-knowledge` step — runs over `docs/_internal/knowledge/` + `architecture/` and surfaces:
-  - Contradictions across knowledge files
-  - Stale citations (`file:line` no longer resolves) — extends `audit-contract-triangles.py` pattern
-  - Orphaned pages (no inbound link from CLAUDE.md, domain-knowledge-map, system-manifest)
-  - Provenance gaps (assertion with no source citation)
-- **Gap-driven autopilot.** New `/lattice:autopilot --discover` mode runs deterministic scans (capabilities × coverage, system-manifest × architecture, contract-triangles × code grep, methods-index × analysis exports) and emits a ranked list of knowledge gaps with `safe-for-autopilot Y/N` classification.
-- **Query→Wiki promotion.** When `/lattice:distill` surfaces a novel cross-subsystem connection, prompt to extract a knowledge entry rather than letting the synthesis evaporate.
-- **Bidirectional cross-reference graph.** Knowledge entries get explicit `links_to` / `links_from` / `source_evidence` metadata. Backlinks become typed (see Ahrens for atomicity discussion).
+- **Three-layer separation.** Already in lattice. Raw layer at `send/` + generated JSON; knowledge layer at `docs/_internal/knowledge/` + `docs/_internal/architecture/`; schema at `CLAUDE.md`, `MANIFEST.md`, `contract-triangles.md`, `system-manifest.md`. Reinforced; not changed.
+- **Discovery scan as a partial implementation of the lint operation.** `scripts/discovery-scan.py` (in pcc; template at `lattice/scripts/discovery-scan.py`) runs five deterministic gap scans and emits a ranked report. First run produced 70 gaps, ~85% real-rate. This is the gap-detection part of Karpathy's lint operation; contradiction / stale-citation / orphan checks are not yet implemented.
+
+## Proposed (not yet implemented)
+
+These items are aspirational borrows. They were previously listed under "Borrowed" but they don't exist in lattice today; moving them here so the registry doesn't overstate what lattice has.
+
+- **Full lint operation over the knowledge layer.** Would extend `discovery-scan.py` with: contradiction detection across knowledge files, stale citation checks (`file:line` no longer resolves — extending `audit-contract-triangles.py` pattern), orphaned-page detection, provenance gaps (assertion with no source citation). Target: `/lattice:lint-knowledge` skill — does not exist today.
+- **Gap-driven autopilot mode.** Would wire `discovery-scan.py` output into `/lattice:autopilot --discover` to advance deterministic / safe-for-autopilot gaps automatically and escalate the rest to ESCALATION.md. The autopilot infrastructure exists; the `--discover` mode does not.
+- **Query→Wiki promotion.** When `/lattice:distill` surfaces a novel cross-subsystem connection, prompt to extract a knowledge entry rather than letting the synthesis evaporate. `commands/lattice/distill.md` exists; the promotion prompt does not.
+- **Bidirectional cross-reference graph (typed-edge registry).** Knowledge entries gain `links_to` / `links_from` / `consumed_by` / `influences` / `derives_from` metadata. Dogfood test in `pcc/docs/_internal/research/hcd/atomic-facts-dogfood.md`; promotion to `docs/_internal/knowledge/knowledge-graph.md` as canonical is pending architect review.
 
 ## Rejected
 
@@ -63,4 +65,6 @@ The hallucination-drift concern matches lattice rule 14 (science preservation ga
 
 - Pairs with: [`ahrens-smart-notes.md`](ahrens-smart-notes.md) — Ahrens supplies the workflow (literature notes, bottom-up cluster emergence) that complements Karpathy's structure (lint, gaps).
 - Existing knowledge: `docs/_internal/knowledge/contract-triangles.md` (precedent for registry-as-source-of-truth pattern).
-- Existing skills: `/lattice:sweep` (extend to semantic lint), `/lattice:autopilot` (extend with `--discover`), `/lattice:distill` (extend with promotion prompt).
+- Implemented partial: `pcc/scripts/discovery-scan.py`, `lattice/scripts/discovery-scan.py` (template). Output: `scripts/data/discovery-report.md` (gitignored).
+- Proposed extensions: `/lattice:lint-knowledge`, `/lattice:autopilot --discover`, `/lattice:distill` query-promotion, knowledge-graph metadata layer.
+- Audit history: `_audit-2026-04-26.md` documents the factual corrections folded into this revision (aspirational items moved out of "Borrowed" into "Proposed (not yet implemented)").

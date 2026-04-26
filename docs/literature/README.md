@@ -68,12 +68,12 @@ Depth varies. Two-paragraph stubs are fine for sources we've fully extracted fro
 | Source | Type | Read | Status | Take |
 |---|---|---|---|---|
 | [karpathy/autoresearch](karpathy-autoresearch.md) | framework | 2026-03 | borrowed | Validation ratchet pattern (oracle, autonomous loop, append-only experiment log) |
-| [obra/superpowers](obra-superpowers.md) | framework | 2026-03 | partial | Spike + fresh-context review subagents; rejected the waterfall flow |
-| [alexfazio/plankton](alexfazio-plankton.md) | framework | 2026-04 | borrowed | Write-time hook enforcement architecture (PreToolUse blocks, PostToolUse warns) |
-| [coleam00/archon](coleam00-archon.md) | framework | 2026-04 | borrowed | E2E branch-comparison validation + per-experiment budget caps |
-| [GSD](gsd.md) | framework | 2026-04-26 (full) | partial | Pause/resume handoff borrowed; spec-first waterfall + UAT loop + parallel-plan executor explicitly rejected |
-| [karpathy/llm-wiki](karpathy-llm-wiki.md) | gist | 2026-04-26 | evaluating | Three-layer wiki + lint operation; complements lattice's docs lifecycle |
-| [Ahrens — How to Take Smart Notes](ahrens-smart-notes.md) | book | 2026-04-26 | evaluating | Literature-notes layer + bottom-up cluster emergence as autopilot signal |
+| [obra/superpowers](obra-superpowers.md) | framework | 2026-03 | partial | Fresh-context review subagents borrowed; mandatory brainstorming gate rejected; TDD-as-universal evaluated and not adopted |
+| [alexfazio/plankton](alexfazio-plankton.md) | framework | 2026-04 | borrowed | Hook enforcement architecture (PreToolUse + PostToolUse). Lattice adapts severity (warn-only for advisory checks; plankton blocks at both phases) |
+| [coleam00/archon](coleam00-archon.md) | framework | 2026-04 | partial | E2E branch comparison borrowed. USD-based budget.yaml is independent design (archon uses iteration-counts, not USD) |
+| [GSD](gsd.md) | framework | 2026-04-26 (full) | partial | Pause/resume handoff borrowed. Single-cadence mandate, plan-level wave decomposition, and checkpoint-UAT explicitly rejected (lattice has classified dispatch + escalation-based HITL) |
+| [karpathy/llm-wiki](karpathy-llm-wiki.md) | gist | 2026-04-26 | evaluating | Three-layer wiki implemented; lint / gap-driven autopilot / query-promotion are proposed (not yet implemented) |
+| [Ahrens — How to Take Smart Notes](ahrens-smart-notes.md) | book | 2026-04-26 | evaluating | Literature-notes layer + translate-don't-copy implemented; bottom-up emergence and atomicity are proposed (HCD dogfood test underway) |
 
 ## Adding an entry
 

@@ -7,6 +7,22 @@ This file covers the happy path: what to run, how phases fit together, and the s
 - [WORKFLOW-INTERNALS.md](WORKFLOW-INTERNALS.md) — executor engine, autopilot loop, coherence detection, peer-review protocol, synthesis output contract, review gate sections, session management
 - [ENFORCEMENT.md](ENFORCEMENT.md) — review gate, validation ratchet, E2E gate, token budget, decision log, Claude Code hooks, structural quality gates, concurrent session safety
 
+## Design Stance
+
+Lattice is **spec-driven through phase cycles**, with classified entry-point dispatch — not a single mandated cadence.
+
+The default ("full") path is research → blueprint → build, which IS a spec-driven sequence: blueprint produces a validated build plan that build-cycle implements. This is the path used for complex / new-domain work.
+
+The dispatcher (`commands/lattice/cycle.md`) classifies each topic and routes to one of three paths:
+
+1. **Full cycle** — `/lattice:research-cycle → /lattice:blueprint-cycle → /lattice:build-cycle`. Spec-driven. Default for complex / unknown-territory work.
+2. **Spike cycle** — `/lattice:spike → /lattice:spec-from-code → /lattice:review`. Build-first when scope is bounded and patterns are known; spec generated *after* the artifact is real. **Exception mode**, not the default.
+3. **Bug-fix cycle** — classify → investigate → fix → stress → review. Parallel track for defect work.
+
+All three paths terminate at the same review quality gate.
+
+The structural contrast with single-cadence frameworks (every topic traverses the same flow) is **classified dispatch with three downstream paths**, not waterfall vs. anti-waterfall. The full path is itself a sequential phase pipeline; lattice is not "build first, spec after" by default — that's the spike path.
+
 ## Quick Start
 
 ```
