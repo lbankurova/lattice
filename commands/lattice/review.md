@@ -23,7 +23,7 @@ The review MUST produce ALL of these named sections in its output. A missing sec
 2. **ARCHITECT REVIEW** — complexity and science preservation check (separate agent)
 3. **DECISION AUDIT** — merit-based evaluation of every architectural/method decision
 4. **REQUIREMENT TRACE** — four-dimension check (WHAT/WHEN/UNLESS/HOW) — adapted to context
-5. **MECHANICAL CHECKS** — build, lint, tests, code quality, VISUAL check (Playwright), DATA check (fixture against generated JSON for any empirical claim in the spec), and TRIANGLE check (contract triangle synchronization per CLAUDE.md rule 18, when the diff modifies any contract surface). VISUAL and DATA sub-checks must appear for frontend work; TRIANGLE must appear whenever a contract field is touched.
+5. **MECHANICAL CHECKS** — build, lint, tests, code quality, VISUAL check (Playwright), DATA check (fixture against generated JSON for any empirical claim in the spec), TRIANGLE check (contract triangle synchronization per CLAUDE.md rule 18, when the diff modifies any contract surface), and ALGORITHM check (algorithm output vs tox-defensible answer per CLAUDE.md rule 19, when the diff touches or consumes algorithmic code). VISUAL and DATA sub-checks must appear for frontend work; TRIANGLE must appear whenever a contract field is touched; ALGORITHM must appear whenever algorithmic code is touched or its output consumed.
 6. **DOCS UPDATE** — MANIFEST, specs, TODO
 7. **VERDICT** — pass/fail with evidence
 
@@ -91,14 +91,41 @@ For all other work (spikes, bug fixes, ad-hoc):
 |-------|---------|---------------|
 | Architect | PASS | Note in ARCHITECT REVIEW section, continue |
 | Architect | SIMPLIFY | List items. User decides: fix now or accept. If "fix now", fix before continuing. |
-| Architect | SCIENCE-FLAG | List in section. **WAIT** for user acknowledgment on each flag before continuing. |
+| Architect | SCIENCE-FLAG | List in section. **WAIT** for user acknowledgment on each flag before continuing. Rebuttal protocol below applies. |
 | Decision Auditor | PASS | Include report in DECISION AUDIT section, continue |
 | Decision Auditor | FAIL: EFFORT-BIASED | **STOP** — present flagged decisions to user. Fix before continuing. |
 | Decision Auditor | FAIL: UNPROMPTED-DEFERRAL | **STOP** — present deferrals to user. Do the work now or get explicit approval to defer. |
 | Decision Auditor | FAIL: SILENT-DROP | **STOP** — present dropped requirements. Implement or get explicit approval to defer. |
+| Decision Auditor | FAIL: SCIENCE-FLAG | **STOP** — present flag to user. Rebuttal protocol below applies. |
 | Requirement Reviewer | Evidence table | Feed into Step 2 (four-dimension trace). Merge with your own verification. |
 
 **Any STOP verdict blocks the review** regardless of what the other agents returned. Process all STOP verdicts together — present them as a batch, not one at a time.
+
+### SCIENCE-FLAG rebuttal protocol (BLOCKING — no exceptions)
+
+A SCIENCE-FLAG raised by ANY agent (architect, decision auditor, requirement reviewer) can be cleared in EXACTLY one of three ways:
+
+1. **Fix it.** Address the analytical concern directly. Re-run the agent that raised it.
+2. **Data-grounded counter-evidence.** Show that the concern does not apply by running the algorithm against representative generated output (`backend/generated/{study}/unified_findings.json` or equivalent) and citing observed values + a one-paragraph toxicological interpretation. Format:
+   ```
+   SCIENCE-FLAG REBUTTAL — DATA-GROUNDED
+   Flag: [exact wording from agent]
+   Algorithm: [function:line — e.g., derive-summaries.ts:836 computeNoaelForFindings]
+   Study: [PointCross / Nimble / etc.]
+   Observed output: [actual NOAEL/LOAEL/score/classification with cited values from JSON]
+   Tox interpretation: [why a regulatory toxicologist would agree this output represents the data]
+   ```
+3. **Explicit user defer.** The user names the deferred work and the dependency (real technical blocker, missing scientist input, scoped to a future cycle with a TODO entry). Recorded in `.lattice/decisions.log` as `science-flag-deferred`.
+
+**Forbidden rebuttals (do NOT clear a SCIENCE-FLAG):**
+
+- Plumbing arguments alone — "the toggle still flows through", "the data path is wired correctly", "the React Query cache invalidates" — these answer "does the wiring work" not "is the output defensible".
+- Spec-vs-code consistency — "the code matches the spec" — irrelevant if the spec itself was wrong about defensibility.
+- Mirror tests passing — they verify code matches spec, not spec matches reality.
+- Build/lint/test pass — they verify type/syntax/regression, not analytical correctness.
+- Architect SIMPLIFY/PASS verdict on the same diff — different question, different mandate.
+
+**Exemplar of the failure mode this protocol prevents:** BUG-031 (noael-pane-display-consistency-fix attempt, 2026-04-26). Decision auditor raised SCIENCE-FLAG on a NOAEL display change. Rebuttal was accepted on plumbing grounds (scheduled-only toggle does flow through API round-trip — empirically verified). But the actual algorithm output on PointCross BW was indefensible (3 NS sign-flipping single-timepoint hits drove LOAEL=lowest dose). The rebuttal answered the wrong question. Had this protocol been in force, the rebuttal would have been required to cite the algorithm output on representative data + a tox interpretation — which would have surfaced the bug before any commit was attempted.
 
 If the spec has its own verification checklist, tell the agent to run it first. Every item: PASS, FAIL, or N/A with a file:line reference.
 
@@ -330,6 +357,38 @@ For every numeric/cardinality claim in the spec's acceptance criteria, re-run th
 - "The build passes" — build catches type/syntax errors, not empirical mismatches.
 - "Playwright rendered the page without console errors" — a blank chart has no console errors.
 
+### Step 6: Algorithm defensibility check (mandatory when algorithmic code is touched — CLAUDE.md rule 18)
+
+Distinct from DATA verification. DATA asks "does the spec's claim match what the code produces"; ALGORITHM asks "does what the code produces match what the *data* warrants from a tox-reviewer's perspective". A spec can be wrong; a code can match the spec; an algorithm can still produce an indefensible answer.
+
+**When to run this:**
+- Any time the diff modifies, OR consumes the output of, an analytical algorithm — NOAEL/LOAEL/scoring/classification/syndrome detection/severity assignment/onset determination.
+- Trigger by path match against `.lattice/algorithm-paths.txt` (one path glob per line). If the file does not exist, default trigger paths are: `**/derive-summaries.ts`, `**/endpoint-confidence.ts`, `**/findings-rail-engine.ts`, `**/cross-domain-syndromes.ts`, `**/syndrome-rules.ts`, `**/services/analysis/**/*.py` (when those files contain NOAEL/LOAEL/scoring keywords).
+
+**How to run it:**
+
+For each algorithm touched by the diff (or consumed by the diff's UI changes):
+
+1. Identify the algorithm's input data shape and where representative data exists (`backend/generated/{study}/unified_findings.json`).
+2. Run the algorithm against PointCross + at least one other representative study (Nimble, PDS, or another with the relevant domain populated).
+3. Record the actual output: NOAEL value + tier, LOAEL dose level, score value + classification, syndrome detection result, severity assignment.
+4. Answer in writing: **"Would a regulatory toxicologist agree this output represents the data?"** with a one-paragraph interpretation citing the actual pairwise/group values that drove the result.
+
+**Forms that satisfy this step:**
+
+- Python one-liner recorded in the review output, replicating the algorithm's logic against the JSON, with the printed output cited verbatim. See BUG-031 retrospective for a worked example.
+- A new fixture-based test that runs the algorithm against real generated output and asserts the defensible result. Strongly preferred — it carries the check forward in CI.
+- `/ops:explore-data` with the specific algorithm question.
+
+**Forms that do NOT satisfy this step:**
+
+- "The function passes its unit tests" — unit tests verify the function does what its mock inputs say it should do.
+- "The build passes" / "lint passes" / "all 2051 tests pass" — none verify algorithmic defensibility.
+- "The spec says this is the expected output" — the spec itself may be wrong (BUG-031: spec author treated the indefensible output as the desired outcome).
+- "The change is downstream of the algorithm" — if the diff CONSUMES the algorithm's output, you still need to verify that the output is defensible. Shipping a UI that displays an indefensible NOAEL more consistently is worse than shipping inconsistent UIs that hide it.
+
+**FAIL handling:** ALGORITHM: FAIL is a hard block. The fix is to escalate (ESCALATION.md) and revert the consumer change — do NOT ship a UI that locks in the indefensible output. See BUG-031 for the canonical example.
+
 ### Output
 
 Append to the MECHANICAL CHECKS section:
@@ -350,6 +409,12 @@ TRIANGLE: PASS — [N] contract triangles touched, all three sites updated in th
   - ...
 TRIANGLE: FAIL — [field] modified at {site} but {other site(s)} still reference old vocabulary
 TRIANGLE: SKIPPED — no contract surface modified (no enum/field/cardinality/nullability changes)
+
+ALGORITHM: PASS — [N] algorithms verified defensible on representative data
+  - {algorithm} on {study}: observed {output}, tox interpretation: "{one-paragraph rationale}"
+  - ...
+ALGORITHM: FAIL — {algorithm} on {study} produces {output}; tox-indefensible because {reason}. Escalating.
+ALGORITHM: SKIPPED — no algorithmic code touched (no path match against .lattice/algorithm-paths.txt)
 ```
 
 Include screenshot path(s) so the user can inspect the visual. Include the cited JSON path and observed values for data verification. A VISUAL FAIL does not auto-block the review. A DATA FAIL DOES auto-block — empirical mismatch with the spec's claim is a scientific correctness issue, not a cosmetic one. A TRIANGLE FAIL DOES auto-block — silent declaration/enforcement/consumption divergence is the bug class CLAUDE.md rule 18 exists to prevent.

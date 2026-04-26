@@ -10,6 +10,15 @@ EXECUTOR_DIR="$REPO_ROOT/executor"
 
 STAGED_FILES=$(git diff --cached --name-only)
 
+# Staging-drift detection: capture the staged-file set at hook entry. After
+# all checks complete (some take >10s), we re-snapshot and BLOCK if files
+# were added during the hook run -- typically caused by concurrent autopilot
+# `git add` interleaving with manual commits. Two confirmed conflation events
+# in this codebase (commits 1370c103 and 521f1d16) shipped unrelated work
+# bundled into commits with mismatched messages. See decisions.log entries
+# tagged `history-annotation`/`CONFLATED-COMMIT` for context.
+INITIAL_STAGED_SNAPSHOT=$(echo "$STAGED_FILES" | sort)
+
 echo "========================================"
 echo "  Pre-commit hook: running checks..."
 echo "========================================"
@@ -98,6 +107,80 @@ else
 fi
 echo ""
 
+# --- Step 2.5: Bug retrospective check (BLOCKS on fix: commits) — CLAUDE.md rule 20 ---
+# If the commit message (when available via COMMIT_EDITMSG) starts with "fix:",
+# verify that the BUG-SWEEP.md entry referenced in the gate has all 5 retro fields.
+# Set LATTICE_BUG_RETRO=BUG-XXX before commit to point at the entry; or include
+# "Bug-Retro: BUG-XXX" trailer in the commit message.
+
+COMMIT_MSG_FILE="$REPO_ROOT/.git/COMMIT_EDITMSG"
+COMMIT_MSG=""
+[ -f "$COMMIT_MSG_FILE" ] && COMMIT_MSG=$(cat "$COMMIT_MSG_FILE" 2>/dev/null || echo "")
+
+# Detect bug-fix commit: starts with "fix:" or has "Bug-Retro:" trailer
+IS_BUG_FIX=0
+BUG_ID=""
+if echo "$COMMIT_MSG" | head -1 | grep -qE '^fix(\([^)]+\))?:'; then
+    IS_BUG_FIX=1
+fi
+if echo "$COMMIT_MSG" | grep -qE '^Bug-Retro:'; then
+    IS_BUG_FIX=1
+    BUG_ID=$(echo "$COMMIT_MSG" | grep -E '^Bug-Retro:' | head -1 | sed 's/Bug-Retro:\s*//' | tr -d ' ')
+fi
+# Env-var override / explicit binding
+[ -n "${LATTICE_BUG_RETRO:-}" ] && { IS_BUG_FIX=1; BUG_ID="$LATTICE_BUG_RETRO"; }
+
+if [ "$IS_BUG_FIX" -eq 1 ]; then
+    echo "--- Step 2.5: Bug retrospective (rule 20) ---"
+    BUG_SWEEP=""
+    for candidate in "$REPO_ROOT/docs/_internal/BUG-SWEEP.md" "$REPO_ROOT/BUG-SWEEP.md"; do
+        [ -f "$candidate" ] && { BUG_SWEEP="$candidate"; break; }
+    done
+
+    if [ -z "$BUG_SWEEP" ]; then
+        echo "  ADVISORY: bug-fix commit detected but no BUG-SWEEP.md found; skipping retro check."
+        echo ""
+    elif [ -z "$BUG_ID" ]; then
+        echo "  COMMIT BLOCKED: bug-fix commit (fix: prefix) requires a Bug-Retro reference."
+        echo ""
+        echo "  Run /ops:bug-stress (Step 8 — Retrospective) to write the 5-question retro,"
+        echo "  then re-commit with one of:"
+        echo '    git commit -m "fix: ... " -m "Bug-Retro: BUG-XXX"'
+        echo '    LATTICE_BUG_RETRO=BUG-XXX git commit ...'
+        echo ""
+        echo "  Why: every bug fix is evidence a gate failed. The retro forces the lesson"
+        echo "  back into the framework so the same class doesn't recur. CLAUDE.md rule 20."
+        exit 1
+    else
+        # Verify BUG-XXX entry exists and has all 5 retro fields
+        MISSING_FIELDS=""
+        if ! grep -qE "^### $BUG_ID " "$BUG_SWEEP"; then
+            echo "  COMMIT BLOCKED: $BUG_ID entry not found in $BUG_SWEEP"
+            echo "  Add an entry with all 5 retrospective questions filled, then re-commit."
+            exit 1
+        fi
+        # Extract the entry (from ### BUG-XXX to next ### BUG- or end of file)
+        ENTRY=$(awk -v id="$BUG_ID" '
+            $0 ~ "^### "id" " { in_entry=1 }
+            in_entry && /^### BUG-/ && $0 !~ "^### "id" " { in_entry=0 }
+            in_entry { print }
+        ' "$BUG_SWEEP")
+        for field in "1\. \*\*Root cause" "2\. \*\*Genesis" "3\. \*\*Detection gap" "4\. \*\*Prevention class" "5\. \*\*Lattice change"; do
+            if ! echo "$ENTRY" | grep -qE "$field"; then
+                MISSING_FIELDS="${MISSING_FIELDS}  - missing: $(echo $field | sed 's/\\\*//g; s/\\\.//g')\n"
+            fi
+        done
+        if [ -n "$MISSING_FIELDS" ]; then
+            echo "  COMMIT BLOCKED: $BUG_ID retrospective is incomplete."
+            echo -e "$MISSING_FIELDS"
+            echo "  Run /ops:bug-stress Step 8 to fill the missing fields, then re-commit."
+            exit 1
+        fi
+        echo "  PASS: $BUG_ID retrospective complete (all 5 fields present)."
+        echo ""
+    fi
+fi
+
 # --- Step 3: Complexity advisories (non-blocking) ---
 echo "--- Step 3: Complexity advisories ---"
 echo ""
@@ -128,6 +211,38 @@ if [ -n "$COMPLEXITY_WARNINGS" ]; then
 else
     echo "  No advisories."
 fi
+echo ""
+
+# --- Step 4: Staging-drift check (BLOCKS on concurrent autopilot interleave) ---
+# Re-snapshot the staged file set. If new files appeared during the hook run,
+# another process (typically `/lattice:autopilot`) ran `git add` while our
+# build/checks were in flight. Those files would silently bundle into our
+# commit with our message attached -- a confirmed defect class (see commits
+# 1370c103 and 521f1d16, both annotated in decisions.log).
+echo "--- Step 4: Staging-drift check ---"
+FINAL_STAGED=$(git diff --cached --name-only | sort)
+ADDED_DURING_HOOK=$(comm -13 <(echo "$INITIAL_STAGED_SNAPSHOT") <(echo "$FINAL_STAGED") || true)
+if [ -n "$ADDED_DURING_HOOK" ]; then
+    echo "  COMMIT BLOCKED: files were added to the index DURING this pre-commit run."
+    echo ""
+    echo "  Files added after pre-commit started (NOT part of your intended commit):"
+    echo "$ADDED_DURING_HOOK" | sed 's/^/    - /'
+    echo ""
+    echo "  Likely cause: a concurrent process (typically /lattice:autopilot) ran"
+    echo "  'git add' while this pre-commit was running its build/test checks."
+    echo "  The added files would silently bundle into your commit with your"
+    echo "  message attached -- a defect class with confirmed precedent in this"
+    echo "  codebase (commits 1370c103 and 521f1d16, see decisions.log)."
+    echo ""
+    echo "  Resolve:"
+    echo "    1. Pause the concurrent process (/lattice:autopilot or similar)."
+    echo "    2. git reset HEAD <each unintended file>"
+    echo "    3. Verify: git diff --cached --name-only matches your intended scope."
+    echo "    4. Re-run /lattice:review (or write-review-gate.sh) for a fresh gate."
+    echo "    5. Re-commit."
+    exit 1
+fi
+echo "  PASS: staged file set unchanged during pre-commit run."
 echo ""
 
 # --- Cleanup: Consume the review gate (single-use) ---

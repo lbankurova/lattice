@@ -144,6 +144,100 @@ TESTS:
 COMMIT READY: {yes / no — missing tests}
 ```
 
+## Step 8: Retrospective (MANDATORY — CLAUDE.md rule 20)
+
+Every bug fix is evidence that some gate failed. The retrospective forces that lesson back into the framework. Skipping this step is the failure mode that lets the same class of bug recur.
+
+Run the 5 questions and append the output to the bug's BUG-SWEEP.md entry under a `#### Retrospective` heading. The pre-commit hook BLOCKS `fix:` commits when these fields are missing.
+
+### Question 1: Root cause (1 sentence)
+
+Name the specific defect — the line of code, the missing guard, the wrong threshold, the unwired requirement. Not the symptom; the cause.
+
+```
+Root cause — `{file:line or function name}` {does X / lacks Y / assumes Z}, producing {observed wrong behavior}.
+```
+
+### Question 2: Genesis
+
+What decision or process produced the bug? Be specific about the wrong assumption or skipped step.
+
+```
+Genesis — {Spec author / implementer / reviewer / autopilot} {assumed X / skipped Y / scoped to Z without auditing W}. The originating artifact was {spec / commit / autopilot batch / refactor cycle} and the unaudited assumption was {one sentence}.
+```
+
+### Question 3: Detection gap
+
+For EACH gate the diff passed through, name the gate and explain why it missed this bug:
+
+```
+Detection gap —
+  - {Gate 1 name} ({verdict}): missed because {reason — outside agent's mandate / wrong question / mocked input / etc.}
+  - {Gate 2 name} ({verdict}): missed because ...
+  - {Gate N name}: ...
+```
+
+Common patterns seen in past retros:
+- *Unit tests verify code matches mock inputs, not real data.*
+- *Mirror tests verify code matches spec, not spec matches reality.*
+- *Architect review checks complexity, not algorithmic defensibility.*
+- *Decision auditor flagged correctly but accepted plumbing-only rebuttal (BUG-031).*
+- *Spec author treated indefensible output as desired outcome (BUG-031).*
+- *DATA check verified spec-vs-code, not code-vs-data-warranted-answer (BUG-031).*
+- *No fixture test against real generated JSON existed for the affected algorithm.*
+
+### Question 4: Prevention class
+
+What process change would catch THIS CLASS of bug going forward? Generalize from the instance to the pattern. Avoid "be more careful" — that's not a prevention.
+
+```
+Prevention class — {one-paragraph description of the class of bug + the gate/check that would catch it}.
+```
+
+Examples of valid prevention classes:
+- *Algorithm-defensibility check on real data when consumer code is touched* (BUG-031).
+- *Per-day scoping requirement for any aggregation across multi-timepoint endpoints*.
+- *Fixture test against generated JSON for any new analytical function.*
+- *Gate that verifies SCIENCE-FLAG rebuttals include data-grounded counter-evidence.*
+
+Examples of invalid (insufficient) prevention classes:
+- *"Reviewer should have caught it"* — names the same gate that missed it; not a change.
+- *"Add more tests"* — too vague to enforce.
+- *"Read the code more carefully"* — not a process.
+
+### Question 5: Lattice change
+
+Concrete edits to the framework. List file paths + the specific change. If structural (new skill, new rule, new hook), file a proposal in `incoming/` for the next architect review. If "no change needed," justify why (e.g., bug fits an existing pattern that already has a gate).
+
+```
+Lattice change —
+  - `{path}` — {specific edit, e.g., "Step 3b: add ALGORITHM CHECK subsection"}
+  - `{path}` — {specific edit}
+  - ...
+```
+
+For BUG-031 the lattice change list is the canonical example — see `docs/_internal/BUG-SWEEP.md#BUG-031`.
+
+### Output
+
+Append directly to the bug's BUG-SWEEP.md entry:
+
+```markdown
+#### Retrospective
+
+1. **Root cause** — ...
+2. **Genesis** — ...
+3. **Detection gap** —
+   - {gate}: missed because ...
+   - ...
+4. **Prevention class** — ...
+5. **Lattice change** —
+   - `{path}` — {edit}
+   - ...
+```
+
+After writing the retro: if the lattice change requires structural edits beyond a one-line rule tweak, present the proposal to the user before editing framework files. The user owns lattice direction.
+
 ## When to use
 
 **Mandatory** after every bug fix that touches engine/analytical code (subsystems S01-S24).
