@@ -603,34 +603,53 @@ Tokens: 85.2K in / 42.1K out</code></pre>
 <!-- ============================================================ -->
 <section>
   <h2>Built on the shoulders of</h2>
-  <div style="text-align: left; max-width: 800px; margin: 20px auto 0; font-size: 0.65em; line-height: 1.7;">
-    <p>
-      <strong><a href="https://github.com/karpathy/autoresearch" style="color: #58a6ff; text-decoration: none;">karpathy/autoresearch</a></strong><br>
-      <span class="dim">Autonomous LLM research: modify code, train 5 min, measure val_bpb, keep or revert. Repeat forever.</span><br>
-      Borrowed: <strong>the oracle pattern</strong> (fixed metric the agent can't modify &rarr; validation ratchet),
-      <strong>append-only experiment log</strong> (results.tsv &rarr; decisions.log),
-      <strong>autonomous loop</strong> ("NEVER STOP" &rarr; autopilot),
-      <strong>read-only evaluation harness</strong> (prepare.py &rarr; ground truth study cards).
-    </p>
-    <p>
-      <strong><a href="https://github.com/obra/superpowers" style="color: #58a6ff; text-decoration: none;">obra/superpowers</a></strong><br>
-      <span class="dim">Complete dev methodology: brainstorm &rarr; spec &rarr; plan &rarr; subagent-per-task &rarr; review. Cross-platform plugin.</span><br>
-      Borrowed: <strong>spike</strong> (time-boxed exploration, keep or discard &rarr; /lattice:spike + /spec-from-code),
-      <strong>fresh-context subagents</strong> for review.
-      <span class="dim">Didn't adopt the waterfall flow &mdash; Lattice inverts it (build first, spec after).</span>
-    </p>
-    <p>
-      <strong><a href="https://github.com/alexfazio/plankton" style="color: #58a6ff; text-decoration: none;">alexfazio/plankton</a></strong><br>
-      <span class="dim">Write-time quality enforcement via PostToolUse hooks. Tamper-proof linter config.</span><br>
-      Borrowed: <strong>hook enforcement architecture</strong> (PreToolUse blocks, PostToolUse warns &rarr; .claude/settings.json).
-    </p>
-    <p>
-      <strong><a href="https://github.com/coleam00/archon" style="color: #58a6ff; text-decoration: none;">coleam00/archon</a></strong><br>
-      <span class="dim">AI agent builder with validation PR workflow and cost management.</span><br>
-      Borrowed: <strong>E2E branch comparison</strong> (run tests on both branches &rarr; e2e.ts),
-      <strong>budget caps</strong> (error_max_budget_usd &rarr; budget.yaml).
-    </p>
-  </div>
+  <p style="font-size: 0.6em; color: #8b949e; margin-bottom: 16px;">Frameworks &amp; ideas evaluated, with what was borrowed or explicitly rejected.</p>
+  <table style="font-size: 0.6em; max-width: 900px;">
+    <thead>
+      <tr><th>Source</th><th>What we took</th><th>Status</th></tr>
+    </thead>
+    <tbody>
+      <tr>
+        <td><a href="https://github.com/karpathy/autoresearch" style="color: #58a6ff;">karpathy/autoresearch</a></td>
+        <td>Oracle pattern, append-only experiment log, autonomous loop, read-only eval harness</td>
+        <td class="pass">borrowed</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/obra/superpowers" style="color: #58a6ff;">obra/superpowers</a></td>
+        <td>Spike, fresh-context review subagents <span class="dim">(rejected: waterfall flow)</span></td>
+        <td class="warn">partial</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/alexfazio/plankton" style="color: #58a6ff;">alexfazio/plankton</a></td>
+        <td>Hook enforcement architecture (PreToolUse blocks, PostToolUse warns)</td>
+        <td class="pass">borrowed</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/coleam00/archon" style="color: #58a6ff;">coleam00/archon</a></td>
+        <td>E2E branch comparison, per-experiment budget caps</td>
+        <td class="pass">borrowed</td>
+      </tr>
+      <tr>
+        <td><a href="https://github.com/gsd-build/get-shit-done" style="color: #58a6ff;">gsd-build/get-shit-done</a></td>
+        <td>Pause/resume handoff <span class="dim">(rejected: spec-first waterfall, UAT loop, parallel-plan executor)</span></td>
+        <td class="warn">partial</td>
+      </tr>
+      <tr>
+        <td><a href="https://gist.github.com/karpathy/442a6bf555914893e9891c11519de94f" style="color: #58a6ff;">karpathy / LLM Wiki</a></td>
+        <td>Lint operation, gap-driven discovery, query&rarr;wiki promotion</td>
+        <td class="accent">evaluating</td>
+      </tr>
+      <tr>
+        <td><a href="https://takesmartnotes.com" style="color: #58a6ff;">Ahrens &mdash; Smart Notes</a></td>
+        <td>Literature-notes layer, bottom-up cluster emergence, atomicity for graph nodes</td>
+        <td class="accent">evaluating</td>
+      </tr>
+    </tbody>
+  </table>
+  <p style="font-size: 0.55em; color: #8b949e; margin-top: 20px;">
+    Full record &mdash; including rejection rationales, evaluation notes, and convergent inventions &mdash;
+    in <code>docs/literature/README.md</code>.
+  </p>
 </section>
 
 <!-- ============================================================ -->
