@@ -520,27 +520,33 @@ When ALL checks pass:
    This gate file is **single-use**: the pre-commit hook deletes it after a successful commit. Every commit needs a fresh review.
 
 2. Tell the user: **"All checks pass. Ready to commit. Here's what changed: [file list + summary]. Shall I commit?"**
-3. If user approves, **acquire the commit lock and merge shared state:**
+
+3. If user approves, **acquire the commit lock BEFORE staging** (critical — prevents conflation with concurrent commits):
    ```bash
-   bash scripts/acquire-lock.sh "{topic-or-branch}" --poll
+   export LATTICE_LOCK_HOLDER="review-{topic-or-branch}-pid-$$"
+   bash scripts/acquire-lock.sh "$LATTICE_LOCK_HOLDER" --poll
    bash scripts/merge-shared-state.sh
    ```
-   The lock ensures only one agent commits at a time. `merge-shared-state.sh` refreshes shared files (REGISTRY.md, TODO.md, MANIFEST.md, decisions.log, ROADMAP.md) from git HEAD — incorporating changes committed by other agents while this review was running — then re-applies your local additions on top.
-   
+   The `LATTICE_LOCK_HOLDER` env var tells the pre-commit hook to recognize this outer-held lock and skip re-acquisition. The lock ensures only one commit at a time across the entire add → commit window. `merge-shared-state.sh` refreshes shared files (REGISTRY.md, TODO.md, MANIFEST.md, decisions.log, ROADMAP.md) from git HEAD — incorporating changes committed by other agents while this review was running — then re-applies your local additions on top.
+
    If `merge-shared-state.sh` reports conflicts (rare), inspect the conflict markers and resolve them before staging.
 
-4. Stage files, create the commit
-5. After committing, **release the lock and clean up:**
+4. **Stage files (`git add ...`)** — must happen AFTER lock acquisition. Staging before the lock leaves a window where another commit cycle can snapshot your pre-staged files into its own commit (BUG-031 conflation pattern, three occurrences in pcc 2026-04-26).
+
+5. **Create the commit (`git commit -m "..."`)** — pre-commit hook will see `LATTICE_LOCK_HOLDER` and skip re-acquiring. The commit fires inside the lock window.
+
+6. **Release the lock IMMEDIATELY after `git commit` returns** (success or failure path):
    ```bash
    bash scripts/release-lock.sh
+   unset LATTICE_LOCK_HOLDER
    rm -f .lattice/engine-changed .lattice/validation-compared 2>/dev/null
    ```
-6. Append to `.lattice/decisions.log`:
+7. Append to `.lattice/decisions.log`:
    ```
    {timestamp}	review	{PASS|FAIL}	{commit hash}	files:{count} deviations:{count} deferred:{count}	{one-line summary}
    ```
 
-**If the commit fails for any reason, release the lock immediately** (`bash scripts/release-lock.sh`). A held lock blocks all other agents from committing. Never leave a lock held after an error.
+**If the commit fails for any reason, release the lock immediately** (`bash scripts/release-lock.sh && unset LATTICE_LOCK_HOLDER`). A held lock blocks all other agents from committing. Never leave a lock held after an error. Consider wrapping steps 3-6 in `trap 'bash scripts/release-lock.sh; unset LATTICE_LOCK_HOLDER' EXIT` for safety.
 
 ---
 

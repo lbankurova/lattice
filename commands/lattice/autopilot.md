@@ -103,9 +103,21 @@ For each selected item, determine the action:
 
 For each selected item:
 1. Announce: `"Advancing {name} ({source}/{phase-or-kind}) via {route}"`
-2. Run the appropriate skill or direct action.
-3. On completion, append a line to `ESCALATION.md` IF the skill surfaced any user decision, OR remove the TODO entry / tick it strikethrough with commit hash on success.
-4. Continue to the next queue item. Do NOT re-run `lattice coherence` between items — Step 4 catches new blockers.
+2. **Acquire the commit lock BEFORE staging** (CRITICAL — prevents conflation with concurrent manual commits or other autopilot batches):
+   ```bash
+   export LATTICE_LOCK_HOLDER="autopilot-batch-$BATCH_ID-item-$ITEM_ID"
+   bash scripts/acquire-lock.sh "$LATTICE_LOCK_HOLDER" --poll
+   ```
+   The `LATTICE_LOCK_HOLDER` env var tells the pre-commit hook to recognize this outer-held lock and NOT re-acquire it. Without this discipline, concurrent commits (manual `git add` from a parallel session, or another autopilot batch) can snapshot each other's pre-staged files into a single commit with a mismatched message. Three confirmed conflations in pcc this session (commits 1370c103, 521f1d16, a47ee865) all stemmed from this gap.
+3. Run the appropriate skill or direct action. The skill stages files (`git add`) and creates the commit -- both inside the lock window.
+4. **Release the lock IMMEDIATELY after `git commit` returns** (success or failure):
+   ```bash
+   bash scripts/release-lock.sh
+   unset LATTICE_LOCK_HOLDER
+   ```
+   On any error path, release the lock before exiting -- a held lock blocks every other commit. Use `trap 'bash scripts/release-lock.sh; unset LATTICE_LOCK_HOLDER' EXIT` if running multiple items in a script wrapper.
+5. On completion, append a line to `ESCALATION.md` IF the skill surfaced any user decision, OR remove the TODO entry / tick it strikethrough with commit hash on success.
+6. Continue to the next queue item. Re-acquire the lock for each item (do NOT hold across items -- gives manual commits a window between batches). Do NOT re-run `lattice coherence` between items — Step 4 catches new blockers.
 
 **Phase transitions are automatic.** Do NOT ask "start blueprint?" or "ready to build?" — if the coherence check passed, proceed.
 
