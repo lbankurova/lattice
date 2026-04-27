@@ -50,3 +50,109 @@
 - **Dependencies:** Voyage AI API key, `@zabaca/lattice` npm package, sync step after research file creation/update.
 - **When:** Revisit when research corpus exceeds ~200 files, or when multiple contributors work in the corpus. Current corpus size (~100 files, single maintainer) makes the marginal value small.
 - **Priority:** P3 (low — not a current bottleneck)
+
+---
+
+## Literature-Sourced Backlog
+
+> Items derived from cross-checking `docs/literature/` source notes (Ahrens, Karpathy, GSD, archon, plankton, superpowers) against current lattice state. Scope is dev-framework / methodology / agent-system axes.
+>
+> **Value axes** each item must defend itself against:
+> - **science** — engine outputs match domain truth; catches scientific bugs faster
+> - **code** — non-scientific code (UI, plumbing, frontend) doesn't regress
+> - **autopilot** — long autonomous runs don't degrade silently
+> - **knowledge** — wiki layer (knowledge/, architecture/) stays honest
+>
+> Tier 1 = pulls 2+ axes. Tier 2 = strong single axis. Tier 3 = autopilot leverage. Tier 4 = situational. Items rejected on value grounds are listed at the bottom for audit trail.
+>
+> **Known gap:** the design-system axis (sendex's `.claude/rules/design-decisions.md`, audit-checklist, ux-audit pipeline) has no literature-notes corpus yet. Tracked as `LIT-DS-GAP` below.
+
+### LIT-01: Expand `/lattice:lint-knowledge` to content-drift checks
+- **Tier:** 1 — science + autopilot
+- **What:** Today's skill catches ID drift (uniqueness, citation, orphan). Extend with: stale `file:line` citations (knowledge says `hcd.py:327` but the function moved); contradiction detection across knowledge files (two facts disagree, generalizing the HCD-FACT-008 ↔ FACT-010 case); provenance-gap (claim with no `derives_from` source); future-reader test (no `as discussed above` / `we decided last week`).
+- **Where:** `scripts/lint-knowledge.py` + `commands/lattice/lint-knowledge.md` (extension, not new skill)
+- **Source:** karpathy-llm-wiki (lint operation), ahrens-smart-notes (future-reader, atomicity)
+- **Note:** The shipped 2026-04-26 `/lattice:lint-knowledge` is the starter; this is the version the typed-knowledge-graph-spec actually anticipates.
+
+### LIT-02: Generalize typed-knowledge-graph beyond HCD
+- **Tier:** 2 — science + code (conditional on registry discovery)
+- **What:** Apply the typed-knowledge-graph-spec pattern to other registries that have multi-dim scope + downstream consumers. Candidate registries: syndrome rules (XS01-XS10), FCT bands (BFIELD-21-style enum drift case), regulatory thresholds. Pre-work: 30-min discovery pass to confirm 2-3 registries justify the schema overhead — could end up "no, contract-triangles already covers this".
+- **Where:** `docs/_internal/knowledge/<domain>-graph.md` per registry, schema authority `docs/_internal/architecture/typed-knowledge-graph-spec.md`
+- **Source:** ahrens-smart-notes (atomicity for graph nodes), karpathy-llm-wiki (typed edges)
+
+### LIT-03: `/lattice:autopilot --discover` mode
+- **Tier:** 3 — autopilot leverage
+- **What:** Wire `discovery-scan.py` output into autopilot. Advance safe-for-autopilot gaps automatically; escalate ambiguous to ESCALATION.md. Force-multiplier on gap detection.
+- **Where:** `commands/lattice/autopilot.md` (new flag)
+- **Source:** karpathy-llm-wiki (sparse-area / lint operation as autopilot signal)
+
+### LIT-04: `/lattice:autopilot --consolidate` mode
+- **Tier:** 3 — orchestrator signal
+- **What:** Detect dense knowledge clusters (Ahrens emergence) → suggest `/lattice:synthesize` to extract a topic. Currently surfaced manually.
+- **Where:** `commands/lattice/autopilot.md` (new flag), depends on LIT-02 typed-edge metadata
+- **Source:** ahrens-smart-notes (bottom-up emergence)
+
+### LIT-05: Distill query → wiki promotion
+- **Tier:** 3 — knowledge capture
+- **What:** When `/lattice:distill` surfaces a novel cross-subsystem connection, prompt to extract a knowledge entry. Currently distill outputs are session-bound and evaporate.
+- **Where:** `commands/lattice/distill.md`
+- **Source:** karpathy-llm-wiki (query → wiki promotion)
+
+### LIT-06: TDD-for-non-scientific-code decision memo
+- **Tier:** 2 — code quality
+- **What:** Output is a **decision memo, not code**. Question: should non-scientific code (UI, plumbing, frontend) mandate TDD or test-first? Validation ratchet doesn't catch UI/plumbing regressions (cross-surface NOAEL display inconsistency, missing formatter exports, panel layout bugs are recent examples). Memo decides scope and adds a rule, or chooses not to.
+- **Where:** `.lattice/decisions.log` + possibly new rule in `CLAUDE.md` / scaffold
+- **Source:** obra-superpowers (TDD as universal practice — open question)
+- **Cross-ref:** bug-protocol agent
+
+### LIT-07: Nyquist-auditor analog
+- **Tier:** 1 — science + bug-protocol cross-ref
+- **What:** After a bug fix, ask whether the validation suite density would have caught the bug pre-emptively. "Are tests dense enough on this code path that we'd have caught the failure structurally, not by accident?" Pairs with `/ops:bug-stress` (stress-test the pattern across downstream subsystems) or extends it.
+- **Where:** Either new `commands/lattice/audit-coverage.md` skill OR extension of `ops:bug-stress` — coordinate with bug-protocol agent on placement
+- **Source:** gsd (`gsd-nyquist-auditor` — sampling-adequacy of evals)
+- **Cross-ref:** bug-protocol agent (this item is the natural complement to "fix bugs better")
+
+### LIT-08: `/lattice:extract-learnings` skill
+- **Tier:** 2 — knowledge integrity
+- **What:** Formalize CLAUDE.md rule 7 (doc lifecycle: spec → archive + extract durable knowledge) as an enforceable skill rather than convention. Today's commits show patchy enforcement — durable-knowledge extraction got skipped in the conflated commits (1370c103, 521f1d16) because the commit message didn't trigger the discipline.
+- **Where:** new `commands/lattice/extract-learnings.md`, hooked into `/lattice:review` cycle-close
+- **Source:** gsd (`gsd-extract-learnings`)
+
+### LIT-09: Context-rot telemetry (ENH-02 phase 2)
+- **Tier:** 1 — autopilot + orchestrator confidence
+- **What:** Token-by-context-window monitor; warn when context utilization crosses thresholds mid-cycle. Today's conflated commits (3 in one session) suggest context-rot may be a contributing failure mode — autopilot decisions degrade silently when attention is dilute. Promote ENH-02 phase-2 deferred item with concrete scope: per-cycle token telemetry + threshold warnings + autopilot pause-on-rot policy.
+- **Where:** `executor/src/budget.ts` extension, `commands/lattice/autopilot.md` rot-aware pause logic
+- **Source:** gsd (`gsd-context-monitor.js`)
+- **Note:** User flagged as nice-to-have at one point; re-elevated after value-axis broadening because the failure mode it catches (autopilot conflations) is real.
+
+### LIT-10: Iteration-count caps in `budget.yaml`
+- **Tier:** 3 — autopilot safety
+- **What:** Add `max_iterations` alongside USD caps in `scaffold/.lattice/budget.yaml`. USD caps catch resource overrun eventually; iteration caps catch infinite-loop bugs faster (and at lower cost).
+- **Where:** `scaffold/.lattice/budget.yaml` schema + `executor/src/budget.ts`
+- **Source:** archon (`max_iterations` per-loop caps)
+
+### LIT-11: GSD `seeds/` pattern (situational)
+- **Tier:** 4 — process clarity, conditional on felt pain
+- **What:** Milestone-keyed deferred-idea bucket. Reconciles CLAUDE.md rule 13 ("no unprompted deferrals") with the reality that some ideas genuinely have to wait for a milestone. Today these go to TODO.md `needs-user`, ESCALATION.md, or get lost in conversation.
+- **Where:** `docs/_internal/seeds/` (new directory if adopted), referenced from TODO.md
+- **Source:** gsd (`commands/gsd/plant-seed.md`)
+- **Skip if:** existing TODO/ROADMAP/ESCALATION mechanisms cover this without the new directory.
+
+### LIT-12: Slack integration (parked)
+- **Tier:** parked — operational, deferred-but-tracked
+- **What:** Inbound channel for user instructions while away from terminal. Voice-of-user signal that supplements in-session conversation.
+- **Pre-work needed before un-defer:** scope spec (which channels, auth model, command grammar, security boundary, MCP vs custom integration); pick activation trigger (e.g., when the user hits a recurring "had to wait until I got home to direct Claude" pain).
+- **Where:** TBD (likely an MCP server or `.claude/settings.json` hook integration)
+- **Source:** prior conversation (deferred without scope)
+
+### LIT-DS-GAP: Design-system axis literature pass (gap)
+- **Tier:** placeholder
+- **What:** Lattice has design-system tooling (`commands/lattice/ux-audit-walk/validate/file`, `ux-designer`, `design.md`, sendex's `.claude/rules/design-decisions.md`, audit-checklist) but no formal "literature notes" for design-system sources (Material guidelines, Tailwind philosophy, Datagrok plugin design, design-system books, etc.). The 11 items above came from dev-framework literature; design-system items would come from a separate corpus pass.
+- **Where:** new entries in `docs/literature/` once design-system sources are picked
+- **When:** TBD — when sendex's design-system specifics solidify enough to know which literature is relevant.
+- **Note:** Placeholder so the gap is visible. Not a blocker on the 11 items above.
+
+#### Considered and rejected (audit trail)
+
+- **Translate-don't-copy enforcement at `/lattice:synthesize`** — convention is followed by Claude already; no observed failure mode. Adding enforcement is solving a non-problem.
+- **`/lattice:milestone-retrospective` skill** — cycle-close + `/ops:sweep` cover the same ground at finer granularity. No named milestone-level failure pattern justifies the new skill.
