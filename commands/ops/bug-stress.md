@@ -218,6 +218,35 @@ Lattice change —
 
 For BUG-031 the lattice change list is the canonical example — see `docs/_internal/BUG-SWEEP.md#BUG-031`.
 
+### Question 5 — disposition (F7 — MANDATORY tracking)
+
+Each Lattice-change bullet from Question 5 MUST be dispositioned into one of:
+
+- **(a) Implemented in this commit** — the same `fix:` commit that triggered the retro implements the framework change. (Current default for tightly-scoped retros — BUG-031 was this.)
+- **(b) Filed to TODO.md** — append a TODO entry tagged `[from BUG-XXX]` and `autopilot:` per existing TODO conventions; the bullet is tracked but deferred.
+- **(c) Filed to ESCALATION.md** — append an ESCALATION entry explaining why neither (a) nor (b) applies (e.g., requires architect-gate revision; needs scientist input; cross-cycle dependency).
+
+For each bullet, compose ONE attestation via the SIMPLIFY-1 unified format BEFORE running `write-review-gate.sh`:
+
+```bash
+bash scripts/append-attestation.sh \
+  retro-action \
+  "BUG-XXX#5.<bullet-N>" \
+  "{implemented-this-commit | filed-to-todo | filed-to-escalation | not-applicable}" \
+  "{1-line summary identifying the bullet AND the disposition target -- e.g. 'CLAUDE.md rule 19 added at line 84-86' OR 'TODO.md GAP-123 [from BUG-XXX]' OR 'ESCALATION.md entry 2026-04-26 (algorithm path)'}"
+```
+
+Bullet numbering is 1-indexed against the order in the rendered Lattice-change list. `not-applicable` is permitted ONLY when the bullet was determined unnecessary in this retro (e.g., duplicate of a prior retro's action item) — the rationale must cite the prior retro and the reason.
+
+The pre-commit hook (Step 5b -- pcc-side) verifies that:
+1. The commit has a `Bug-Retro: BUG-XXX` trailer (existing rule 20 check, unchanged).
+2. The BUG-SWEEP entry contains all 5 retro fields (existing check, unchanged).
+3. **The gate carries at least one `kind=retro-action` attestation with `ref-prefix=BUG-XXX`** (NEW for F7).
+
+The periodic audit (`scripts/audit-retro-action-items.py`) lints existing entries: when a BUG-SWEEP entry has Lattice-change bullets but no F7 disposition table, no fix commit, no `[from BUG-XXX]` TODO tag, and no ESCALATION entry referencing the bug id, the bullets are reported as silently-abandoned. Pre-F7 retros can be retroactively annotated with an explicit "F7 disposition" subsection (BUG-031 in pcc has the canonical example) — the audit script accepts the table itself as evidence.
+
+Failure mode this prevents: rule 20 added action items but nothing enforced their tracking; past retros (informal, pre-rule-20) had action items that were quietly dropped. F7 makes the drop the explicit (a/b/c) decision rather than implicit silence.
+
 ### Output
 
 Append directly to the bug's BUG-SWEEP.md entry:
