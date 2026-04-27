@@ -519,6 +519,13 @@ When ALL checks pass:
    ```
    This gate file is **single-use**: the pre-commit hook deletes it after a successful commit. Every commit needs a fresh review.
 
+   **Attestations (SIMPLIFY-1 unified format).** The gate file carries an `attestations[]` array. Reserved kinds (delivered by F3 / F6 / F7):
+   - `peer-review` — algorithmic spec/code peer-review verdict (F3)
+   - `bug-pattern` — bug-pattern propagation verification (F6)
+   - `retro-action` — retro action-item pointer (F7)
+
+   Compose entries via `bash scripts/append-attestation.sh <kind> <ref> <verdict> <rationale> [agent_id]` BEFORE running `write-review-gate.sh`. The pending file (`.lattice/pending-attestations.json`) is consumed when the gate writes. Validation is strict (rationale ≥ 10 chars, no trivial values like `n/a`/`tbd`, no duplicates within a gate); see `scripts/test-attestation-format.sh` for the contract. Until F3/F6/F7 ship, attestations are optional and the gate writes with `attestations: []`.
+
 2. Tell the user: **"All checks pass. Ready to commit. Here's what changed: [file list + summary]. Shall I commit?"**
 
 3. If user approves, **acquire the commit lock BEFORE staging** (critical — prevents conflation with concurrent commits):
