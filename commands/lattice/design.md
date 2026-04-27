@@ -10,6 +10,8 @@ You are making **design decisions** for a feature before any code is written. Th
 - `design "dose proportionality chart for PK exposure section"`
 - `design Phase 3 of the current spec`
 
+**Also use retrospectively** — when an upstream change orphans a surface (e.g., NOAEL migrated out of Findings context panel) or you suspect an existing surface no longer earns its viewport, point this skill at the surface: `design "audit findings.center-pane.unselected after NOAEL migration — keep / redesign / remove / re-purpose?"`. Same proximity rules, same decision tree, applied to existing UI rather than proposed UI. The trigger is usually an upstream change or a `/lattice:probe` cross-impact finding.
+
 ---
 
 ## Core Model: The Visual Context Window
@@ -73,15 +75,63 @@ For every proposed element, ask: **"If I add this, what gets pushed further away
 
 ---
 
-## Step 1: Understand the analytical question
+## Step 1: First-principles preamble (mandatory written output)
 
-Before any layout thinking, answer:
+**Before any sketch, mockup, layout spec, technology pick, reference-component citation, or code edit, you MUST write down all four blocks below in your response.** No prose paraphrase, no skipping blocks, no "I'll get to that later." This is a stop-gate, not a guideline.
 
-1. **What question is the user trying to answer?** State it as a concrete toxicology question. Example: "Is the exposure increase proportional to dose, or is there saturation?"
-2. **What data answers that question?** List the minimum data points needed. Not "everything the backend provides" — the minimum set.
-3. **What's the decision the user makes with this data?** Example: "Decide whether PK saturation at high dose affects the NOAEL determination."
+The failure mode this gate exists to prevent: **port-mode redesign**. When asked to "move X to a new place" or "redesign Y," the default agent behaviour is to relocate the existing structure and re-skin it — engine outputs (syndromes, organ records, recovery verdicts, evidence-quality grades) never enter the design space, and the new layout surfaces less analytical signal than the engine actually produces. That is **science-loss**, not styling, and it violates CLAUDE.md rule 14 (science preservation) and rule 16 (verify empirical claims against actual data).
 
-If you can't answer these three questions, stop. The feature isn't ready for design — it needs more research.
+If you cannot write all four blocks honestly with concrete content, the feature is not ready for design — it needs `/ops:explore-data`, a research pass, or a question to the user. State which.
+
+### 1.1 Analytical question (one sentence, in the user's voice)
+
+State as a concrete toxicology question whose answer would change interpretation. Good: *"Is hepatocellular injury at the high dose driven by a single subject or distributed across the cohort?"* Bad: *"User wants to see NOAEL"* (that's a request, not a question — what does seeing it let them decide?).
+
+If the surface serves multiple personas, name each persona's question separately (P1, P2, P3, P4, P5 per `docs/_internal/design-system/datagrok-app-design-patterns.md` § Personas).
+
+**Audit cross-reference.** If a workflow audit exists for this surface (`docs/_internal/audits/workflow-audits/{persona}-{workflow}/README.md`), **read it before answering this block**. The audit's friction notes and GAPs are the user's pain points already documented; an agent designing without reading them is re-discovering known friction. Also check `docs/_internal/audits/workflow-audits/THEMES.md` — if the surface is cited under any CT-N theme (CT-1 disconnected islands, CT-3 score-collapses-N-states, CT-6 mutually-exclusive panels, CT-8 default-mode-hides-synthesis, CT-9 vocabulary leak, CT-15 sub-pane allocation, CT-23 missing per-subject drill-in), name the theme and how the redesign closes or carries it.
+
+### 1.2 Engine outputs survey (concrete counts, quoted from real data)
+
+Run `/ops:explore-data` against the canonical fixture (PointCross by default; choose per `docs/_internal/audits/workflow-audits/STUDY-FIXTURES.md` if the workflow has a stronger fixture), or read `backend/generated/{study}/unified_findings.json` directly. Output:
+
+- **What the engine produces here.** Quote actual counts and a few representative values. Example shape: *"PointCross produces 16 syndrome matches (HIGH-confidence Hepatocellular Injury N=7, Hepatotoxicity Classic N=3, …), 405 organ × endpoint records, recovery verdicts on K findings, evidence-quality grades on M organs."*
+- **What the existing UI surfaces today.** Concrete: which panes, which charts, which fields. Be honest about gaps.
+- **The delta.** Every engine output the existing UI does NOT surface is a candidate first-principles signal for the redesign. List them. This is the rule-14 / rule-16 anchor — a redesign that surfaces *less* engine signal than the engine produces is science-loss, not a design choice.
+- **CT-3 check ("score collapses N states into one integer").** The canonical sendex science-loss pattern, cited in 7 audits. If the engine produces a multi-state factor (e.g., D4 confidence factors with `score=None`/`0`/`±1`, syndrome certainty rationales, recovery verdict components, mortality cause categories, no-control penalty breakdown) and the existing UI shows a single integer or single token, **flag it**. The redesign must either surface the underlying states or cite a specific reason a rollup is sufficient here. Default = surface the states.
+
+Block 1.2 is non-optional even when the request sounds like a relocation ("move NOAEL to X"). Relocations are exactly when port-mode kicks in; the survey forces engagement with the data.
+
+### 1.3 Spine candidates, mapped to persona mental models
+
+State at least three structural spines (findings / syndromes / organs / subjects). For each:
+
+- **(a) Persona match.** Which persona's mental model does this spine fit? Cite from `docs/_internal/design-system/datagrok-app-design-patterns.md` § Mental Models. Examples: *"Study Director (P1) thinks in convergence (ALT + hypertrophy + vacuolation = hepatotox) → **syndrome spine** matches this frame natively; findings spine forces them to mentally re-aggregate."* / *"Pathologist (P2) is specimen-centric ('Liver → what did I see?') → **organ spine** matches; findings spine inverts their navigation."* / *"Biostatistician (P5) reasons over distributions and effect sizes → **findings spine** with per-endpoint dose-response is the native frame."*
+- **(b) What the user GETS** if this spine is picked. Concrete, in their workflow.
+- **(c) What they LOSE** if a different spine is picked. Concrete, in their workflow.
+
+**The toggle case.** If two personas have *strong primary use* of this surface (per the View-Persona Utility Matrix in `datagrok-app-design-patterns.md`) and their mental models map to *different* spines, that is the merit argument for a toggle — name the toggle pivot explicitly with utility-score evidence (e.g., *"syndrome ↔ organ toggle, default = syndrome because P1 utility = 5 vs P2 utility = 3 on this surface; toggle exists because P2's utility is also ≥ 3"*). Do not propose a toggle without that two-persona-with-utility-evidence justification — toggles without it are speculative complexity dressed as flexibility.
+
+**Pick one default.** Justify on persona-fit *and* engine outputs (1.2), **not** on "what the existing UI looks like." Existing structure is evidence about a previous choice, not the answer. If the previous choice still wins, say *why it wins on the merits* (which persona's mental model it served, what the alternative loses), not "because it's what's there."
+
+**Built-not-mounted check (rule 5 with teeth).** Before proposing a new component, grep `frontend/src/` for components that match the role you're about to build. Sendex has a documented history of production-ready components sitting unwired (`AuditTrailPanel.tsx`, `verdict-transparency.ts` helpers; previously `RecoveryPane.tsx` until user-retracted). Wiring a built component is one to two orders of magnitude cheaper than building. Cite either the component you found (and why wiring is the right move), or the grep that came up empty (and why building is justified). Reference: `.claude/rules/ux-audit-validate.md` Section 4 (built-not-mounted inventory).
+
+### 1.4 Rules in scope (cited rule IDs)
+
+Before the sketch, quote the rule IDs that bind here. Categories:
+
+- **`.claude/rules/design-decisions.md`** — name the rows that apply (e.g., "C-05 categorical badges neutral gray," "T-02 section header," "K-07 filter dropdowns via FilterSelect").
+- **`docs/_internal/design-system/audit-checklist.md`** — name the rule IDs that apply (e.g., "C-29 grayscale survives," "C-35 per-screen color budget," "K-05 tab bar pattern").
+- **`.claude/rules/frontend-ui-gate.md`** — name the rules (Rule 0 reference component, Rule 6 existing utility, etc.).
+- **`docs/_internal/reference/interactivity-rule.md`** — every clickable element must respond; population-level views need per-subject drill-in (CT-23 carries this).
+- **Vocabulary leak check (CT-9 / GAP-282).** Internal IDs reaching user UI is a documented systemic failure: `pattern_only`, `WATCHLIST`, `UE-NN`, `S2 L10`, `XS01-09`, `pathologist` vs `reviewedBy`, `mechanism_uncertain`, `non-resp`. If the new surface displays any of these without a tooltip translation or a user-facing label map, name it as a vocabulary debt the design must close.
+- **CLAUDE.md** — at minimum: rule 5 (reuse before reinventing), rule 14 (science preservation), rule 16 (empirical verification). Add others if they bind.
+
+Naming the rules at this stage prevents Failure Mode #2 below (mechanical rule compliance over analytical value): you can't apply rules thoughtfully if you haven't named which ones bind, and you can't break a rule defensibly if you haven't acknowledged it exists.
+
+---
+
+**Gate enforcement.** All four blocks must be visible to the user *in the same response*, before any of: sketch, mockup HTML, layout spec, technology pick, reference-component citation, code edit. If the user has explicitly redirected you to skip the preamble for a known-trivial case (typo, copy fix, single-token change, an already-approved design being implemented verbatim), say so explicitly and cite which trigger applies. Default is **preamble required**.
 
 ## Step 2: Redundancy check
 
@@ -99,6 +149,8 @@ Before adding ANY new UI element to a view:
    - Cross-view links that navigate with pre-filtered state
 
 3. **If it exists anywhere:** Don't add it again. Link to it, highlight it, or surface it on interaction. Adding redundant information is a design defect — it wastes viewport space and creates maintenance burden (two places to update, two places to break).
+
+4. **CT-1 disconnected-islands check.** A capability that lives in 3+ unconnected places is a systemic failure (cited in 5 audits — HCD / NOAEL / hepatotox / target organs / annotation surfaces). When this surface touches a capability that already exists elsewhere, list **every** existing surface that touches it (settings/upload, reference/inspection, and consumer surfaces) and state how the redesign links them. If you can't link them, that's a CT-1 carry-forward — the design ships the third disconnected island. Default = link.
 
 ## Step 3: Placement decision
 
@@ -200,6 +252,15 @@ REFERENCE COMPONENT: [existing component this is modeled after]
 ```
 
 **This specification is the contract.** The implementer builds exactly this, no more. If the spec doesn't mention a legend, there's no legend. If the spec doesn't mention a tooltip, there's no tooltip.
+
+**CT-19 rationale-row pattern (the canonical "what good looks like" in sendex).** When the layout includes a rationale, banner, alert, or explanatory row, model it on the **4-clause structure** that the audit corpus identifies as the gold standard (cited 9+ times across CT-19): **fact + consequence + workflow implication + action path**. Reference instances in code:
+
+- **No-control banner** — *"No concurrent control detected — adversity determination suppressed. Descriptive statistics only. Configure →"* (fact / consequence / implication / action).
+- **PK non-monotonic alert** — *"Exposure (AUC) decreases at 200 mg/kg despite higher dose, indicating non-monotonic pharmacokinetics. TK satellite animals all survived at this dose, but 2 main study animals died with target organ toxicity…"*
+- **Compound Profile default state** — *"Small molecule · Default" badge + "No biologic signals detected" rationale + "Override class…" link*.
+- **Variance-heterogeneity rail tooltip** — *"Variance heterogeneity: SD ratio 3.7×; CV ratio 3.8×. JT trend test assumes comparable within-group variances; significance may be inflated."*
+
+If your layout's rationale row collapses any of the four clauses (especially "action path"), you are downgrading from the documented gold standard. State why explicitly or restore the missing clause.
 
 ## Step 6: Minimum viable design
 
@@ -378,6 +439,8 @@ Mockup HTML files are disposable. Delete them after the design is approved and i
 2. **Mechanical rule compliance over analytical value.** Design rules exist to serve the toxicologist's analytical workflow. If following a design rule produces a result that makes data harder to interpret, the rule is being misapplied. Before any change, ask: "Does this help the toxicologist answer their question?"
 
 3. **Incidence data in continuous layouts.** Continuous endpoints (BW, LB) and incidence endpoints (MI, MA) need fundamentally different center panel layouts. Never shoehorn incidence data into dose-response chart frameworks. Reference: histopathology dose charts pattern for incidence.
+
+4. **Port-mode redesign.** When the request sounds like a relocation ("move NOAEL to X," "redesign the PK panel"), the default agent behaviour is to relocate existing structure and re-skin — engine outputs the existing UI doesn't surface (syndromes, organ records, recovery verdicts, evidence-quality grades) never enter the design space. The new layout ships with *less* analytical signal than the engine produces. This is science-loss, not styling. **Step 1's four-block preamble is the gate that prevents this** — block 1.2 (engine outputs survey) is the rule-14 / rule-16 anchor. If you find yourself sketching before writing the four blocks, you are in port-mode; stop and write them.
 
 ## Rules
 
