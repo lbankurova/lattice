@@ -252,6 +252,10 @@
 - **Source:** appleton-pattern-languages (lineage citation makes rejections of consumer-app conventions defensible by reference rather than re-derivation)
 - **Defer trigger:** only land when an agent has actually re-derived a rejected consumer-app convention twice and lacked a citation to point to. Cosmetic until then.
 
+#### Open verification (delete when confirmed)
+
+- **VERIFY-DS-01: Confirm design-mode PreToolUse hook fires end-to-end on next Claude Code session.** The hook (`scripts/design-mode-gate.sh` invoked from `.claude/settings.json` PreToolUse Write|Edit) is implemented and unit-verified across all decision branches via direct script invocation, but `.claude/settings.json` hooks load at session start, so the change cannot be tested in the session that authored it. Next session in either lattice or pcc: (a) `bash scripts/design-session.sh begin "verify"`, (b) attempt any Write/Edit on a `frontend/src/**/*.tsx` file, (c) confirm the tool call returns an error containing "BLOCKED: design session active" and the file is not modified. (d) `bash scripts/design-session.sh end` to clean up. If the hook does not fire, debug in this order: settings.json parses and contains the PreToolUse Write|Edit block; cwd at hook-fire time is the project root (verify with `pwd` inside the hook command); `$CLAUDE_TOOL_INPUT` is populated. Implementation references: lattice `de8c1af` (hook) + `09843ee` (cd-to-root), sendex `1a574964` (settings wiring). Delete this entry once confirmed.
+
 #### Considered and rejected (design-system audit trail)
 
 - **Storybook / interactive component preview surface.** Carbon and Frost both implicitly recommend this. Sendex has the audit-checklist + design-decisions tables instead. Storybook is high-overhead for a single-frontend project where every component is exercised by real views every dev session. Re-evaluate only at multi-plugin reuse.
