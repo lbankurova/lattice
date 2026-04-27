@@ -75,7 +75,29 @@ For every proposed element, ask: **"If I add this, what gets pushed further away
 
 ---
 
-## Step 0: Re-read the always-loaded rule files (mandatory prefix)
+## Step 0: Activate the gate + re-read the rule files (mandatory prefix)
+
+Two mechanical actions before answering any block.
+
+### 0.1 Activate the design-mode gate
+
+Run **as your first action when this skill is invoked**:
+
+```bash
+bash scripts/design-session.sh begin "<short-trigger-description>"
+```
+
+This writes `.lattice/design-mode.lock` (status `preamble: pending`). A PreToolUse hook (`scripts/design-mode-gate.sh`, wired in `.claude/settings.json`) will block any `Write|Edit` to `frontend/(src|e2e/mockups)/*.tsx|html|ts` until the preamble is produced and the lock is flipped to `preamble: complete`. The gate is what makes the four-block requirement *mechanical* rather than *honour-system*.
+
+After all four blocks are visible in your response, save them to a file (e.g. `.lattice/design-preamble-<topic>.md`) and run:
+
+```bash
+bash scripts/design-session.sh preamble-done .lattice/design-preamble-<topic>.md
+```
+
+This validates the file contains all four block markers (`1.1`, `1.2`, `1.3`, `1.4`) and unlocks UI edits. Use `bash scripts/design-session.sh end` to clear the lock when the design session is over (or as a trivial-bypass for non-design edits mid-session). Locks auto-expire after 1h.
+
+### 0.2 Re-read the always-loaded rule files
 
 Before answering any of the four blocks below, **re-read in full**:
 
@@ -85,7 +107,7 @@ Before answering any of the four blocks below, **re-read in full**:
 
 These files are nominally "always loaded," but the empirical record (`docs/_internal/audits/workflow-audits/CORRIGENDA.md` GAP-308 miss, the 2026-04-26 sweep) shows agents skip them anyway and re-derive what's already documented. Reading them at Step 0 is what makes block 1.4 (rules in scope) honest — you can't cite rule IDs you haven't actually re-read.
 
-**Trivial-bypass exception** is the same as for the four blocks: known-trivial change (typo, copy fix, single-token edit, verbatim implementation of a previously-approved design). Cite which trigger applies.
+**Trivial-bypass exception** for both 0.1 and 0.2 is the same as for the four blocks: known-trivial change (typo, copy fix, single-token edit, verbatim implementation of a previously-approved design). Cite which trigger applies and run `bash scripts/design-session.sh end` if you started a session.
 
 ## Step 1: First-principles preamble (mandatory written output)
 

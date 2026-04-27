@@ -74,9 +74,23 @@ When in Design mode, the four-block first-principles preamble from `/lattice:des
 
 The failure mode this gate prevents: **port-mode redesign** — relocating existing structure without engaging the engine outputs (syndromes, organ records, recovery verdicts, evidence-quality grades) that the existing UI doesn't surface. A redesign that ships less analytical signal than the engine produces is **science-loss** under CLAUDE.md rule 14, not styling.
 
-### Step 0: Re-read the always-loaded rule files
+### Step 0: Activate the gate + re-read the rule files
 
-Before answering the four blocks, **re-read in full**: `.claude/rules/design-decisions.md`, `.claude/rules/frontend-ui-gate.md`, `.claude/rules/domain-knowledge-map.md`. The empirical record (`docs/_internal/audits/workflow-audits/CORRIGENDA.md` — GAP-308 miss) shows agents skip these "always-loaded" files and re-derive what's already documented. Step 0 makes block 1.4 honest. Trivial-bypass exception same as the four blocks (typo, copy fix, single-token edit, verbatim re-implementation).
+**0.1 Activate the design-mode gate.** First action when entering Design mode:
+
+```bash
+bash scripts/design-session.sh begin "<short-trigger-description>"
+```
+
+This writes `.lattice/design-mode.lock`. A PreToolUse hook blocks `Write|Edit` to `frontend/(src|e2e/mockups)/*.tsx|html|ts` until the four blocks are produced and the lock is flipped via:
+
+```bash
+bash scripts/design-session.sh preamble-done .lattice/design-preamble-<topic>.md
+```
+
+The evidence file must contain markers for all four blocks (`1.1`, `1.2`, `1.3`, `1.4`). Run `bash scripts/design-session.sh end` to clear the lock when the session is over (or as a trivial-bypass for non-design edits). Locks auto-expire after 1h.
+
+**0.2 Re-read the always-loaded rule files** — `.claude/rules/design-decisions.md`, `.claude/rules/frontend-ui-gate.md`, `.claude/rules/domain-knowledge-map.md`. The empirical record (`docs/_internal/audits/workflow-audits/CORRIGENDA.md` — GAP-308 miss) shows agents skip these "always-loaded" files and re-derive what's already documented. Step 0 makes block 1.4 honest. Trivial-bypass exception same as the four blocks (typo, copy fix, single-token edit, verbatim re-implementation) — and remember to run `design-session.sh end` if you started a session.
 
 ### The four blocks (cite verbatim in your response)
 
