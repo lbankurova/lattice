@@ -74,6 +74,10 @@ When in Design mode, the four-block first-principles preamble from `/lattice:des
 
 The failure mode this gate prevents: **port-mode redesign** — relocating existing structure without engaging the engine outputs (syndromes, organ records, recovery verdicts, evidence-quality grades) that the existing UI doesn't surface. A redesign that ships less analytical signal than the engine produces is **science-loss** under CLAUDE.md rule 14, not styling.
 
+### Step 0: Re-read the always-loaded rule files
+
+Before answering the four blocks, **re-read in full**: `.claude/rules/design-decisions.md`, `.claude/rules/frontend-ui-gate.md`, `.claude/rules/domain-knowledge-map.md`. The empirical record (`docs/_internal/audits/workflow-audits/CORRIGENDA.md` — GAP-308 miss) shows agents skip these "always-loaded" files and re-derive what's already documented. Step 0 makes block 1.4 honest. Trivial-bypass exception same as the four blocks (typo, copy fix, single-token edit, verbatim re-implementation).
+
 ### The four blocks (cite verbatim in your response)
 
 **1.1 Analytical question** — one sentence in the user's voice, persona-aware (P1–P5 per `docs/_internal/design-system/datagrok-app-design-patterns.md`). The form: *"what would change about this study's interpretation if the answer were yes vs no?"* Not *"the user wants to see X."* **Audit cross-reference:** if a workflow audit exists for this surface (`docs/_internal/audits/workflow-audits/{persona}-{workflow}/README.md`), read it before answering — its friction notes are the user's pain points. Check `THEMES.md`: if the surface is cited under any CT-N theme (CT-1, CT-3, CT-6, CT-8, CT-9, CT-15, CT-23), name how the redesign closes or carries it.

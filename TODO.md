@@ -238,6 +238,13 @@
 - **Source:** ibm-carbon-design-system (role-based token naming is what makes Carbon's themes swap cleanly)
 - **Skip if:** no theme swap is on the roadmap. Speculative addition violates the spirit of CLAUDE.md rule 13.
 
+### LIT-DS-11: Built-not-mounted inventory script (maintained, not snapshot)
+- **Tier:** 3 — autopilot leverage; closes a documented snapshot-drift problem on a load-bearing inventory
+- **What:** A `scripts/find-unmounted-components.py` that greps `frontend/src/` for `*.tsx` component definitions, counts inbound imports per component, and emits two outputs: (a) the list of components with zero non-self imports (the "built-not-mounted" inventory), (b) a refresh of `.claude/rules/ux-audit-validate.md` Section 4 with current evidence. Run as part of cycle-close or `/lattice:lint-knowledge`. Rationale: today's Section 4 inventory is a 2026-04-26 snapshot that has already drifted (RecoveryPane was retracted by user, but the inventory still cites it). Block 1.3 of the design preamble (built-not-mounted check, in `commands/lattice/design.md`) cites Section 4 — its honesty depends on the inventory being maintained. A script that regenerates it makes the citation reliable.
+- **Where:** new `scripts/find-unmounted-components.py`; integration into cycle-close or `/lattice:lint-knowledge`; auto-update `.claude/rules/ux-audit-validate.md` Section 4 (or split Section 4 into two parts: a "human-curated rationale" prose section + a "machine-maintained component list" table that gets regenerated).
+- **Source:** datagrok-platform-docs (the wiring vs building cost asymmetry), ahrens-smart-notes (atomicity for graph-participating facts), CORRIGENDA.md "Built-not-mounted as a new finding class" observation.
+- **Dependency note:** the script can't distinguish "built-but-never-mounted" from "deleted-but-import-stub-remains" without git history check. Output should flag both classes separately so the human can decide whether to wire vs delete.
+
 ### LIT-DS-10: Lineage citation in datagrok-app-design-patterns.md
 - **Tier:** 4 — situational; one-paragraph cosmetic edit, low-cost
 - **What:** A one-paragraph "Lineage" section in `docs/_internal/design-system/datagrok-app-design-patterns.md` naming Alexander → Tufte → Appleton, with a one-sentence statement of why this lineage matters (tools, not media; patterns, not rules; analytical value over engagement). Cost: a paragraph. Benefit: future agents have a citation when justifying rejection of consumer-app conventions.

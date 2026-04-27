@@ -75,6 +75,18 @@ For every proposed element, ask: **"If I add this, what gets pushed further away
 
 ---
 
+## Step 0: Re-read the always-loaded rule files (mandatory prefix)
+
+Before answering any of the four blocks below, **re-read in full**:
+
+- `.claude/rules/design-decisions.md` (the path-scoped decision tables)
+- `.claude/rules/frontend-ui-gate.md` (Rule 0 reference component, Rule 6 utility catalogue)
+- `.claude/rules/domain-knowledge-map.md` (which knowledge files apply to the surface in scope)
+
+These files are nominally "always loaded," but the empirical record (`docs/_internal/audits/workflow-audits/CORRIGENDA.md` GAP-308 miss, the 2026-04-26 sweep) shows agents skip them anyway and re-derive what's already documented. Reading them at Step 0 is what makes block 1.4 (rules in scope) honest — you can't cite rule IDs you haven't actually re-read.
+
+**Trivial-bypass exception** is the same as for the four blocks: known-trivial change (typo, copy fix, single-token edit, verbatim implementation of a previously-approved design). Cite which trigger applies.
+
 ## Step 1: First-principles preamble (mandatory written output)
 
 **Before any sketch, mockup, layout spec, technology pick, reference-component citation, or code edit, you MUST write down all four blocks below in your response.** No prose paraphrase, no skipping blocks, no "I'll get to that later." This is a stop-gate, not a guideline.
@@ -178,6 +190,8 @@ Is it the PRIMARY analytical output for this view?
             └── No → This information probably doesn't belong in this view.
                      Propose where it DOES belong, or propose leaving it out.
 ```
+
+**CT-15 pane-allocation check.** If the placement decision lands on **"context panel pane"** (a dedicated sub-pane), the choice must be justified by persona-utility evidence. Cite the **View-Persona Utility Matrix score** in `docs/_internal/design-system/datagrok-app-design-patterns.md` for the persona(s) this pane serves. Threshold: a dedicated pane requires utility ≥ 4 for at least one primary persona, or ≥ 3 for two personas. Below that, demote to inline row, badge, or on-demand expansion. Reason: the audit corpus identified "sub-pane absence for first-class workflow" (CT-15) and its inverse — pane allocation that doesn't reflect workflow weight — as systemic. Pane allocation should track persona utility, not historical accident or agent enthusiasm.
 
 **Coping strategies when it doesn't fit** (ordered by context cost — cheapest first):
 
