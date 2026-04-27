@@ -89,6 +89,32 @@ If algorithmic:
 
 This is the §5.1 "Trigger B — Spec write" wiring. Without it, the spec author can ship an algorithmic spec that the architect-reviewer waves through on architectural-merit grounds (BUG-031 spec was the canonical example).
 
+### Step 1.4: Spec lint (F5 — BLOCKING when --strict)
+
+Before any other gate, run the spec linter against the incoming spec:
+
+```bash
+python scripts/lint-spec.py --strict <spec-path>
+```
+
+Per spec §7.1, the linter enforces four criteria:
+
+1. **Empirical claims must cite data.** Numeric / factual claims about generated output (e.g., `"NOAEL reads X"`, `"shows N rows"`, `"header reads Y"`) must reference a generated JSON path, fixture test, or baseline. This catches the BUG-031 anti-pattern where the spec author treated `"BW reads below tested range"` as desired without citing data.
+2. **Behavioral requirements must have tests.** Sentences with `must` / `shall` / `requires` / `>=N` must reference a test, gate, rule, or knowledge-fact -- except inside `Acceptance criteria` / `Non-goals` sections (which use these words as spec contracts, not per-feature requirements).
+3. **Multi-feature specs must reference SPEC-VALUE-AUDIT.md** (per CLAUDE.md rule 17).
+4. **Algorithmic specs must cite domain truth** -- at least one knowledge-graph fact (`HCD-FACT-*`, `NOAEL-FACT-*`, etc.) or `scripts/query-knowledge.py` invocation per spec body.
+
+The linter errs toward flagging (false-positive tolerant per spec §7.4); architect-reviewer is the final judge. But `--strict` makes any defect block this step. Resolution paths per criterion:
+
+| Criterion | Defect | Resolution |
+|---|---|---|
+| 1 | Empirical claim without citation | Add the citation in the same paragraph, OR move the claim into an `## Acceptance criteria` section. |
+| 2 | Behavioral `must` without test ref | Cite the test file / gate / rule / knowledge-fact in the paragraph, OR move into `## Acceptance criteria`. |
+| 3 | Multi-feature spec without SPEC-VALUE-AUDIT reference | Add a `## Spec Value Audit` section citing `docs/_internal/checklists/SPEC-VALUE-AUDIT.md` and run the audit per-feature (per rule 17). |
+| 4 | Algorithmic spec without knowledge-fact citation | Run `python scripts/query-knowledge.py --kind <relevant> --scope <relevant>` and cite the returned fact id (or the explicit no-fact-found stub) per major decision point. |
+
+If lint passes (`rc=0`), proceed to Step 1.5. If lint fails AND the user explicitly waives a defect with cited reason (architect-reviewer-style memo), record the waiver in `decisions.log` (`spec-lint-waiver` event) and proceed -- but the unwaived defects must still be addressed.
+
 ### Step 1.5: Spec Value Audit (first pass)
 
 Before launching the architect-reviewer agent, run `docs/_internal/checklists/SPEC-VALUE-AUDIT.md` against the spec. This is the anti-featuritis gate — it catches specs that propose N features on categorical reasoning ("every inferred X should be overridable") rather than per-feature evidence.
