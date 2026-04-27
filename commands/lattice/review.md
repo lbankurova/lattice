@@ -83,6 +83,27 @@ For all other work (spikes, bug fixes, ad-hoc):
 - **Input:** (1) Spec file path, (2) changed/created file list, (3) evidence format template from Step 2
 - **No implementation context.** Do not include implementation notes, rationale, or design decisions. The agent must form its own understanding from the spec and code alone.
 
+#### Agent D: Peer-Reviewer (algorithmic-paths only — F3)
+
+**Trigger:** any staged file matches `.lattice/algorithm-paths.txt` (the same regex used by ALGORITHM CHECK and `write-review-gate.sh`'s `LATTICE_ALGORITHM_CHECK` enforcement). When the trigger does not fire, skip this agent entirely.
+
+- **Agent type:** `general-purpose` (no specialized agent needed; the peer-review skill prompt does the work)
+- **Prompt:** Use the prompt at `commands/lattice/peer-review.md`. Pass the diff + a one-line scope description ("review the algorithmic logic in {file} against domain truth"). Tell the agent to follow the **Algorithmic-Tightening Requirements** section: invoke `query-knowledge.py`, cite sources, return `SOUND`/`CONDITIONAL`/`FLAWED`/`INSUFFICIENT`.
+- **No implementation context.** Same discipline as the other parallel agents — do not feed the agent your synthesis or the rationale for the change.
+
+After the agent returns, persist the verdict via the SIMPLIFY-1 attestation path (one entry per peer-review run, AFTER the review's mechanical checks pass and BEFORE `write-review-gate.sh`):
+
+```bash
+bash scripts/append-attestation.sh \
+  peer-review \
+  "{algorithmic-spec-path-or-changed-file-summary}" \
+  "{SOUND|CONDITIONAL|FLAWED|INSUFFICIENT}" \
+  "{1-line summary citing the fact(s) query-knowledge.py returned and why the verdict is what it is}" \
+  "peer-review-{topic-or-branch}-{ISO-timestamp}"
+```
+
+This unblocks the pcc-side pre-commit kind-specific check (which verifies an algorithmic-paths commit carries at least one `kind=peer-review` attestation in the gate). Per spec §5.3 acceptance criterion 1 + spec §15.1.
+
 ### Convergence — wait for all agents, then evaluate verdicts
 
 **Trigger rule: `all_done`.** Wait for every launched agent to return before proceeding. Then evaluate each verdict:
@@ -98,6 +119,10 @@ For all other work (spikes, bug fixes, ad-hoc):
 | Decision Auditor | FAIL: SILENT-DROP | **STOP** — present dropped requirements. Implement or get explicit approval to defer. |
 | Decision Auditor | FAIL: SCIENCE-FLAG | **STOP** — present flag to user. Rebuttal protocol below applies. |
 | Requirement Reviewer | Evidence table | Feed into Step 2 (four-dimension trace). Merge with your own verification. |
+| Peer-Reviewer (algorithmic only) | SOUND | Note in DECISION AUDIT section, persist attestation, continue |
+| Peer-Reviewer (algorithmic only) | CONDITIONAL | **STOP** — present "what would fix it" to user. Fix the algorithmic concern (or cite the missing fact via query-knowledge after populating it, OR get explicit user defer with named dependency). Re-launch peer-review. |
+| Peer-Reviewer (algorithmic only) | FLAWED | **STOP** — present the flaw. Fix the algorithmic defect, then re-launch peer-review. Plumbing-only rebuttals do NOT clear (same protocol as SCIENCE-FLAG below). |
+| Peer-Reviewer (algorithmic only) | INSUFFICIENT | **STOP** — provide the requested information (often missing context about dose levels, study design, or scope) and re-launch peer-review. |
 
 **Any STOP verdict blocks the review** regardless of what the other agents returned. Process all STOP verdicts together — present them as a batch, not one at a time.
 

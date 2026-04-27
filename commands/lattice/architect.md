@@ -62,6 +62,33 @@ Read the synthesis/spec file fully. Also read:
 - `docs/_internal/knowledge/code-quality-guardrails.md` (if exists)
 - The files the plan proposes to modify (to understand current state)
 
+### Step 1.25: Algorithmic-spec detection + peer-review (F3 — BLOCKING for algorithmic specs)
+
+Before any other gate fires, classify the spec on the algorithmic axis. The spec is **algorithmic** if any of:
+
+1. The spec body declares an algorithm in scope (NOAEL/LOAEL, scoring, classification, syndrome detection, severity assignment, onset determination, dose-response pattern detection, statistical-test selection, adversity classification, target-organ identification).
+2. The spec proposes modifications to a function in `.lattice/algorithm-paths.txt` (defaults: derive-summaries.ts, endpoint-confidence.ts, findings-rail-engine.ts, cross-domain-syndromes.ts, syndrome-rules.ts, backend/services/analysis/**/*.py).
+3. The spec proposes a new analytical method (statistical test, threshold rule, classification scheme, derived metric).
+
+If the spec is non-algorithmic (UI / plumbing / documentation / refactor with no analytical-output change), skip this step and proceed to Step 1.5.
+
+If algorithmic:
+
+1. **Launch the peer-review skill** (`commands/lattice/peer-review.md`) on the spec with mode "Implementation Plan / Synthesis". Pass the spec path; the peer-reviewer follows the **Algorithmic-Tightening Requirements** in its own prompt (mandatory `query-knowledge.py` invocation, mandatory citation, blocking semantics for `CONDITIONAL` / `FLAWED`).
+2. **Wait for the verdict.** Per spec §5.3 acceptance criterion 2, 100% of incoming/ algorithmic specs MUST have a peer-review verdict in `decisions.log` BEFORE architect-review starts.
+3. **Persist verdict** via the SIMPLIFY-1 attestation path:
+   ```bash
+   bash scripts/append-attestation.sh \
+     peer-review \
+     "{spec-path}" \
+     "{SOUND|CONDITIONAL|FLAWED|INSUFFICIENT}" \
+     "{1-line summary citing fact(s) returned by query-knowledge.py and why the verdict is what it is}" \
+     "peer-review-{spec-name}-{ISO-timestamp}"
+   ```
+4. **Block on non-SOUND verdict.** `CONDITIONAL` / `FLAWED` / `INSUFFICIENT` returns the spec to the user with the peer-reviewer's "what would fix it" — do NOT proceed to Step 1.5 / Step 2 until peer-review returns SOUND on the revised spec.
+
+This is the §5.1 "Trigger B — Spec write" wiring. Without it, the spec author can ship an algorithmic spec that the architect-reviewer waves through on architectural-merit grounds (BUG-031 spec was the canonical example).
+
 ### Step 1.5: Spec Value Audit (first pass)
 
 Before launching the architect-reviewer agent, run `docs/_internal/checklists/SPEC-VALUE-AUDIT.md` against the spec. This is the anti-featuritis gate — it catches specs that propose N features on categorical reasoning ("every inferred X should be overridable") rather than per-feature evidence.

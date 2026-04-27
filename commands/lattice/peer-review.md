@@ -47,6 +47,83 @@ Run the standard review structure (Sections 1-7 below) focused on:
 
 Run the standard review structure (Sections 1-7 below) as-is.
 
+### If Property-Based Test (F2 Wave 1+):
+
+A property test states a domain invariant ("for all inputs satisfying P, output satisfies Q") and the framework generates random inputs to look for counterexamples. The risk per spec §20a Review-1 is that the precondition (P) or consequent (Q) is encoded incorrectly — a property that passes but encodes a wrong invariant gives false confidence.
+
+You evaluate a property as if it were a spec:
+
+1. **Precondition correctness.** Does the IF clause (P) encode a real domain invariant? Cite the regulatory standard, peer-reviewed reference, or knowledge fact (via `query-knowledge.py`) that justifies the precondition. A precondition that is more restrictive than the domain invariant under-tests the function; one that is less restrictive over-tests and produces false failures.
+2. **Consequent defensibility.** Is the THEN clause (Q) what a regulatory toxicologist would actually require? Cite the same kind of source. A consequent that is weaker than the domain rule lets defects slip through; one that is stronger flags acceptable behavior as a defect.
+3. **Boundary cases.** What happens at the precondition's edge (exactly p = 0.05)? At small N? With direction-flipping data? Properties should fail loudly at boundaries the domain considers material.
+4. **Verdict.** SOUND / CONDITIONAL / FLAWED with the same evidence-and-fix discipline as standalone claims.
+
+Properties without a SOUND or CONDITIONAL-with-resolution peer-review verdict MUST NOT be enabled in CI. This routes F2 properties through the same gate F3 routes algorithmic code through, structurally consistent with §20a Review-1's recommended path (b).
+
+## Algorithmic-Tightening Requirements (F3)
+
+When the input is **algorithmic code** (a function in `.lattice/algorithm-paths.txt`) or an **algorithmic spec** (a spec that declares an algorithm in scope, modifies a function in algorithm-paths, or proposes a new analytical method), the following are MANDATORY in addition to the standard review structure:
+
+### A. Query the typed knowledge layer (F1)
+
+For every algorithmic claim under review, run `python scripts/query-knowledge.py` against the relevant scope. At minimum:
+
+```bash
+# For a NOAEL-related claim:
+python scripts/query-knowledge.py --scope species:<species> --kind regulatory_expectation
+python scripts/query-knowledge.py --scope species:<species> --kind gate_criterion --domain <domain>
+
+# For a severity / classification claim:
+python scripts/query-knowledge.py --scope species:<species> --domain <domain> --kind clinical_threshold
+
+# For a syndrome detection claim:
+python scripts/query-knowledge.py --kind disable_marker
+python scripts/query-knowledge.py --scope endpoints:<endpoint>
+```
+
+Cite the returned facts (or the explicit no-fact-found stub) in your review. **A peer-review that does not invoke `query-knowledge.py` for at least one fact in an algorithmic review is incomplete** — re-launch.
+
+When the query returns the no-fact-found stub message ("NO FACT FOUND in domain-truth oracle ..."), that itself is evidence — note in your review that the domain-truth oracle has no typed fact for this scope, fall back to LLM judgment with explicit caveat per the stub instructions, and add the gap to the review's "Persist Gaps" section so a fact gets populated.
+
+### B. Mandatory citation for defensibility claims
+
+Any "this is/isn't defensible" claim in your review MUST cite either:
+- A **regulatory standard** (OECD, ICH, FDA, EFSA, EPA — name the document and section), OR
+- A **literature reference** (peer-reviewed paper, with DOI or PMID where possible, OR a knowledge-graph fact ID returned by `query-knowledge.py`), OR
+- An **internal validation result** (named validation reference card from `docs/validation/references/`)
+
+"Generally accepted" / "standard practice" / "tox common sense" is NOT a citation. A defensibility claim without a citation is downgraded to OPINION and does not count as a finding.
+
+### C. Verdict format and blocking semantics
+
+`SOUND` and `CONDITIONAL` and `FLAWED` and `INSUFFICIENT` are unchanged (see Section 6 below). For algorithmic peer-review specifically:
+
+| Verdict | Effect on the parent gate (review.md or architect.md) |
+|---------|--------------------------------------------------------|
+| `SOUND` | Parent gate proceeds. Verdict logged. |
+| `CONDITIONAL` | **BLOCKS** the parent gate. The "what would fix it" must be addressed (fix code/spec, OR cite the missing fact via query-knowledge after populating it, OR the user explicitly defers with a named dependency). |
+| `FLAWED` | **BLOCKS** the parent gate unconditionally. Fix the algorithmic defect and re-launch peer-review. |
+| `INSUFFICIENT` | **BLOCKS** the parent gate. Provide the requested information and re-launch. |
+
+This is the §5.1 wiring: F3 becomes a hard gate at algorithmic-paths commits and at incoming/ algorithmic specs.
+
+### D. Persist verdict via attestation
+
+After completing an algorithmic peer-review, the parent gate (review.md Step 1 or architect.md Step 0.5) records the verdict using the SIMPLIFY-1 unified attestation format:
+
+```bash
+bash scripts/append-attestation.sh \
+  peer-review \
+  "{topic-or-spec-or-skill-ref}" \
+  "{SOUND|CONDITIONAL|FLAWED|INSUFFICIENT}" \
+  "{one-line summary citing key fact(s) returned by query-knowledge.py and why the verdict is what it is}" \
+  "peer-review-{topic}-{timestamp}"
+```
+
+The rationale must be ≥10 chars, must not be a trivial value (`n/a` / `idk` / `tbd` / etc.), and must reference at least one cited fact or "no fact found" stub. The attestation lands in `.lattice/pending-attestations.json`; `write-review-gate.sh` validates it before the gate file is written; pcc's pre-commit hook verifies a `kind=peer-review` attestation exists when staged paths match the algorithmic-paths regex.
+
+---
+
 ## Your Role
 
 You are adversarial by design. Your job is NOT to confirm — it is to find what's wrong, what's missing, and what could break.
