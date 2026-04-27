@@ -144,6 +144,16 @@ TESTS:
 COMMIT READY: {yes / no — missing tests}
 ```
 
+## Step 7.5: Bug-pattern registry update (F6 — MANDATORY)
+
+After Step 3 (Pattern search) and before Step 8 (Retrospective), update the project's bug-pattern registry at `docs/_internal/knowledge/bug-patterns.md`:
+
+1. **If the pattern matches an existing entry:** append the new instance to that entry's `representative_instances` list with `file`, `line`, `bug_id`, and `note`. Bump `last_updated`.
+2. **If the pattern is new (not in registry):** add a new entry following the schema documented at the top of `bug-patterns.md`. Required fields: `name` (kebab-case), `title`, `status: active`, `root_cause`, `representative_instances`, `applies_to` (glob list), `prevention_property` (F2 link or null), `prevention_fact` (F1 link or null), `prevention_test` (existing test path or null), `introduced`, `last_updated`.
+3. Run `python scripts/audit-bug-patterns.py` to verify the registry validates.
+
+The pre-commit hook (Step 0d -- pcc-side) verifies that any future commit touching files in this pattern's `applies_to` glob carries a `kind=bug-pattern` attestation referencing this pattern. Without the registry update, the hook cannot fire on the right files.
+
 ## Step 8: Retrospective (MANDATORY — CLAUDE.md rule 20)
 
 Every bug fix is evidence that some gate failed. The retrospective forces that lesson back into the framework. Skipping this step is the failure mode that lets the same class of bug recur.
