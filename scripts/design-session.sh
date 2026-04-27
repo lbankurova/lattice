@@ -27,6 +27,14 @@
 
 set -e
 
+# Resolve to repo root so .lattice/design-mode.lock always lands in the
+# right place regardless of caller's cwd. git rev-parse covers the normal
+# case; the dirname fallback covers the rare case where the script is run
+# from outside any git repo (we still want it to write into the repo this
+# script lives in, which is two levels up: scripts/ -> repo).
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+cd "$REPO_ROOT" || { echo "ERROR: cannot resolve repo root for design session script." >&2; exit 1; }
+
 LOCK=".lattice/design-mode.lock"
 
 ensure_lattice_dir() {

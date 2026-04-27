@@ -15,6 +15,15 @@
 #
 # Cooperation: scripts/design-session.sh writes/maintains the lock.
 
+# Resolve to repo root so the lock check runs against the right .lattice/
+# directory regardless of where Claude Code fired the hook from. Fall back
+# to the script's own location's parent if not in a git repo (the gate
+# script lives in scripts/, so .. is the repo root).
+REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
+# If we cannot resolve a repo root at all, exit 0 -- the agent is editing
+# something outside any repo, which is unusual but not a design-gate concern.
+cd "$REPO_ROOT" 2>/dev/null || exit 0
+
 LOCK=".lattice/design-mode.lock"
 STALE_SEC=3600
 
