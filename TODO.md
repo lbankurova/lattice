@@ -120,17 +120,23 @@
 - **Where:** new `commands/lattice/extract-learnings.md`, hooked into `/lattice:review` cycle-close
 - **Source:** gsd (`gsd-extract-learnings`)
 
-### LIT-09: Context-rot telemetry (ENH-02 phase 2)
+### ~~LIT-09: Context-rot telemetry~~ — RESOLVED 2026-04-26
 - **Tier:** 1 — autopilot + orchestrator confidence
-- **What:** Token-by-context-window monitor; warn when context utilization crosses thresholds mid-cycle. Today's conflated commits (3 in one session) suggest context-rot may be a contributing failure mode — autopilot decisions degrade silently when attention is dilute. Promote ENH-02 phase-2 deferred item with concrete scope: per-cycle token telemetry + threshold warnings + autopilot pause-on-rot policy.
-- **Where:** `executor/src/budget.ts` extension, `commands/lattice/autopilot.md` rot-aware pause logic
-- **Source:** gsd (`gsd-context-monitor.js`)
-- **Note:** User flagged as nice-to-have at one point; re-elevated after value-axis broadening because the failure mode it catches (autopilot conflations) is real.
+- **Status:** RESOLVED 2026-04-26 (this commit). Implementation:
+  - `ContextConfig` added to `BudgetConfig` (window_size, warn_threshold, block_threshold).
+  - `checkContextUtilization()` in `executor/src/budget.ts` — per-call alerts when input-tokens / window_size crosses thresholds. `BudgetAlert` extended with `tokensSpent` / `tokenLimit` / `utilization` fields and `'context'` scope.
+  - `appendContextTelemetry()` writes JSONL rows to `.lattice/context-telemetry.jsonl` after every skill-node call (always, even when no config — level=`ok`).
+  - `engine.ts` wires the check into the existing alert flow; block-level rot stops the workflow with reason `CONTEXT_ROT` in `decisions.log`.
+  - `lattice context [--last N]` CLI command shows recent telemetry + peak utilization summary.
+  - `scaffold/.lattice/budget.yaml` adds commented `context:` block with window-size guidance for Sonnet (200K) and Opus 4.7 (1M).
+- **Smoke-tested:** CLI command runs cleanly (prints "no telemetry yet" when log absent); build passes.
 
-### LIT-10: Iteration-count caps in `budget.yaml`
+### ~~LIT-10: Iteration-count caps~~ — RESOLVED 2026-04-26 (autopilot scope)
 - **Tier:** 3 — autopilot safety
-- **What:** Add `max_iterations` alongside USD caps in `scaffold/.lattice/budget.yaml`. USD caps catch resource overrun eventually; iteration caps catch infinite-loop bugs faster (and at lower cost).
-- **Where:** `scaffold/.lattice/budget.yaml` schema + `executor/src/budget.ts`
+- **Status:** RESOLVED 2026-04-26 (this commit) for the autopilot loop. Implementation:
+  - `AutopilotOptions.maxLoops` added (default 50). Caps the outer `while (madeProgress)` loop in `runAutopilot`. When the cap is hit, autopilot prints an explicit force-stop message naming the failure mode (auto-resolve / phase routing oscillating without reaching steady state) and exits.
+  - `lattice autopilot --max-loops N` CLI flag wired through.
+- **Deferred (separate scope):** workflow-level `max_iterations` per archon — would cap node-level iteration counts inside a single workflow run (e.g., gates routing back to retry nodes). Not in current failure-mode evidence; revisit if a workflow infinite-loops.
 - **Source:** archon (`max_iterations` per-loop caps)
 
 ### LIT-11: GSD `seeds/` pattern (situational)

@@ -62,6 +62,12 @@ export interface AutopilotOptions {
   filter?: string;
   /** Single pass — run once and exit (vs continuous loop) */
   singlePass: boolean;
+  /** Hard cap on outer-loop iterations (LIT-10). Default 50.
+   * Continuous mode normally exits via steady-state (no progress). The cap
+   * catches infinite-loop bugs in auto-resolve / phase routing where steady
+   * state is never reached and the autopilot would otherwise burn USD until
+   * the budget gate fires. */
+  maxLoops?: number;
 }
 
 export interface HumanDecision {
@@ -133,6 +139,7 @@ function getAdvanceAction(topic: TopicState): AdvanceAction | null {
  */
 export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotResult> {
   const { cwd, latticeRoot, adapter, maxAdvancePerLoop, dryRun, singlePass } = opts;
+  const maxLoops = opts.maxLoops ?? 50;
   const stateDir = resolve(cwd, '.lattice/cycle-state');
 
   const result: AutopilotResult = {
@@ -156,11 +163,17 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
   let autoResolveAttempted = false; // Prevent infinite auto-resolve loops
 
   while (madeProgress) {
+    if (result.loopsCompleted >= maxLoops) {
+      await adapter.sendMessage(`\n[AUTOPILOT] Max-loops cap reached (${maxLoops}). Forcing stop.`);
+      await adapter.sendMessage(`This usually means auto-resolve / phase routing oscillates without reaching`);
+      await adapter.sendMessage(`steady state. Inspect the most-advanced topics for stuck phases before re-running.`);
+      break;
+    }
     madeProgress = false;
     result.loopsCompleted++;
 
     await adapter.sendMessage(`\n${'='.repeat(70)}`);
-    await adapter.sendMessage(`AUTOPILOT — Loop ${result.loopsCompleted}`);
+    await adapter.sendMessage(`AUTOPILOT — Loop ${result.loopsCompleted} of ${maxLoops}`);
     await adapter.sendMessage('='.repeat(70));
 
     // 1. Load portfolio state with deep doc extraction

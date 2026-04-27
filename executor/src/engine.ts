@@ -21,6 +21,7 @@ import { resolve } from 'node:path';
 import {
   loadBudgetConfig, checkNodeBudget, checkWorkflowBudget,
   checkTopicBudget, readTopicCost, formatAlert, formatCostSummary,
+  checkContextUtilization, appendContextTelemetry, classifyUtilization,
 } from './budget.js';
 
 export interface EngineOptions {
@@ -206,25 +207,55 @@ export async function executeWorkflow(
         const costTag = result.cost ? ` ($${result.cost.costUSD.toFixed(4)})` : '';
         await adapter.sendMessage(`  [${result.nodeId}] ${statusIcon}${costTag}${result.route ? ` -> ${result.route}` : ''}`);
 
-        // Budget checks
-        if (budget && result.cost) {
-          const alerts: BudgetAlert[] = [
-            ...checkNodeBudget(result.nodeId, result.cost.costUSD, budget),
-            ...checkWorkflowBudget(wf.name, run.totalCost, budget),
-            ...checkTopicBudget(topicName, priorTopicCost + run.totalCost.totalUSD, budget),
-          ];
+        // Budget + context checks
+        if (result.cost) {
+          const alerts: BudgetAlert[] = [];
+          if (budget) {
+            alerts.push(
+              ...checkNodeBudget(result.nodeId, result.cost.costUSD, budget),
+              ...checkWorkflowBudget(wf.name, run.totalCost, budget),
+              ...checkTopicBudget(topicName, priorTopicCost + run.totalCost.totalUSD, budget),
+            );
+          }
+
+          // Context-rot telemetry: always log a row when the node returned a cost,
+          // even if no context config is set (level=ok). Active alerts only fire when
+          // context config is present.
+          const inputTokens = result.cost.usage.inputTokens;
+          const utilization = budget?.context
+            ? inputTokens / budget.context.windowSize
+            : 0;
+          const level = budget?.context
+            ? classifyUtilization(utilization, budget.context)
+            : 'ok';
+          appendContextTelemetry(cwd, {
+            ts: new Date().toISOString(),
+            workflow: wf.name,
+            node: result.nodeId,
+            inputTokens,
+            outputTokens: result.cost.usage.outputTokens,
+            cacheReadTokens: result.cost.usage.cacheReadTokens,
+            utilization,
+            level,
+          });
+          if (budget?.context) {
+            alerts.push(...checkContextUtilization(result.nodeId, inputTokens, budget.context));
+          }
 
           for (const alert of alerts) {
             await adapter.sendMessage(`  ${formatAlert(alert)}`);
           }
 
-          // Block on budget exceeded
+          // Block on budget OR context-rot exceeded
           if (alerts.some(a => a.level === 'block')) {
-            await adapter.sendMessage(`[${wf.name}] STOPPED -- budget exceeded`);
+            const reason = alerts.find(a => a.level === 'block')?.scope === 'context'
+              ? 'context-rot threshold exceeded'
+              : 'budget exceeded';
+            await adapter.sendMessage(`[${wf.name}] STOPPED -- ${reason}`);
             run.status = 'failed';
             run.completedAt = new Date().toISOString();
             writeCostToState(wf, inputs, cwd, run.totalCost);
-            logDecision(cwd, wf.name, 'BUDGET_EXCEEDED', inputs,
+            logDecision(cwd, wf.name, reason === 'context-rot threshold exceeded' ? 'CONTEXT_ROT' : 'BUDGET_EXCEEDED', inputs,
               `$${run.totalCost.totalUSD.toFixed(4)} spent`);
             return run;
           }

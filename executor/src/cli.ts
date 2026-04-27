@@ -25,7 +25,7 @@ import {
   detectComparisonMode, runBranchComparison, writeE2EResult,
   formatE2EResult, formatClassification,
 } from './e2e.js';
-import { formatCostSummary } from './budget.js';
+import { formatCostSummary, readContextTelemetry, loadBudgetConfig } from './budget.js';
 import type { WorkflowCost } from './types.js';
 
 // ── Argument parsing ────────────────────────────────────────
@@ -404,6 +404,7 @@ async function cmdAutopilot(): Promise<void> {
   const dryRun = 'dry-run' in flags;
   const singlePass = !('loop' in flags);
   const maxAdvance = parseInt(flags['max'] ?? '3', 10);
+  const maxLoops = parseInt(flags['max-loops'] ?? '50', 10);
   const filter = flags['filter'] ?? undefined;
 
   const adapter = new CliAdapter();
@@ -422,6 +423,7 @@ async function cmdAutopilot(): Promise<void> {
     latticeRoot,
     adapter,
     maxAdvancePerLoop: maxAdvance,
+    maxLoops,
     dryRun,
     singlePass,
     filter,
@@ -590,6 +592,53 @@ function fmtK(n: number): string {
   return String(n);
 }
 
+// ── Context-rot telemetry (LIT-09) ──────────────────────────
+
+function cmdContext(): void {
+  const cwd = process.cwd();
+  const lastIdx = args.indexOf('--last');
+  const lastN = lastIdx >= 0 && args[lastIdx + 1]
+    ? Math.max(1, parseInt(args[lastIdx + 1], 10) || 50)
+    : 50;
+
+  const entries = readContextTelemetry(cwd, lastN);
+  if (entries.length === 0) {
+    console.log('No context telemetry yet. Run a workflow with `context:` configured in .lattice/budget.yaml.');
+    return;
+  }
+
+  const config = loadBudgetConfig(cwd)?.context;
+  console.log('CONTEXT-ROT TELEMETRY');
+  console.log('='.repeat(80));
+  if (config) {
+    console.log(`Window: ${fmtK(config.windowSize)} tok | warn ${pct(config.warnThreshold ?? 0.6)} | block ${pct(config.blockThreshold ?? 0.8)}`);
+  } else {
+    console.log('No context config in .lattice/budget.yaml — utilization computed against zero (treat as advisory).');
+  }
+  console.log('');
+  console.log(`Showing last ${entries.length} entries (most recent last)`);
+  console.log('');
+
+  let peak = 0;
+  let warns = 0;
+  let blocks = 0;
+  for (const e of entries) {
+    if (e.utilization > peak) peak = e.utilization;
+    if (e.level === 'warn') warns++;
+    if (e.level === 'block') blocks++;
+    const tag = e.level === 'block' ? '[ROT]' : e.level === 'warn' ? '[WARN]' : '     ';
+    const ts = e.ts.split('T')[1]?.slice(0, 8) ?? e.ts;
+    console.log(`  ${tag} ${ts}  ${e.workflow.padEnd(20)} ${e.node.padEnd(25)} ${pct(e.utilization).padStart(5)}  ${fmtK(e.inputTokens)} tok in`);
+  }
+
+  console.log('');
+  console.log(`Peak utilization: ${pct(peak)}  |  warnings: ${warns}  |  rot-blocks: ${blocks}`);
+}
+
+function pct(ratio: number): string {
+  return `${Math.round(ratio * 100)}%`;
+}
+
 // ── Helpers ─────────────────────────────────────────────────
 
 function duration(start: string, end?: string): string {
@@ -636,6 +685,9 @@ switch (command) {
   case 'cost':
     cmdCost();
     break;
+  case 'context':
+    cmdContext();
+    break;
   default:
     console.log('Lattice Executor v0.1.0\n');
     console.log('Commands:');
@@ -646,10 +698,12 @@ switch (command) {
     console.log('  lattice status                           Portfolio overview + coherence summary');
     console.log('  lattice coherence [topic] [--skip-reconcile]');
   console.log('                                           Full conflict analysis; --skip-reconcile when status was just run');
-    console.log('  lattice autopilot [--dry-run] [--loop] [--max N] [--filter PATTERN]');
+    console.log('  lattice autopilot [--dry-run] [--loop] [--max N] [--max-loops N] [--filter PATTERN]');
     console.log('                                           Advance safe topics, batch human decisions');
+    console.log('                                           --max-loops caps outer-loop iterations (default 50, LIT-10)');
     console.log('  lattice e2e run [--base main]             Branch-comparison E2E testing gate');
     console.log('  lattice e2e classify [--base main]        Testability classification');
     console.log('  lattice cost [topic]                      Per-topic cost report');
+    console.log('  lattice context [--last N]                Context-rot telemetry (LIT-09)');
     process.exit(command ? 1 : 0);
 }

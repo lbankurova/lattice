@@ -21,3 +21,21 @@ per_topic: 40.00
 # Fraction of budget at which to emit a warning (0-1).
 # Default: 0.8 (warn at 80% of any limit).
 alert_threshold: 0.8
+
+# Context-rot monitoring (LIT-09).
+# Detects when a single Claude invocation crosses meaningful context
+# utilization. The signal is per-call, distinct from cumulative USD spend:
+# a workflow can stay under USD budget and still rot when individual calls
+# saturate the context window, which is when autopilot decisions degrade
+# silently. Block-level rot stops the workflow with a "fresh agent / /clear"
+# suggestion. Cache reads are not counted against utilization.
+#
+# Window-size guidance:
+#   200000   Claude Sonnet 4.6 / Opus 4.6 (default 200K)
+#   1000000  Claude Opus 4.7 (1M context) — use this when running on Opus
+#
+# Uncomment to enable.
+# context:
+#   window_size: 1000000
+#   warn_threshold: 0.6   # log a warning at 60% utilization
+#   block_threshold: 0.8  # stop workflow at 80% utilization

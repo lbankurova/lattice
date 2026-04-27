@@ -190,17 +190,57 @@ export interface BudgetConfig {
   perNode?: Record<string, number>;
   /** Fraction of budget at which to warn (0-1, default 0.8) */
   alertThreshold?: number;
+  /** Context-rot monitoring (LIT-09). Per-call input-token utilization vs window. */
+  context?: ContextConfig;
+}
+
+/**
+ * Context-rot monitoring config. Tracks per-call input-token utilization vs
+ * the model's context window — the rot signal is "this single call used N% of
+ * its window", which the USD-cost path doesn't surface.
+ */
+export interface ContextConfig {
+  /** Model context window size in tokens (e.g., 200000 for Sonnet, 1000000 for Opus 4.7). */
+  windowSize: number;
+  /** Utilization fraction at which to warn (0-1, default 0.6). */
+  warnThreshold?: number;
+  /** Utilization fraction at which to block (0-1, default 0.8). */
+  blockThreshold?: number;
 }
 
 export type AlertLevel = 'info' | 'warn' | 'block';
 
 export interface BudgetAlert {
   level: AlertLevel;
-  scope: 'node' | 'workflow' | 'topic';
+  /** 'context' alerts use tokenSpent/tokenLimit/utilization instead of spentUSD/limitUSD. */
+  scope: 'node' | 'workflow' | 'topic' | 'context';
   label: string;
-  spentUSD: number;
-  limitUSD: number;
+  /** USD-scope alerts only; undefined for context-scope. */
+  spentUSD?: number;
+  /** USD-scope alerts only; undefined for context-scope. */
+  limitUSD?: number;
+  /** Context-scope alerts only: input tokens used by the call. */
+  tokensSpent?: number;
+  /** Context-scope alerts only: model context-window size. */
+  tokenLimit?: number;
+  /** Context-scope alerts only: tokensSpent / tokenLimit. */
+  utilization?: number;
   message: string;
+}
+
+/**
+ * One row of context-rot telemetry, persisted as JSONL to
+ * .lattice/context-telemetry.jsonl. One row per skill-node call.
+ */
+export interface ContextTelemetryEntry {
+  ts: string;
+  workflow: string;
+  node: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens?: number;
+  utilization: number;
+  level: AlertLevel | 'ok';
 }
 
 // ── Adapter interface (CLI now, Slack/web later) ────────────

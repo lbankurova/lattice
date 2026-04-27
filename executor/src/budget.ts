@@ -3,14 +3,25 @@
  *
  * Config lives in .lattice/budget.yaml per project.
  * Alerts: info (log), warn (user message), block (stop workflow).
+ *
+ * Also covers context-rot monitoring (LIT-09): per-call input-token
+ * utilization vs the model's context window. The rot signal is "this single
+ * call used N% of its window" — distinct from cumulative USD spending. When
+ * autopilot decisions degrade silently, rot is the proximate cause; this
+ * module surfaces it as a first-class alert.
  */
 
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, appendFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import yaml from 'js-yaml';
-import type { BudgetConfig, BudgetAlert, WorkflowCost } from './types.js';
+import type {
+  BudgetConfig, BudgetAlert, WorkflowCost, ContextConfig, ContextTelemetryEntry, AlertLevel,
+} from './types.js';
 
 const DEFAULT_ALERT_THRESHOLD = 0.8;
+const DEFAULT_CONTEXT_WARN = 0.6;
+const DEFAULT_CONTEXT_BLOCK = 0.8;
+const TELEMETRY_PATH = '.lattice/context-telemetry.jsonl';
 
 // ── Config loading ─────────────────────────────────────────
 
@@ -34,10 +45,23 @@ export function loadBudgetConfig(cwd: string): BudgetConfig | null {
       alertThreshold: typeof data['alert_threshold'] === 'number'
         ? data['alert_threshold']
         : undefined,
+      context: parseContextConfig(data['context']),
     };
   } catch {
     return null;
   }
+}
+
+function parseContextConfig(val: unknown): ContextConfig | undefined {
+  if (!val || typeof val !== 'object') return undefined;
+  const obj = val as Record<string, unknown>;
+  const windowSize = obj['window_size'];
+  if (typeof windowSize !== 'number' || windowSize <= 0) return undefined;
+  return {
+    windowSize,
+    warnThreshold: typeof obj['warn_threshold'] === 'number' ? obj['warn_threshold'] : undefined,
+    blockThreshold: typeof obj['block_threshold'] === 'number' ? obj['block_threshold'] : undefined,
+  };
 }
 
 function parseNumberRecord(val: unknown): Record<string, number> | undefined {
@@ -165,6 +189,107 @@ export function checkTopicBudget(
   return alerts;
 }
 
+// ── Context-rot monitoring (LIT-09) ────────────────────────
+
+/**
+ * Check a single call's input-token utilization against the configured context
+ * window. Returns alerts when utilization crosses warn/block thresholds.
+ *
+ * The signal is per-call, not cumulative. A workflow can spend $5 (low) and
+ * still rot if any single call used 90% of its context window — that's where
+ * autopilot decisions degrade silently. Cache reads are not counted toward
+ * utilization (they don't dilute attention the same way fresh input does).
+ */
+export function checkContextUtilization(
+  nodeId: string,
+  inputTokens: number,
+  config: ContextConfig,
+): BudgetAlert[] {
+  const alerts: BudgetAlert[] = [];
+  const utilization = inputTokens / config.windowSize;
+  const warnAt = config.warnThreshold ?? DEFAULT_CONTEXT_WARN;
+  const blockAt = config.blockThreshold ?? DEFAULT_CONTEXT_BLOCK;
+
+  if (utilization >= blockAt) {
+    alerts.push({
+      level: 'block',
+      scope: 'context',
+      label: nodeId,
+      tokensSpent: inputTokens,
+      tokenLimit: config.windowSize,
+      utilization,
+      message: `Node "${nodeId}" used ${pct(utilization)} of context window (${fmtK(inputTokens)}/${fmtK(config.windowSize)} tok); attention degradation likely. Suggest fresh agent or /clear.`,
+    });
+  } else if (utilization >= warnAt) {
+    alerts.push({
+      level: 'warn',
+      scope: 'context',
+      label: nodeId,
+      tokensSpent: inputTokens,
+      tokenLimit: config.windowSize,
+      utilization,
+      message: `Node "${nodeId}" used ${pct(utilization)} of context window (${fmtK(inputTokens)}/${fmtK(config.windowSize)} tok); approaching rot threshold.`,
+    });
+  }
+
+  return alerts;
+}
+
+/**
+ * Append one telemetry entry to .lattice/context-telemetry.jsonl. Used for
+ * post-hoc inspection (CLI `lattice context`) and to give the autopilot loop
+ * a record it can reason from.
+ *
+ * Note: log grows unbounded today. Rotation/retention is future work — when
+ * the file exceeds a practical inspection window (~10 MB), add a rotate step.
+ */
+export function appendContextTelemetry(cwd: string, entry: ContextTelemetryEntry): void {
+  const path = resolve(cwd, TELEMETRY_PATH);
+  try {
+    appendFileSync(path, JSON.stringify(entry) + '\n', 'utf-8');
+  } catch {
+    // Telemetry is best-effort — never fail a workflow because we couldn't write a log line.
+  }
+}
+
+/**
+ * Read the last N entries from the telemetry log (most recent last).
+ * Returns [] if no log exists or it cannot be parsed.
+ */
+export function readContextTelemetry(cwd: string, lastN = 50): ContextTelemetryEntry[] {
+  const path = resolve(cwd, TELEMETRY_PATH);
+  if (!existsSync(path)) return [];
+  try {
+    const lines = readFileSync(path, 'utf-8').trim().split('\n');
+    const slice = lines.slice(-lastN);
+    const out: ContextTelemetryEntry[] = [];
+    for (const line of slice) {
+      if (!line) continue;
+      try {
+        out.push(JSON.parse(line) as ContextTelemetryEntry);
+      } catch { /* skip malformed line */ }
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+/**
+ * Classify utilization into a level for telemetry rows. Mirrors checkContextUtilization
+ * thresholds so the JSONL log is self-consistent with the live alerts.
+ */
+export function classifyUtilization(
+  utilization: number,
+  config: ContextConfig,
+): AlertLevel | 'ok' {
+  const warnAt = config.warnThreshold ?? DEFAULT_CONTEXT_WARN;
+  const blockAt = config.blockThreshold ?? DEFAULT_CONTEXT_BLOCK;
+  if (utilization >= blockAt) return 'block';
+  if (utilization >= warnAt) return 'warn';
+  return 'ok';
+}
+
 // ── Cost from state file ───────────────────────────────────
 
 /**
@@ -189,8 +314,12 @@ export function readTopicCost(statePath: string): number {
 // ── Formatting ─────────────────────────────────────────────
 
 export function formatAlert(alert: BudgetAlert): string {
-  const icon = alert.level === 'block' ? 'BUDGET EXCEEDED' :
-               alert.level === 'warn' ? 'BUDGET WARNING' : 'COST';
+  const isContext = alert.scope === 'context';
+  const icon = alert.level === 'block'
+    ? (isContext ? 'CONTEXT ROT' : 'BUDGET EXCEEDED')
+    : alert.level === 'warn'
+      ? (isContext ? 'CONTEXT WARNING' : 'BUDGET WARNING')
+      : 'COST';
   return `[${icon}] ${alert.message}`;
 }
 
