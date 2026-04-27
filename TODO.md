@@ -153,14 +153,105 @@
 - **Where:** TBD (likely an MCP server or `.claude/settings.json` hook integration)
 - **Source:** prior conversation (deferred without scope)
 
-### LIT-DS-GAP: Design-system axis literature pass (gap)
-- **Tier:** placeholder
-- **What:** Lattice has design-system tooling (`commands/lattice/ux-audit-walk/validate/file`, `ux-designer`, `design.md`, sendex's `.claude/rules/design-decisions.md`, audit-checklist) but no formal "literature notes" for design-system sources (Material guidelines, Tailwind philosophy, Datagrok plugin design, design-system books, etc.). The 11 items above came from dev-framework literature; design-system items would come from a separate corpus pass.
-- **Where:** new entries in `docs/literature/` once design-system sources are picked
-- **When:** TBD — when sendex's design-system specifics solidify enough to know which literature is relevant.
-- **Note:** Placeholder so the gap is visible. Not a blocker on the 11 items above.
+### ~~LIT-DS-GAP: Design-system axis literature pass~~ — RESOLVED 2026-04-26
+- **Status:** Resolved by four literature notes ([`frost-atomic-design.md`](docs/literature/frost-atomic-design.md), [`ibm-carbon-design-system.md`](docs/literature/ibm-carbon-design-system.md), [`appleton-pattern-languages.md`](docs/literature/appleton-pattern-languages.md), [`datagrok-platform-docs.md`](docs/literature/datagrok-platform-docs.md)) plus the **Design-system backlog** section below. The 4 sources cover: design-system primer (Frost), large-scale shipped instance (Carbon), opinionated tools-for-thought framing (Appleton), and the actual plugin-migration target (Datagrok). The README scope line was extended to formally include design-system reading.
 
 #### Considered and rejected (audit trail)
 
 - **Translate-don't-copy enforcement at `/lattice:synthesize`** — convention is followed by Claude already; no observed failure mode. Adding enforcement is solving a non-problem.
 - **`/lattice:milestone-retrospective` skill** — cycle-close + `/ops:sweep` cover the same ground at finer granularity. No named milestone-level failure pattern justifies the new skill.
+
+---
+
+## Design-system Backlog
+
+> Items derived from cross-checking `docs/literature/` design-system source notes (Frost, Carbon, Appleton, Datagrok) against current sendex/lattice design-system state. Scope is design-system / UI-quality / plugin-migration axes.
+>
+> **Value axes** (the dev-framework axes, adapted for the design surface) each item must defend itself against:
+> - **design-consistency** (analog of *science*) — UI surfaces match the documented design system; visual claims are testable; bad patterns get retracted not silently kept
+> - **analytical-fitness** (analog of *code*) — UI helps the toxicologist reach correct conclusions; doesn't mislead through visual choices, accessibility gaps, or migration debt
+> - **autopilot** — design-related autonomous changes (UX-audit walks, design-pass implementations) don't introduce regressions; lint signals exist for design drift
+> - **knowledge** — design-system docs (audit-checklist, design-decisions tables, view specs, viewer-migration map) stay authoritative and grep-able
+>
+> Tier 1 = pulls 2+ axes. Tier 2 = strong single axis. Tier 3 = autopilot leverage. Tier 4 = situational. Items rejected on value grounds are listed at the bottom for audit trail.
+
+### LIT-DS-01: Accessibility-as-gate in audit-checklist
+- **Tier:** 1 — design-consistency + analytical-fitness (largest unaddressed Carbon principle in sendex)
+- **What:** Add an `A11Y` section to `docs/_internal/design-system/audit-checklist.md` with WCAG 2.1 AA rules: keyboard navigation completeness, focus-visible on every interactive element, ARIA roles on charts (or text-table fallback), color-contrast ratios on charts, screen-reader label coverage on icon buttons. Today's 79 rules are entirely visual; this is a real coverage gap, not aesthetic. Start with a minimum set (~10 rules) and grow from observed failures.
+- **Where:** `docs/_internal/design-system/audit-checklist.md` (new `A11Y` section), reference from `commands/lattice/ux-designer.md` audit protocol
+- **Source:** ibm-carbon-design-system (accessibility-as-gate is a first-class Carbon principle)
+- **Defer trigger:** if audit-checklist visual rules are still drifting (refute rate >15% at validate stage), close the visual gap first.
+
+### LIT-DS-02: Datagrok viewer-migration map
+- **Tier:** 1 — design-consistency + knowledge (preserves the plugin-migration path per `MEMORY.md` `project_datagrok_target.md`)
+- **What:** A single table in `docs/_internal/design-system/datagrok-migration-map.md` mapping each sendex chart component to its Datagrok-viewer migration target (or "custom viewer" if no platform equivalent). Includes interaction parity notes (e.g., violet-tint right-click affordance has no Datagrok analog). Produced by the `dg-developer` skill.
+- **Where:** new `docs/_internal/design-system/datagrok-migration-map.md`; `dg-developer` skill produces and refreshes it
+- **Source:** datagrok-platform-docs (the strategic implication of plugin-migration target)
+- **Why now:** design changes that increase migration cost are cheap to revert before the migration milestone, expensive after. The map turns implicit migration debt into a visible quantity.
+
+### LIT-DS-03: Canonical fixture-page baselines
+- **Tier:** 1 — autopilot + knowledge (lint signal for design drift on the most-walked workflows)
+- **What:** A small set of "this is the NOAEL workflow page on PointCross" reference renders, captured by Playwright at known viewport sizes (1920x1080, 2560x1440), stored next to the workflow audit. Drift between the catalogue and these baselines becomes a lint signal — autopilot can flag "the canonical NOAEL page changed visually since the last baseline" for human review.
+- **Where:** extend `docs/_internal/audits/workflow-audits/{persona}-{workflow}/baselines/` (or similar); regen step in cycle-close
+- **Source:** frost-atomic-design (pages stress the system; pages are the canonical reference where library meets reality)
+- **Cross-ref:** integrates with the existing `commands/lattice/ux-audit-walk.md` Playwright pipeline.
+
+### LIT-DS-04: Positive-form component catalogue
+- **Tier:** 2 — knowledge (today's catalogue is in negation-form via Rule 6 "use this / not this"; positive form makes the inventory grep-able)
+- **What:** A `docs/_internal/design-system/component-catalogue.md` listing every reusable component with: one-line role, dimensions / viewport budget, props summary, reference screenshot, linked audit-checklist rule IDs, "do/don't" example pair. The Carbon-style component bundle, scaled down for sendex's component count (~30).
+- **Where:** new `docs/_internal/design-system/component-catalogue.md`
+- **Source:** frost-atomic-design (library-is-the-deliverable in positive form), ibm-carbon-design-system (per-component bundle)
+- **Note:** overlaps with Frost's "tier vocabulary" item (LIT-DS-08) and Carbon's "per-component pages" — treat as a single deliverable with two motivations.
+
+### LIT-DS-05: "Forces" + "Examples" columns on critical-tier audit-checklist rules
+- **Tier:** 2 — knowledge (rules become pattern-language entries with full Alexander schema)
+- **What:** For the Critical-severity rules in audit-checklist (C-01..C-05, the casing rules, the dose-label tier rules — not all 79), add a **Forces** column ("why does this tension exist?") and an **Examples** column ("real PR or commit where this rule was violated, and the fix"). Today's rule rows have name + test + use/don't-use; the missing pieces (forces, examples) are what let an agent know when the rule binds and when it doesn't.
+- **Where:** `docs/_internal/design-system/audit-checklist.md` Critical-severity rows
+- **Source:** appleton-pattern-languages (Alexander pattern schema: name + problem + forces + solution + examples + related)
+- **Defer trigger:** only land for rules that have been refuted ≥2 times at the validate stage — the refute is the empirical signal that "forces" needs to be explicit.
+
+### LIT-DS-06: Pattern-language graph renderer
+- **Tier:** 2 — knowledge (orphan-rule and cycle detection across the design-decisions / audit-checklist cross-refs)
+- **What:** A small script that parses `.claude/rules/design-decisions.md` and `docs/_internal/design-system/audit-checklist.md`, extracts every "see X-NN" reference, and emits a DOT graph or markdown edge-table. Surfaces orphan rules (no inbound edges, no outbound edges) and rule cycles. Run as part of cycle-close or `/lattice:lint-knowledge`.
+- **Where:** `scripts/render-design-pattern-graph.py` (or similar); regen step in cycle-close or extension of `/lattice:lint-knowledge`
+- **Source:** appleton-pattern-languages (a pattern *language* is graph-shaped; rendering exposes structure)
+- **Defer trigger:** wait until a real failure mode (an orphan rule that should have been linked, a contradictory pair) actually surfaces — premature otherwise.
+
+### LIT-DS-07: `migration-cost` column on audit-checklist
+- **Tier:** 3 — autopilot + knowledge (autopilot can pre-screen design changes against migration cost)
+- **What:** Each audit-checklist rule that references a sendex-specific affordance (violet column tint, `OverridePill`, custom rail split, etc.) gets a `migration-cost: low/med/high` tag. Rules with `high` migration cost get extra scrutiny when the rule is being added or strengthened — autopilot can warn "this rule increases coupling to a non-Datagrok-portable affordance." Mostly mechanical to add once LIT-DS-02 (viewer-migration map) is in place.
+- **Where:** `docs/_internal/design-system/audit-checklist.md` (new column); autopilot reads it during design-rule changes
+- **Source:** datagrok-platform-docs (preserve migration path per `project_datagrok_target.md`)
+- **Depends on:** LIT-DS-02 — the migration-cost classifier needs the migration map as ground truth.
+
+### LIT-DS-08: Tier vocabulary (atom / molecule / organism / template) in design-decisions.md
+- **Tier:** 4 — situational; conditional on multi-frontend reuse becoming real
+- **What:** Add a one-row table at the top of `.claude/rules/design-decisions.md` mapping the four sendex tiers (token, component, view-section, view) to Frost's atom/molecule/organism/template names. Cost is a few lines of doc; benefit lands when (and only when) a second frontend project starts sharing components with sendex.
+- **Where:** `.claude/rules/design-decisions.md` header
+- **Source:** frost-atomic-design (shared lexicon at the molecule / organism level)
+- **Skip if:** sendex remains a single-frontend project. Re-evaluate at Datagrok plugin migration kickoff.
+
+### LIT-DS-09: Semantic-role token aliases
+- **Tier:** 4 — situational; conditional on Datagrok-migration kickoff or a second theme requirement
+- **What:** Add a parallel role-based token layer (`--surface-1` / `--surface-2` / `--text-primary` / `--text-secondary`) alongside the value-based tokens (`--background`, `--muted`). Keeps backwards compat; future theme swaps re-bind the role-based layer rather than touching components.
+- **Where:** `frontend/src/index.css`, `frontend/src/lib/design-tokens.ts`
+- **Source:** ibm-carbon-design-system (role-based token naming is what makes Carbon's themes swap cleanly)
+- **Skip if:** no theme swap is on the roadmap. Speculative addition violates the spirit of CLAUDE.md rule 13.
+
+### LIT-DS-10: Lineage citation in datagrok-app-design-patterns.md
+- **Tier:** 4 — situational; one-paragraph cosmetic edit, low-cost
+- **What:** A one-paragraph "Lineage" section in `docs/_internal/design-system/datagrok-app-design-patterns.md` naming Alexander → Tufte → Appleton, with a one-sentence statement of why this lineage matters (tools, not media; patterns, not rules; analytical value over engagement). Cost: a paragraph. Benefit: future agents have a citation when justifying rejection of consumer-app conventions.
+- **Where:** `docs/_internal/design-system/datagrok-app-design-patterns.md`
+- **Source:** appleton-pattern-languages (lineage citation makes rejections of consumer-app conventions defensible by reference rather than re-derivation)
+- **Defer trigger:** only land when an agent has actually re-derived a rejected consumer-app convention twice and lacked a citation to point to. Cosmetic until then.
+
+#### Considered and rejected (design-system audit trail)
+
+- **Storybook / interactive component preview surface.** Carbon and Frost both implicitly recommend this. Sendex has the audit-checklist + design-decisions tables instead. Storybook is high-overhead for a single-frontend project where every component is exercised by real views every dev session. Re-evaluate only at multi-plugin reuse.
+- **Multi-framework component implementations (React + Web Components + Vue + Angular per Carbon).** Sendex is React-only; even at Datagrok-plugin migration time, the platform JS API is the integration surface, not multi-framework component code. Designing for a consumer that doesn't exist.
+- **Sendex-internal React component library aimed at external plugin reuse.** Datagrok plugins are not React component consumers. Same "consumer that doesn't exist" rejection.
+- **Maximalist pattern-language graph (every rule references every related rule).** High edge-density renders the graph unreadable. Sendex's current sparse cross-referencing (1–2 outbound edges per rule) is the right density.
+- **Pre-emptive migration of any sendex view to Datagrok viewers before the migration milestone.** Speculative platform-port slows current analytical work without delivering value. Forward-port is as bad as backward-defer per CLAUDE.md rule 13's spirit.
+- **Treating Datagrok platform conventions as binding design rules today.** The active design system is sendex's own (audit-checklist + design-decisions). Datagrok conventions become binding *at* migration; importing them now would mean enforcing rules whose semantics aren't yet operational.
+- **Figma-as-source-of-truth.** Sendex's authoritative design representation is markdown (audit-checklist + design-decisions tables). Adding Figma creates a synchronisation problem (two editable sources, drift inevitable). Carbon's Figma libraries solve a problem sendex doesn't have (designers who don't read code).
+- **Multi-theme system (light / dark / contrast / branded) speculatively.** Sendex is single-theme by deliberate choice — analytical viewing environments are well-lit and the saturated-color budget assumes a light substrate. Reconsider only at Datagrok migration when host-platform theming becomes a real constraint.

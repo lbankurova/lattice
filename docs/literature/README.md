@@ -1,6 +1,6 @@
 # Literature & Borrow Registry — Lattice Framework
 
-Authoritative record of external sources lattice has read, evaluated, and either borrowed from or explicitly rejected. **Scope: dev-framework / methodology / agent-system reading.** Sendex-domain reading (regulatory, toxicology, HCD, statistical methods) lives in `C:/pg/pcc/docs/_internal/research/literature/`.
+Authoritative record of external sources lattice has read, evaluated, and either borrowed from or explicitly rejected. **Scope: dev-framework / methodology / agent-system reading, plus design-system reading that informs lattice tooling (`/lattice:design`, `/lattice:ux-audit-*`, `ux-designer`) and sendex's plugin-migration target.** Sendex-domain reading (regulatory, toxicology, HCD, statistical methods) lives in `C:/pg/pcc/docs/_internal/research/literature/`.
 
 The deck slide "Built on the shoulders of" (`lattice-deck.html`) is the public-facing summary; this directory is the maintained source of truth.
 
@@ -74,6 +74,10 @@ Depth varies. Two-paragraph stubs are fine for sources we've fully extracted fro
 | [GSD](gsd.md) | framework | 2026-04-26 (full) | partial | Pause/resume handoff borrowed. Single-cadence mandate, plan-level wave decomposition, and checkpoint-UAT explicitly rejected (lattice has classified dispatch + escalation-based HITL) |
 | [karpathy/llm-wiki](karpathy-llm-wiki.md) | gist | 2026-04-26 | evaluating | Three-layer wiki implemented; lint / gap-driven autopilot / query-promotion are proposed (not yet implemented) |
 | [Ahrens — How to Take Smart Notes](ahrens-smart-notes.md) | book | 2026-04-26 | evaluating | Literature-notes layer + translate-don't-copy implemented; bottom-up emergence and atomicity are proposed (HCD dogfood test underway) |
+| [Frost — Atomic Design](frost-atomic-design.md) | book | 2026-04-26 | partial | Library-as-product discipline at the utility layer + reference-component pattern + pages-stress-the-system loop borrowed; tier vocabulary, component catalogue, fixture-page baselines proposed |
+| [IBM — Carbon Design System](ibm-carbon-design-system.md) | framework | 2026-04-26 | partial | Tokens-as-contract + documented-decisions-with-tests + governance gate borrowed; accessibility-as-gate, semantic-role token aliases, per-component reference pages proposed (a11y is the largest unaddressed Carbon principle) |
+| [Appleton — Pattern Languages](appleton-pattern-languages.md) | post | 2026-04-26 | evaluating | Tools-for-thought stance + pattern-language form + bad-pattern retraction discipline borrowed (load-bearing in CLAUDE.md product thesis); pattern-language graph renderer, "Forces"/"Examples" columns, lineage citation proposed |
+| [Datagrok — Platform Docs](datagrok-platform-docs.md) | framework | 2026-04-26 | evaluating | Persona model + token-isolated theming + ECharts-as-default borrowed; viewer-migration map, `migration-cost` column on audit-checklist, `dg-developer` skill reference proposed (sendex's plugin-migration target — every design decision must preserve migration path) |
 
 ## Adding an entry
 
