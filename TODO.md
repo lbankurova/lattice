@@ -66,6 +66,8 @@
 > Tier 1 = pulls 2+ axes. Tier 2 = strong single axis. Tier 3 = autopilot leverage. Tier 4 = situational. Items rejected on value grounds are listed at the bottom for audit trail.
 >
 > **Known gap:** the design-system axis (sendex's `.claude/rules/design-decisions.md`, audit-checklist, ux-audit pipeline) has no literature-notes corpus yet. Tracked as `LIT-DS-GAP` below.
+>
+> **Adjacency to lattice-framework-redesign-spec (2026-04-26):** the parallel framework-redesign work at `pcc/docs/_internal/incoming/lattice-framework-redesign-spec.md` (and its diagnosis at `pcc/docs/_internal/research/lattice-framework-defects-and-redesign.md`) covers 8 features (F1-F8) derived from analyzing actual project bug history. Several LIT items are subsumed or adjacent: LIT-02 → SUBSUMED by F1; LIT-06 → narrowed (F2 covers analytical code; LIT-06 retained for non-analytical scope); LIT-07 → distinct from F6 (Nyquist density vs pattern propagation). LIT items orthogonal to the redesign spec (LIT-01, 03, 04, 05, 09, 10, 11, 12, DS-GAP) remain as-is.
 
 ### LIT-01: Expand `/lattice:lint-knowledge` to content-drift checks
 - **Tier:** 1 — science + autopilot
@@ -74,11 +76,10 @@
 - **Source:** karpathy-llm-wiki (lint operation), ahrens-smart-notes (future-reader, atomicity)
 - **Note:** The shipped 2026-04-26 `/lattice:lint-knowledge` is the starter; this is the version the typed-knowledge-graph-spec actually anticipates.
 
-### LIT-02: Generalize typed-knowledge-graph beyond HCD
-- **Tier:** 2 — science + code (conditional on registry discovery)
-- **What:** Apply the typed-knowledge-graph-spec pattern to other registries that have multi-dim scope + downstream consumers. Candidate registries: syndrome rules (XS01-XS10), FCT bands (BFIELD-21-style enum drift case), regulatory thresholds. Pre-work: 30-min discovery pass to confirm 2-3 registries justify the schema overhead — could end up "no, contract-triangles already covers this".
-- **Where:** `docs/_internal/knowledge/<domain>-graph.md` per registry, schema authority `docs/_internal/architecture/typed-knowledge-graph-spec.md`
-- **Source:** ahrens-smart-notes (atomicity for graph nodes), karpathy-llm-wiki (typed edges)
+### ~~LIT-02: Generalize typed-knowledge-graph beyond HCD~~ — SUBSUMED 2026-04-26
+- **Status:** Subsumed by F1 (Domain-truth oracle) in `pcc/docs/_internal/incoming/lattice-framework-redesign-spec.md`. F1 is the broader, deeper version: extends knowledge-graph schema for regulatory expectations, gate criteria, aggregation policy, direction constraints, plus a `query-knowledge.py` interface. Implementing agent owns this work.
+- **Original scope (preserved for audit):** Apply typed-knowledge-graph pattern to syndrome rules / FCT bands / regulatory thresholds. Pre-work would have been a 30-min discovery pass; the spec's F1 already settled the discovery — answer is "yes, multiple registries justify it."
+- **Source:** ahrens-smart-notes, karpathy-llm-wiki
 
 ### LIT-03: `/lattice:autopilot --discover` mode
 - **Tier:** 3 — autopilot leverage
@@ -98,19 +99,20 @@
 - **Where:** `commands/lattice/distill.md`
 - **Source:** karpathy-llm-wiki (query → wiki promotion)
 
-### LIT-06: TDD-for-non-scientific-code decision memo
+### LIT-06: TDD-for-non-scientific-code decision memo (narrowed 2026-04-26)
 - **Tier:** 2 — code quality
-- **What:** Output is a **decision memo, not code**. Question: should non-scientific code (UI, plumbing, frontend) mandate TDD or test-first? Validation ratchet doesn't catch UI/plumbing regressions (cross-surface NOAEL display inconsistency, missing formatter exports, panel layout bugs are recent examples). Memo decides scope and adds a rule, or chooses not to.
+- **Status:** Partially subsumed by F2 (Property-based testing) in `pcc/docs/_internal/incoming/lattice-framework-redesign-spec.md`. F2 covers **analytical functions only**. TDD scope for UI / plumbing / frontend / non-analytical code remains open. This LIT item narrows to that residual scope.
+- **What (residual):** Decision memo deciding whether non-analytical code (React components, utility functions, plumbing modules) should mandate test-first. The argument for: cross-surface NOAEL display inconsistency, missing formatter exports, panel layout bugs were not analytical defects but still scientific-display defects. The argument against: dilutes effort vs. F2's deeper coverage on the analytical core. Memo lands the call.
 - **Where:** `.lattice/decisions.log` + possibly new rule in `CLAUDE.md` / scaffold
-- **Source:** obra-superpowers (TDD as universal practice — open question)
-- **Cross-ref:** bug-protocol agent
+- **Source:** obra-superpowers (TDD as universal practice — open question, partially answered for analytical code by F2)
 
-### LIT-07: Nyquist-auditor analog
+### LIT-07: Nyquist-auditor analog (distinct from F6, retained 2026-04-26)
 - **Tier:** 1 — science + bug-protocol cross-ref
-- **What:** After a bug fix, ask whether the validation suite density would have caught the bug pre-emptively. "Are tests dense enough on this code path that we'd have caught the failure structurally, not by accident?" Pairs with `/ops:bug-stress` (stress-test the pattern across downstream subsystems) or extends it.
-- **Where:** Either new `commands/lattice/audit-coverage.md` skill OR extension of `ops:bug-stress` — coordinate with bug-protocol agent on placement
+- **Status:** Adjacent to F6 (Bug-pattern propagation) in `pcc/docs/_internal/incoming/lattice-framework-redesign-spec.md` but **distinct**. F6 enforces propagation of a known fix across same-pattern code paths. Nyquist asks the upstream question: *"are tests dense enough on this code path that we'd catch the failure structurally, not by accident?"* — i.e., is validation-suite density sufficient on this surface, regardless of whether a known pattern exists. Both questions matter. LIT-07 retained as a separate item.
+- **What:** After a bug fix, run a coverage-density audit on the affected analytical surface. Report whether existing tests/properties would have caught the bug class pre-emptively, and if not, what's missing.
+- **Where:** Either new `commands/lattice/audit-coverage.md` skill OR extension of `ops:bug-stress` — coordinate with the redesign-spec implementing agent on placement (F2 property catalog is the natural intersection point).
 - **Source:** gsd (`gsd-nyquist-auditor` — sampling-adequacy of evals)
-- **Cross-ref:** bug-protocol agent (this item is the natural complement to "fix bugs better")
+- **Cross-ref:** lattice-framework-redesign-spec F2 + F6 (distinct but neighborhood)
 
 ### LIT-08: `/lattice:extract-learnings` skill
 - **Tier:** 2 — knowledge integrity
