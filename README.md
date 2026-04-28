@@ -21,7 +21,7 @@ LLM-assisted development framework for exploratory development of scientific app
 
 ```
 lattice/
-  CLAUDE.md                     # Framework rules (17) + operational docs
+  CLAUDE.md                     # Framework rules (19) + operational docs
   WORKFLOW.md                   # Pipeline diagram, phase transitions, skill list
   WORKFLOW-INTERNALS.md         # Executor, autopilot, coherence, peer-review protocol
   ENFORCEMENT.md                # Review gate, ratchet, hooks, structural gates
@@ -191,7 +191,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the pipeline and skill list, [WORKFLOW-INTERN
 
 ## Hard Rules (CLAUDE.md)
 
-18 process rules that apply to every task:
+19 process rules that apply to every task:
 
 | # | Rule | Why |
 |---|------|-----|
@@ -211,6 +211,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the pipeline and skill list, [WORKFLOW-INTERN
 | 16 | Verify empirical claims against actual data | Don't infer from code -- read the output |
 | 17 | **Spec value audit before build** | Catch featuritis: per-feature frequency, workaround, and impact required before architect review signs off |
 | 18 | **Algorithm defensibility on real data** | When the diff modifies (or consumes the output of) NOAEL / scoring / classification / syndrome detection / severity / onset code, review must run the algorithm on PointCross + one other study, record the actual output, and answer "would a regulatory toxicologist agree this represents the data?" with citation to the driving values. Spec-vs-code consistency is not enough. SCIENCE-FLAG raised by any review agent only clears via fix, data-grounded counter-evidence in this format, or explicit user defer with named dependency — plumbing-only rebuttals do NOT clear it. Exemplar: BUG-031 (2026-04-26). |
+| 19 | **Atomic facts must live in the typed knowledge graph** | Numeric thresholds, species-specific baselines, route/vehicle constraints, regulatory cutoffs, mechanistic disable-markers MUST live in `docs/_internal/knowledge/knowledge-graph.md` as typed YAML facts (with `value`, `confidence`, `scope`, `derives_from`, `contradicts`). Un-typed registries cite the fact ID rather than restating the value. Why: only the typed graph audits contradictions mechanically; the same claim authored as prose in two un-typed files can silently disagree. Architect Step 1.4 (spec lint) and peer-review (synthesis tier) ask the placement question on algorithmic specs. |
 
 ## Research Quality Controls
 

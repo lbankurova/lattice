@@ -43,6 +43,8 @@ Run the standard review structure (Sections 1-7 below) focused on:
 
 **Also run the Spec Value Audit** (`docs/_internal/checklists/SPEC-VALUE-AUDIT.md`) per-feature — focus on questions 1 ("what concrete user problem does this solve?"), 2 ("evidence of frequency"), and 4 ("downstream impact when unfixed"). Challenge feature claims from a domain-expert lens: "You claim X is a problem — how often does it actually happen in a real study? What breaks if it goes unfixed?" Features that can't survive these challenges are findings in their own right (CONDITIONAL or FLAWED, depending on how speculative).
 
+**Atomic-fact placement check (CLAUDE.md rule 19).** Scan the synthesis/spec body for restated atomic facts: numeric thresholds, species-specific baselines, route/vehicle constraints, regulatory cutoffs, mechanistic disable-markers. For each one, verify the *value* lives in `docs/_internal/knowledge/knowledge-graph.md` as a typed YAML fact (with `value`, `confidence`, `scope`, `derives_from`, `contradicts`) and the spec body cites the fact id rather than restating the value. Spec bodies that restate without typed-graph backing get a CONDITIONAL finding: "this value must be promoted to the typed knowledge graph before build" — the failure mode prevented is two un-typed registries (or two specs) silently disagreeing on the same threshold. Exemption: descriptive narrative that contextualizes a typed fact (explaining why a threshold exists) belongs in prose; only the *value* must be typed.
+
 ### If Standalone Claim:
 
 Run the standard review structure (Sections 1-7 below) as-is.

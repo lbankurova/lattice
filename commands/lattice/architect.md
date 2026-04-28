@@ -103,6 +103,7 @@ Per spec §7.1, the linter enforces four criteria:
 2. **Behavioral requirements must have tests.** Sentences with `must` / `shall` / `requires` / `>=N` must reference a test, gate, rule, or knowledge-fact -- except inside `Acceptance criteria` / `Non-goals` sections (which use these words as spec contracts, not per-feature requirements).
 3. **Multi-feature specs must reference SPEC-VALUE-AUDIT.md** (per CLAUDE.md rule 17).
 4. **Algorithmic specs must cite domain truth** -- at least one knowledge-graph fact (`HCD-FACT-*`, `NOAEL-FACT-*`, etc.) or `scripts/query-knowledge.py` invocation per spec body.
+5. **Atomic-fact placement** (CLAUDE.md rule 19) -- if the spec body restates a numeric threshold, species-specific baseline, route/vehicle constraint, regulatory cutoff, or mechanistic disable-marker, that *value* must live in `docs/_internal/knowledge/knowledge-graph.md` as a typed YAML fact (with `value`, `confidence`, `scope`, `derives_from`, `contradicts`). The spec may *cite* the fact id; it must not be the authoritative home. Specs that introduce a new numeric value need to either (a) add it to the typed graph in the same change set, or (b) cite an existing fact that already covers it. Asking the placement question once at architect prevents the silent-disagreement failure mode that arises when two un-typed registries restate the same threshold and drift apart.
 
 The linter errs toward flagging (false-positive tolerant per spec §7.4); architect-reviewer is the final judge. But `--strict` makes any defect block this step. Resolution paths per criterion:
 
@@ -112,6 +113,7 @@ The linter errs toward flagging (false-positive tolerant per spec §7.4); archit
 | 2 | Behavioral `must` without test ref | Cite the test file / gate / rule / knowledge-fact in the paragraph, OR move into `## Acceptance criteria`. |
 | 3 | Multi-feature spec without SPEC-VALUE-AUDIT reference | Add a `## Spec Value Audit` section citing `docs/_internal/checklists/SPEC-VALUE-AUDIT.md` and run the audit per-feature (per rule 17). |
 | 4 | Algorithmic spec without knowledge-fact citation | Run `python scripts/query-knowledge.py --kind <relevant> --scope <relevant>` and cite the returned fact id (or the explicit no-fact-found stub) per major decision point. |
+| 5 | Spec body restates a numeric / species / route / regulatory / mechanism value without promoting it to the typed graph | Add a typed YAML fact in `docs/_internal/knowledge/knowledge-graph.md` (with `value`, `confidence`, `scope`, `derives_from`, `contradicts`) in the same change set, then replace the inline restatement with a citation of the fact id. If an existing fact already covers it, cite that fact instead. |
 
 If lint passes (`rc=0`), proceed to Step 1.5. If lint fails AND the user explicitly waives a defect with cited reason (architect-reviewer-style memo), record the waiver in `decisions.log` (`spec-lint-waiver` event) and proceed -- but the unwaived defects must still be addressed.
 

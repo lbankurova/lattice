@@ -88,11 +88,13 @@
   - `pcc/CLAUDE.md` rule 22 added: atomic, contradictable domain facts (numeric thresholds, species baselines, vehicle/route constraints, regulatory cutoffs, mechanistic disable-markers) MUST live in `knowledge-graph.md` as typed YAML facts. Un-typed registries cite by fact ID rather than restating values.
 - **Open at framework scope:** rule additions to `lattice/scaffold/CLAUDE.md` (so future projects inherit) and `lattice/commands/lattice/architect.md` / `peer-review.md` "atomic-fact placement" question are still pending. Filed below as `LIT-01-FOLLOW-1b`.
 
-### LIT-01-FOLLOW-1b: Propagate atomic-fact rule to lattice scaffold + reviewers
+### ~~LIT-01-FOLLOW-1b: Propagate atomic-fact rule to lattice + reviewers~~ — RESOLVED 2026-04-28
 - **Tier:** 3 — framework propagation (atomic-fact rule should ship to new projects, not just pcc)
-- **What:** Add an equivalent of pcc CLAUDE.md rule 22 to `lattice/scaffold/CLAUDE.md` so new projects inherit; extend `lattice/commands/lattice/architect.md` Mode 2 Gate and `lattice/commands/lattice/peer-review.md` synthesis-tier with an "atomic-fact placement" question (does this spec restate a numeric threshold that should be in the typed graph?).
-- **Why deferred from FOLLOW-1:** scaffold + reviewer-skill changes are framework-wide; the pcc rule lands first as the working exemplar, then ports cleanly. Fast follow.
-- **Where:** `lattice/scaffold/CLAUDE.md`, `lattice/commands/lattice/architect.md`, `lattice/commands/lattice/peer-review.md`.
+- **Status:** Resolved 2026-04-28. Implementation:
+  - **lattice CLAUDE.md** — new rule 19 ("Atomic facts must live in the typed knowledge graph") generic-framework version of pcc rule 22; rule count 18 → 19. README.md hard-rules table extended with the rule 19 row.
+  - **commands/lattice/architect.md** Step 1.4 — new spec-lint criterion 5: "Atomic-fact placement". Specs that restate a numeric threshold / species baseline / route or vehicle constraint / regulatory cutoff / mechanism disable-marker without promoting the value to `knowledge-graph.md` get a defect with resolution path (add typed YAML fact + cite the fact id in the spec body).
+  - **commands/lattice/peer-review.md** Implementation Plan / Synthesis tier — new "Atomic-fact placement check" subsection. Peer-reviewer scans spec body for restated atomic facts, files CONDITIONAL when the value isn't backed by a typed graph entry. Failure mode prevented: two un-typed registries silently disagreeing on the same threshold.
+- **Scope decision:** scaffold/CLAUDE.md addition deferred — the lattice scaffold doesn't ship a CLAUDE.md template (projects author their own). The rule propagates via (a) lattice/CLAUDE.md being the authoritative framework reference any consumer can grep, and (b) the architect + peer-review skill prompts firing the placement question on every algorithmic spec, regardless of whether the project's own CLAUDE.md restates the rule.
 
 ### ~~LIT-02: Generalize typed-knowledge-graph beyond HCD~~ — SUBSUMED 2026-04-26
 - **Status:** Subsumed by F1 (Domain-truth oracle) in `pcc/docs/_internal/incoming/lattice-framework-redesign-spec.md`. F1 is the broader, deeper version: extends knowledge-graph schema for regulatory expectations, gate criteria, aggregation policy, direction constraints, plus a `query-knowledge.py` interface. Implementing agent owns this work.
