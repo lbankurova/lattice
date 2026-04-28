@@ -3,6 +3,16 @@
   "hooks": {
     "PreToolUse": [
       {
+        "matcher": "Write|Edit|MultiEdit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; bash \"$ROOT/scripts/design-mode-gate.sh\"'",
+            "_comment": "Design-mode preamble gate. BLOCKS Write/Edit on frontend/{src,e2e/mockups}/*.tsx|html|ts when .lattice/design-mode.lock has preamble:pending. Uses git-rev-parse to resolve repo root; relative-path hook commands silently fail to fire on Windows (verified 2026-04-28 in pcc). Cooperates with scripts/design-session.sh state machine. See commands/lattice/design.md Step 0."
+          }
+        ]
+      },
+      {
         "matcher": "Bash(git commit*)",
         "hooks": [
           {

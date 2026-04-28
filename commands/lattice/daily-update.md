@@ -15,6 +15,20 @@ Generate a Slack update message from commits since the last post.
 6. Read the project's coverage map (path in `.slack-update.json` field `coverage_map`, default: `docs/_internal/help/coverage-map.md`). Extract the coverage tag table.
 7. Categorize each commit by its primary coverage tag and group into themes.
 8. Scan commits for new UI components, charts, or visualizations -- these go into the "New in UI" thread section.
+9. **Name the story** (see Pre-synthesis below) before writing any themes.
+10. **Run the adjacent-open check** (see below) for each Done theme before writing it.
+
+## Pre-synthesis: name the story
+
+Before writing any themes, state in 1-2 sentences what story this window of commits tells. Examples:
+
+- "A specific NOAEL failure mode was closed; the larger NOAEL question is still open."
+- "Three new views shipped; correctness work was minimal."
+- "No headline changes; the window is a long correctness tail from autopilot."
+
+If you can't name a story, the window may not warrant a synthesis post -- ask the user whether to skip it.
+
+The story constrains framing. A "specific failure closed, larger question open" story makes overreach ("end-to-end defensible") visibly false. A "long tail" story tells you to fold autopilot work into one tail theme rather than inflate the theme count.
 
 ## Coverage tags
 
@@ -27,9 +41,36 @@ Every project defines its own coverage tags in its coverage map file. The tag ta
 
 ## Synthesis rules
 
-Every bullet must answer "now the app can..." -- no process language ("shipped", "implemented", "refactored"). No fluff. Plain english, technical-documentation tone.
+**Classify each theme as capability or correctness BEFORE writing it.** The two voices are different:
+
+- **Capability change** (a new thing the app can do): "now the app can X" framing. Example: "now produces a kinetics plot for immunogenicity titers."
+- **Correctness/maintenance change** (an existing thing now works better, or a known wrong answer is fixed): "X no longer fails on Y" / "X now handles Y correctly" framing. Example: "PointCross BW NOAEL no longer pins to control on the terminal-day path."
+
+Capability voice on correctness work produces handwaving ("PointCross-class NOAEL is defensible end-to-end" instead of "BUG-032 fixed in `_safe_day_start`"). Force the per-line classification first, then write in the matching voice.
+
+No process language ("shipped", "implemented", "refactored"). No fluff. Plain English, technical-documentation tone.
 
 Group commits into **themes** (named after the initiative/epic from the ROADMAP, not the code layer). Each theme gets a coverage tag.
+
+## Adjacent-open check (mandatory)
+
+For each Done theme, scan TODO.md and any open SCIENCE-FLAG / GAP / BUG entries on the SAME surface. If open items exist, they MUST appear in In-Progress or Plan in the same window's message. Example:
+
+- Done line: "PointCross BW NOAEL terminal-day failure fixed (BUG-032)"
+- Adjacent open: GAP-361 (relatedness=null misclassified), GAP-362 (override popover HCD context)
+- Both must appear in In-Progress or Plan -- otherwise the Done line implies the surface is finished, which is false.
+
+The reader infers scope from what's NOT mentioned. A Done line without its open siblings adjacent reads as "this area is done." Honest scoping requires both halves visible.
+
+## Long-tail handling
+
+When a window contains many small TODO closes (>10) that don't fit the top 3 themes, fold them into one tail theme. Top-level line names CATEGORIES, not IDs:
+
+- Good: "autopilot wave -- HCD arithmetic guards, LOAEL/dose-handling cleanup, knowledge-graph hygiene, citation backlog"
+- Bad: "GAP-195/202/203/204/255/256/260/261 closed" (commit laundry)
+- Bad: omitting the tail entirely (volume invisible to the reader)
+
+Thread enumerates the tail thematically, not by ID -- list 3-6 category groups with 1-2 representative changes each. IDs only appear in the thread when they anchor a single significant change (e.g., "BUG-032 atomic with BUG-033 per rule 19").
 
 ## .slack-update.json schema
 
@@ -126,12 +167,13 @@ Lists new visual components a user would actually see -- new chart types, new vi
 
 - Keep top-level message scannable -- one line per theme, no detail.
 - Thread reply under 150 words. Zero redundancy with top-level.
-- Max 4 themes in Done. If more, group related commits into higher-level themes.
+- Max 4 themes in Done. If more, group related commits into higher-level themes (or use the long-tail rule above).
 - Never mention commit counts, time spent, or speed of delivery.
 - Roadmap progress fractions (e.g., "~40% of spec") only for multi-phase epics.
 - Use `*bold*` for section headers (Slack mrkdwn), never `**markdown bold**`.
 - Use `•` (U+2022) for bullets in thread reply only. No bullets in top-level.
 - Use `--` (double hyphen) as separator, never em-dash.
+- **Banned overreach words** in Done lines: `defensible`, `end-to-end`, `complete`, `fully`, `production-ready`, `solved`, `ready`, `nailed`. These inflate narrow fixes into sweeping claims. Permitted only when the line cites a corpus pass, test count, or external validator. If the change is narrow ("one failure mode in one path"), the line must say so explicitly ("specific known-bad path closed, not an end-to-end pass").
 
 ## After output
 
