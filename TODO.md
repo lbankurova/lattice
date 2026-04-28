@@ -101,30 +101,40 @@
 - **Original scope (preserved for audit):** Apply typed-knowledge-graph pattern to syndrome rules / FCT bands / regulatory thresholds. Pre-work would have been a 30-min discovery pass; the spec's F1 already settled the discovery — answer is "yes, multiple registries justify it."
 - **Source:** ahrens-smart-notes, karpathy-llm-wiki
 
-### LIT-03: `/lattice:autopilot --discover` mode
+### ~~LIT-03: `/lattice:autopilot --discover` mode~~ — RESOLVED 2026-04-28
 - **Tier:** 3 — autopilot leverage
-- **What:** Wire `discovery-scan.py` output into autopilot. Advance safe-for-autopilot gaps automatically; escalate ambiguous to ESCALATION.md. Force-multiplier on gap detection.
-- **Where:** `commands/lattice/autopilot.md` (new flag)
-- **Source:** karpathy-llm-wiki (sparse-area / lint operation as autopilot signal)
+- **Status:** Resolved 2026-04-28. Implementation:
+  - **`commands/lattice/autopilot.md`** — new `--discover` flag added to the input examples list and a full `## Modes` subsection. Pre-loop step probes for `scripts/discovery-scan.py`; if absent, emits a one-line notice and continues with the normal loop (does not fail). If present, runs the script and parses `scripts/data/discovery-report.md` (the contract: `Gap` rows with `category`, `item`, `suggestion`, `evidence`, `safe`, `severity`). Each gap is re-classified against autopilot safety criteria (size, kind, science/UI coupling) — the scanner's `safe: true` is necessary but not sufficient. Safe gaps inject as synthetic queue entries (`kind: discover`, `score` derived from severity 20/12/6) and route through Step 3 alongside topic and TODO work. Ambiguous gaps go to `ESCALATION.md` with the gap's source citation. Discovery-sourced commits carry `Topic: discover/{category-slug}-{item-slug}` + `Phase: mechanical` trailers.
+  - **Anti-pattern 6** added to the existing list: trusting `safe: true` blindly without re-applying the standard gates.
+- **Reference template:** `pcc/scripts/discovery-scan.py` (already adapted-template form per its own header comment); the report shape is the cross-project contract. Other projects fork the script per the template's adaptation block.
+- **Source:** karpathy-llm-wiki (sparse-area / lint operation as autopilot signal).
 
-### LIT-04: `/lattice:autopilot --consolidate` mode
+### ~~LIT-04: `/lattice:autopilot --consolidate` mode~~ — RESOLVED 2026-04-28
 - **Tier:** 3 — orchestrator signal
-- **What:** Detect dense knowledge clusters (Ahrens emergence) → suggest `/lattice:synthesize` to extract a topic. Currently surfaced manually.
-- **Where:** `commands/lattice/autopilot.md` (new flag), depends on LIT-02 typed-edge metadata
-- **Source:** ahrens-smart-notes (bottom-up emergence)
+- **Status:** Resolved 2026-04-28. Implementation:
+  - **`commands/lattice/autopilot.md`** — new `--consolidate` flag added to the input examples list and a full `## Modes` subsection (same section as `--discover`). Detection runs after Step 4 (post-batch escalation), before Step 5 summary. Heuristic: `git log --since="14 days ago" --name-only` over `docs/_internal/research/` + `docs/_internal/knowledge/`; cluster candidates by (a) shared filename keyword, (b) `derives_from` chain on typed YAML facts, or (c) mutual markdown citation. Clusters of ≥3 files surface as a `RECOMMENDATIONS (--consolidate)` block in the Step 5 summary suggesting `/lattice:synthesize "{cluster-topic}"`. Does NOT auto-invoke synthesize — recall-biased heuristic, user decides.
+  - **Anti-pattern 5** added to the existing list: auto-invoking `/lattice:synthesize` from `--consolidate`. The signal is "the corpus is asking for synthesis" (Ahrens emergence), not "files were touched"; surface only.
+  - **Coexistence with `--discover`:** independent flags. Running both runs `--discover` pre-loop and `--consolidate` post-Step-4; Step 5 lists discovery work in `Advanced:` and synthesis suggestions in `Recommendations`.
+- **Rationale grep-anchor:** the `--consolidate` subsection cites `docs/literature/ahrens-smart-notes.md` so the bottom-up-emergence framing is locatable.
+- **LIT-02 dependency note:** original LIT-04 noted dependence on LIT-02 (typed-edge metadata). LIT-02 was subsumed by F1 (Domain-truth oracle) and the typed-knowledge-graph already ships `derives_from` edges, which the consolidate heuristic consumes directly. No separate blocker remains.
+- **Source:** ahrens-smart-notes (bottom-up emergence).
 
-### LIT-05: Distill query → wiki promotion
+### ~~LIT-05: Distill query → wiki promotion~~ — RESOLVED 2026-04-28
 - **Tier:** 3 — knowledge capture
-- **What:** When `/lattice:distill` surfaces a novel cross-subsystem connection, prompt to extract a knowledge entry. Currently distill outputs are session-bound and evaporate.
-- **Where:** `commands/lattice/distill.md`
+- **Status:** Resolved 2026-04-28. Implementation:
+  - **`commands/lattice/distill.md`** — new "Knowledge Promotion (all modes — final step before return)" section inserted at the end of every mode, immediately above the existing Persist Gaps step. Three substeps: (P1) identify candidate insights gated on the three-part novel / factual-load-bearing / cross-subsystem test; (P2) one-at-a-time operator prompt with a single suggested destination (extension of an existing knowledge file preferred over a new file), draft-then-confirm before any write; (P3) mandatory `decisions.log` row per candidate with `Distill-Insight:` trailer (verdict column distinguishes PROMOTED / DECLINED / SKIPPED), so audit trail persists even when the operator declines.
+- **Failure mode prevented:** distill outputs were session-bound and evaporated; the same cross-subsystem connection had to be re-derived from scratch on the next invocation. Per karpathy-llm-wiki's query → wiki promotion pattern, novel synthesis-time insights now have a path into the durable knowledge layer with operator-in-the-loop gating (no aggressive auto-extraction).
+- **Pairs with LIT-08 (`/lattice:extract-learnings`) and rule 19 (atomic-fact placement):** extract-learnings handles spec-archive-time extraction; this closes the analogous loop at distill-time. Rule 19 governs WHERE the value lands (typed graph for atomic / contradictable facts; cited from un-typed registries). Together: incoming specs (architect Step 1.4 criterion 5) + outgoing specs (extract-learnings Step 5d) + corpus reasoning (distill Step P1-P3) all route durable claims into the same knowledge layer.
 - **Source:** karpathy-llm-wiki (query → wiki promotion)
 
-### LIT-06: TDD-for-non-scientific-code decision memo (narrowed 2026-04-26)
+### ~~LIT-06: TDD-for-non-scientific-code decision memo (narrowed 2026-04-26)~~ — RESOLVED 2026-04-28
 - **Tier:** 2 — code quality
-- **Status:** Partially subsumed by F2 (Property-based testing) in `pcc/docs/_internal/incoming/lattice-framework-redesign-spec.md`. F2 covers **analytical functions only**. TDD scope for UI / plumbing / frontend / non-analytical code remains open. This LIT item narrows to that residual scope.
-- **What (residual):** Decision memo deciding whether non-analytical code (React components, utility functions, plumbing modules) should mandate test-first. The argument for: cross-surface NOAEL display inconsistency, missing formatter exports, panel layout bugs were not analytical defects but still scientific-display defects. The argument against: dilutes effort vs. F2's deeper coverage on the analytical core. Memo lands the call.
-- **Where:** `.lattice/decisions.log` + possibly new rule in `CLAUDE.md` / scaffold
-- **Source:** obra-superpowers (TDD as universal practice — open question, partially answered for analytical code by F2)
+- **Status:** Resolved 2026-04-28. Decision memo at `lattice/docs/decisions/tdd-non-analytical-code-memo.md` (logged via `pcc/.lattice/decisions.log` 2026-04-28). **Recommendation: (B) narrow mandate.** TDD MUST precede implementation only for pure-function transforms in `frontend/src/lib/` that (i) read from the typed `unified_findings` contract and re-shape values for display, (ii) are display formatters whose output a user reads as a scientific value (NOAEL/dose/p-value/effect-size/severity), or (iii) map backend fields onto row/object shapes consumed by ≥2 view components. Scope explicitly **excludes** React component rendering, hook side-effects, ECharts/SVG charts, route/cache wiring, and CSS — those layers are governed by Playwright walks (rule 21 in pcc / pending lattice-side rule), contract-triangle hygiene (rule 18), and fixture-against-real-data audits (rule 16).
+- **Empirical basis:** 30 BUG-SWEEP entries (BUG-001..BUG-034) split 14 analytical / 7 display-with-scientific-consequence / 12 plumbing. Of the 7 (b)-class bugs, only 3 (BUG-009 effect-size off-by-one, BUG-011 row-mapper field strip, BUG-021 missing `formatNoaelDisplay` branch) would have been caught by realistic TDD. The remainder are cross-consumer invariant (BUG-002), contract-triangle drift (BUG-018), or persistence/fixture-discipline cases that a hook-isolated unit test does not exercise (BUG-023, BUG-029).
+- **Universal mandate (A) rejected:** of the 12 (c) plumbing bugs, none are addressed by TDD — ECharts blur (BUG-005), browser HTTP cache 304 (BUG-008), Ctrl+click standardization (BUG-004), pandas dtype coercion (BUG-017) are outside TDD yield. Universal-TDD taxes every UI commit while crowding out F2's domain-grounded property catalog (peer-review.md F2-CONDITIONAL 2026-04-27). Excluded considerations and counterfactuals enumerated in §2 / Appendix of the memo.
+- **Re-trigger to (A):** ≥3 (b)-class bugs in the next 90 days whose responsible function is **outside** the (B) subset (scope leak), OR the next `/ops:sweep` retrospective surfaces a (b)-class bug whose pre-fix test would have been a non-pure React component test that realistic TDD would have written first.
+- **Open propagation work** (separate item if pursued): rule wording is drafted in §4 of the memo for adoption as a numbered CLAUDE.md rule + pre-commit advisory hook (mirroring the GAP-264 token-conformance posture). Promotion to a hard block deferred until the (B) scope is empirically calibrated against ≥1 quarter of commits.
+- **Source:** obra-superpowers (TDD as universal practice — open question now answered: NO universal mandate; YES narrow mandate on a defined contract-transform subset).
 
 ### ~~LIT-07: Nyquist-auditor analog (distinct from F6, retained 2026-04-26)~~ — RESOLVED 2026-04-27
 - **Tier:** 1 — science + bug-protocol cross-ref

@@ -32,6 +32,7 @@ lattice/
   executor/src/                 # 14 TypeScript modules (DAG engine)
   scripts/                      # 15 shell + Python scripts (locking, sync, validation, audits, design-gate)
   scaffold/                     # Project templates (docs, hooks, rules, config)
+  docs/decisions/               # Framework decision memos (TDD scope, etc.)
   .claude/rules/                # Session-loaded rules (design decisions)
 ```
 
@@ -105,13 +106,13 @@ lattice cost [topic]                  Per-topic cost report
 | Skill | Purpose |
 |-------|---------|
 | `/lattice:prioritize` | Read all project state, recommend next actions ranked by scientist value |
-| `/lattice:autopilot` | In-session equivalent of `lattice autopilot` CLI — reconcile, advance, batch |
+| `/lattice:autopilot` | In-session equivalent of `lattice autopilot` CLI — reconcile, advance, batch. **`--discover`** runs `scripts/discovery-scan.py` pre-loop and folds safe gaps into the queue (LIT-03). **`--consolidate`** scans recent knowledge/research clusters and surfaces synthesize suggestions (LIT-04, Ahrens emergence) |
 | `/lattice:daily-update` | Generate Slack-formatted update from recent commits |
 
 ### Knowledge
 | Skill | Purpose |
 |-------|---------|
-| `/lattice:distill` | Corpus-level reasoning — thesis construction, domain adaptation, doc coherence audit, grounded Q&A |
+| `/lattice:distill` | Corpus-level reasoning — thesis construction, domain adaptation, doc coherence audit, grounded Q&A. **Knowledge Promotion step (LIT-05):** novel cross-subsystem connections surfaced during the run get prompted for promotion to `docs/_internal/knowledge/`; declined candidates persist via a `Distill-Insight:` trailer in `decisions.log` so future corpus loads can reference them |
 
 ### Cycles (orchestrators)
 | Skill | Purpose |

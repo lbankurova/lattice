@@ -12,6 +12,8 @@ You are the **portfolio autopilot**. You advance all safe work — lattice topic
 - `autopilot --dry-run` — preview only
 - `autopilot --source todo` — only pull from the TODO queue
 - `autopilot --source topics` — only pull from topic lifecycle
+- `autopilot --discover` — run the project's discovery scanner BEFORE the loop, fold safe gaps into the queue, escalate ambiguous ones (see Modes below)
+- `autopilot --consolidate` — scan recent knowledge/research files for dense clusters and surface synthesize suggestions in the recommendations queue (see Modes below)
 
 ## Two sources of work
 
@@ -210,3 +212,88 @@ These halt the current item and get written to ESCALATION.md, but autopilot cont
 2. **Escalating every SCIENCE-FLAG as "needs SME".** See above. The gate terminates when the decision is made with citations, not when an SME signs off — because in a Claude-authored codebase, there is no SME in the feedback loop.
 3. **Advancing a TODO item tagged `waiting-data`.** The data is the blocker; Claude can't synthesize it from first principles. These go to the Data Acquisition bucket in `/lattice:prioritize`, not to autopilot.
 4. **Advancing an untagged TODO item.** If there's no `autopilot:` tag, you don't know if it's safe. Escalate for tagging.
+5. **Auto-invoking `/lattice:synthesize` from `--consolidate`.** The signal is heuristic (recent edits + shared keywords). Surface as a recommendation; let the user (or the next deliberate cycle) decide whether the cluster has actually emerged.
+6. **Trusting `--discover` output blindly.** The scanner is heuristic — Gap entries with `safe: true` still get the standard autopilot safety re-check (size, kind, route). A scanner-flagged "safe" gap that lands in research territory still routes through `/lattice:research-cycle`, not direct edit.
+
+---
+
+## Modes
+
+These modes are pre-loop additions to the standard protocol above. They run BEFORE Step 0 (or alongside it) and feed work into the same Step 2 unified queue. Standard safety criteria still apply — the modes provide more candidates, not lower gates.
+
+### `--discover` — fold discovery-scan gaps into the loop
+
+> Source: karpathy-llm-wiki (sparse-area / lint operation as autopilot signal). LIT-03.
+
+**When to use:** at the start of a fresh autopilot batch, when the project ships a `scripts/discovery-scan.py`. Surfaces gaps the heuristic scanner finds in manifests, registries, coverage tables, and architecture docs that are too small to merit a topic but real enough to act on.
+
+**Pre-loop step (runs once, before Step 0):**
+
+1. Probe for the script:
+   ```bash
+   test -f scripts/discovery-scan.py
+   ```
+   If absent, emit a one-line notice to stdout: `"--discover: scripts/discovery-scan.py not found in this project; continuing with normal loop."` and proceed to Step 0. Do NOT fail the batch.
+
+2. If present, run it:
+   ```bash
+   python scripts/discovery-scan.py
+   ```
+   Expected output: `scripts/data/discovery-report.md` (markdown report) plus a console summary. The report shape is the contract callers depend on — `Gap` entries with `category`, `item`, `suggestion`, `evidence`, `safe` (bool), and `severity` (high/medium/low). Reference template: `pcc/scripts/discovery-scan.py`.
+
+3. Parse the report. For each Gap row:
+   - **Re-classify against autopilot safety criteria** (do NOT just trust the scanner's `safe` flag — apply the same gates Step 2 applies to TODO items). Safe-for-autopilot when ALL of:
+     - The suggestion is a mechanical fix (≤50 LOC), a doc/architecture stub, a contract-triangle alignment, or a registry citation update — NOT a science judgement, NOT a UI epic, NOT a SCIENCE-FLAG-adjacent decision.
+     - The evidence cites a specific file/line or table row that grounds the gap.
+     - The category does not require user taste (no design decisions, no scope calls, no view-spec changes).
+   - **Safe gaps:** inject into the Step 2 unified queue as synthetic TODO-equivalents with `kind: discover` and `score` derived from severity (high=20, medium=12, low=6). They flow through Step 3 routing alongside topic and TODO work.
+   - **Ambiguous or needs-user gaps:** skip — append to `ESCALATION.md` under a `### Discovery-scan: {category} — {item}` heading with the gap's `suggestion`, `evidence` citation, and one-line reason for routing to user (e.g., "scope call: which subsystem owns this?").
+
+4. Proceed to Step 0. The discovery gaps are now ordinary queue entries — same lifecycle, same trailers, same lock discipline. Commit trailer for a discovery-sourced item:
+   ```
+   Topic: discover/{category-slug}-{item-slug}
+   Phase: mechanical
+   ```
+
+**Anti-pattern:** treating `safe: true` from the scanner as autopilot-safe without re-applying the standard gates. The scanner says "deterministic, no science judgement needed" — autopilot still has to confirm size, kind, and absence of contract/SCIENCE coupling.
+
+### `--consolidate` — surface knowledge-cluster synthesize suggestions
+
+> Source: ahrens-smart-notes (bottom-up emergence — when notes start citing each other densely, the topic is asking to be extracted). See `docs/literature/ahrens-smart-notes.md` for the underlying framing. LIT-04.
+
+**When to use:** at the end of a batch, before Step 5 summary, OR ad-hoc to ask "is anything ready to be synthesized?". This mode does NOT advance work — it produces a recommendation the user (or a future deliberate `/lattice:synthesize` invocation) decides on.
+
+**Detection heuristic (run after Step 4):**
+
+1. List candidate files modified in the last 14 days under both:
+   - `docs/_internal/research/`
+   - `docs/_internal/knowledge/`
+
+   ```bash
+   git log --since="14 days ago" --name-only --pretty=format: -- docs/_internal/research docs/_internal/knowledge | sort -u
+   ```
+
+2. For each candidate, extract the topic signal cheaply (no NLP needed):
+   - **Filename keywords** (split on `-` and `_`, drop stopwords like `note`, `draft`, `v2`).
+   - **`derives_from` references** if the file is a typed YAML fact (knowledge-graph entries) — these declare an explicit citation chain.
+   - **Inbound markdown links** — grep the candidate set for `]({other-file})` or bare `{other-file}` references between the recent-change files.
+
+3. Cluster: group candidates whose signals overlap. A cluster qualifies as "dense" when **≥3 files** share at least one of:
+   - A topic keyword in the filename.
+   - A `derives_from` chain (transitive — A derives_from B, B derives_from C all count as one cluster).
+   - Mutual citation (A cites B, B cites C, A or C cites the other).
+
+4. For each qualifying cluster, append to the Step 5 summary under a new `Recommendations` block:
+   ```
+   RECOMMENDATIONS (--consolidate)
+   - Cluster: {topic-keyword-or-shared-anchor}
+     Files: {list of 3+ paths}
+     Signal: {keyword | derives_from chain | mutual citation}
+     Suggested: /lattice:synthesize "{cluster-topic}"
+   ```
+
+5. Do NOT auto-invoke `/lattice:synthesize`. The skill costs significant tokens and produces a committed position; the heuristic above is recall-biased on purpose. Surface only.
+
+**Anti-pattern:** firing on every recent-edit cluster regardless of citation density. The signal is "the corpus is asking for synthesis" (Ahrens emergence) — not "files were touched". Keyword-only clusters with no citation linkage are weak signal; surface only with a `Signal: keyword (weak)` annotation so the user can deprioritize.
+
+**Coexistence:** `--discover` and `--consolidate` are independent. Running both in one invocation runs `--discover` pre-loop and `--consolidate` post-Step-4; the Step 5 summary lists discovery work in `Advanced:` and synthesis suggestions in `Recommendations`.

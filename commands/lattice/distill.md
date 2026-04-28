@@ -400,6 +400,58 @@ Distill produces analysis that feeds into existing pipeline skills:
 | Audit results | `/lattice:research` | If audit reveals the research itself has gaps |
 | Grounded answer | Any skill or standalone | Inform decisions across the project |
 
+## Knowledge Promotion (all modes — final step before return)
+
+Distill is corpus-level reasoning. When a session surfaces a *novel cross-subsystem connection* — an insight that wouldn't naturally live in any single existing knowledge file, isn't restated in the corpus you loaded in Step 0, and is factual / load-bearing (not session-specific commentary) — that insight should compound into the durable knowledge layer rather than evaporate with the session. **Run this step at the very end of every mode**, after the mode-specific output and the Persist Gaps step below, and BEFORE returning to the operator.
+
+Anti-pattern to avoid: aggressive auto-extraction that writes every cross-doc reference as a new knowledge entry. The operator stays in the loop. Default behavior is "ask before promoting."
+
+### Step P1: Identify candidate insights
+
+From the analysis you just produced, list each candidate cross-subsystem connection. A candidate qualifies only if **all three** of the following hold:
+
+1. **Novel** — the connection is not already stated, in the same form, in any file you loaded in Step 0 (Layer 0, Layer 1, or the Layer 3 deep-read set). Restating an existing claim does not qualify.
+2. **Factual / load-bearing** — the insight is a domain or system fact that future sessions would benefit from re-using (e.g., "subsystem A's invariant X depends on subsystem B's threshold Y"). Session-specific commentary, transient hypotheses, and stylistic observations do not qualify.
+3. **Cross-subsystem** — the insight bridges two or more subsystems (per `system-manifest.md`) or two or more knowledge files. An insight that fits cleanly inside one existing knowledge file's scope is normal corpus output, not a promotion candidate.
+
+If no candidates qualify, skip to Step P3 (record nothing) and return.
+
+### Step P2: Prompt for promotion (one candidate at a time)
+
+For each qualifying candidate, present:
+
+```
+---
+**Candidate insight (cross-subsystem):**
+[one-paragraph statement of the insight, with the specific subsystems / files it bridges]
+
+**Suggested destination:** new file `docs/_internal/knowledge/{filename}.md`
+                          OR extension of `docs/_internal/knowledge/{existing-file}.md` (section: "{section}")
+
+Promote to knowledge layer? [yes / no / skip-all]
+---
+```
+
+Choose ONE suggested destination per candidate by applying the domain-knowledge-map (see `.claude/rules/domain-knowledge-map.md` if the project ships one, or the project's `CLAUDE.md` "Where Rules Live" table). Prefer extension of an existing file when the insight fits an existing topic; propose a new file only when no existing file's scope covers the bridge.
+
+If the operator answers **yes**: draft the new knowledge entry (or the patch to the existing file) and present it inline for review BEFORE writing. Do not write the file until the operator confirms the draft.
+
+If the operator answers **no** or **skip-all**: do not write. Proceed to Step P3 regardless — the audit trail is preserved either way.
+
+### Step P3: Record candidates in decisions.log (always)
+
+Whether or not promotion happens, append one row per candidate to `.lattice/decisions.log` so future corpus-load passes (and `--audit` mode runs) can reference the insight. Use the existing tab-separated format with a `Distill-Insight:` trailer in the detail column:
+
+```
+<ISO-timestamp>	distill	{PROMOTED|DECLINED|SKIPPED}	{mode}/{topic-slug}	candidate-insight	Distill-Insight: {one-sentence summary}. Subsystems: {A}, {B}. Suggested destination: {path}. Disposition: {promoted to <path> | declined by operator | skipped (no destination match)}.
+```
+
+`{mode}` is `default`, `thesis`, `adapt`, or `audit`. `{topic-slug}` is a short kebab-case label of the session's question or claim. The verdict column distinguishes promoted insights (durable file written) from declined / skipped ones (audit-trail only).
+
+This step is mandatory. Even when the operator declines every candidate, the row still lands — the goal is to prevent the same connection being re-derived from scratch next session.
+
+---
+
 ## Persist Gaps (all modes)
 
 Every distill mode can identify gaps — unanswered questions (default mode Step 3), missing validation (thesis Step 5), transfer gaps (adapt Step 4), stale/contradicting docs (audit Step 3). **Persist them before presenting results.**
