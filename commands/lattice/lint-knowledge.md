@@ -36,6 +36,17 @@ This covers the five stable-ID registries cited from code per `docs/_internal/kn
 **Flags:**
 - `--no-orphans` — skip orphan-detection (when only IDs/citations matter)
 - `--show-all-orphans` — dump every orphan instead of the first 10 per registry
+- `--no-content-drift` — skip content-drift checks (`stale-file-line`, `future-reader`)
+
+**Content-drift checks** (LIT-01, run by default over `docs/_internal/knowledge/*.md`):
+
+| Check | Catches | Severity |
+|---|---|---|
+| `stale-file-line` | `path/file.ext:NN` citations where the path no longer exists, or where the cited line range exceeds the file length | error |
+| `stale-file-line` (symbol drift) | When a citation includes a symbol-hint (e.g., `` `path:60-77` (`SEVERITY_ENUM`) ``), the symbol must appear within ±25 lines of the cited range. If it has moved, surface the drift. | warning |
+| `future-reader` | Relative-tense phrases that rot the knowledge file's stand-alone readability ("as discussed above", "in the previous section", "we just decided", "today we landed", "in the meeting yesterday"). | warning |
+
+The check filters citations to project-rooted paths only (`backend/`, `frontend/`, `shared/`, `docs/`, `scripts/`, `tests/`, `send/`, `.lattice/`); shorthand like `analysis.ts:77` and `lib/derive-summaries.ts` is row-relative and not mechanically resolvable, so it's silently skipped to avoid false positives.
 
 ## Step 2: Run the typed-schema audits
 
@@ -46,16 +57,18 @@ C:/pg/pcc/backend/venv/Scripts/python.exe scripts/audit-knowledge-graph.py
 C:/pg/pcc/backend/venv/Scripts/python.exe scripts/audit-contract-triangles.py
 C:/pg/pcc/backend/venv/Scripts/python.exe scripts/audit-fct-coverage.py
 C:/pg/pcc/backend/venv/Scripts/python.exe scripts/audit-fct-conflicts.py
+C:/pg/pcc/backend/venv/Scripts/python.exe scripts/find-unmounted-components.py --update-section4
 ```
 
 | Audit | Targets | Enforces |
 |---|---|---|
-| `audit-knowledge-graph.py` | `knowledge-graph.md` (typed atomic facts) | 6 invariants per `architecture/typed-knowledge-graph-spec.md` (encoding enum, scoring_eligible, contradicts symmetry, sex:both pairing, structural pointer, cited_unverified backlog) |
+| `audit-knowledge-graph.py` | `knowledge-graph.md` (typed atomic facts) | 8 invariants per `architecture/typed-knowledge-graph-spec.md` (encoding enum, scoring_eligible, contradicts symmetry, sex:both pairing, structural pointer, cited_unverified backlog, **provenance-gap** [LIT-01: `regulated_standard`/`internal_validated` facts must carry non-empty `derives_from`], **within-graph-contradiction** [LIT-01: facts with shared discriminating scope + `fact_kind` cannot disagree on `value` blocks without a `contradicts` edge]) |
 | `audit-contract-triangles.py` | `contract-triangles.md` | Citation freshness + subset-straggler scan per CLAUDE.md rule 18 |
 | `audit-fct-coverage.py` | `field-consensus-thresholds.json` | FCT band coverage per (domain, endpoint, species, sex, direction) |
 | `audit-fct-conflicts.py` | Same registry + consumer code | FCT band conflicts between registry and hardcoded thresholds |
+| `find-unmounted-components.py` | `frontend/src/**/*.{tsx,ts}` import graph | Built-not-mounted inventory; regenerates the AUTOGEN block in `.claude/rules/ux-audit-validate.md` Section 4 (LIT-DS-11) |
 
-Each script exits 0 = clean, 1 = defects.
+Each script exits 0 = clean, 1 = defects. `find-unmounted-components.py` is informational (always exits 0 unless its src dir is missing) — its output is the regenerated table, not a defect gate.
 
 ## Step 3: Classify defects
 

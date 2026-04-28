@@ -69,12 +69,30 @@
 >
 > **Adjacency to lattice-framework-redesign-spec (2026-04-26):** the parallel framework-redesign work at `pcc/docs/_internal/incoming/lattice-framework-redesign-spec.md` (and its diagnosis at `pcc/docs/_internal/research/lattice-framework-defects-and-redesign.md`) covers 8 features (F1-F8) derived from analyzing actual project bug history. Several LIT items are subsumed or adjacent: LIT-02 → SUBSUMED by F1; LIT-06 → narrowed (F2 covers analytical code; LIT-06 retained for non-analytical scope); LIT-07 → distinct from F6 (Nyquist density vs pattern propagation). LIT items orthogonal to the redesign spec (LIT-01, 03, 04, 05, 09, 10, 11, 12, DS-GAP) remain as-is.
 
-### LIT-01: Expand `/lattice:lint-knowledge` to content-drift checks
+### ~~LIT-01: Expand `/lattice:lint-knowledge` to content-drift checks~~ — RESOLVED 2026-04-27 (partial; cross-registry deferred with explicit rationale)
 - **Tier:** 1 — science + autopilot
-- **What:** Today's skill catches ID drift (uniqueness, citation, orphan). Extend with: stale `file:line` citations (knowledge says `hcd.py:327` but the function moved); contradiction detection across knowledge files (two facts disagree, generalizing the HCD-FACT-008 ↔ FACT-010 case); provenance-gap (claim with no `derives_from` source); future-reader test (no `as discussed above` / `we decided last week`).
-- **Where:** `scripts/lint-knowledge.py` + `commands/lattice/lint-knowledge.md` (extension, not new skill)
-- **Source:** karpathy-llm-wiki (lint operation), ahrens-smart-notes (future-reader, atomicity)
-- **Note:** The shipped 2026-04-26 `/lattice:lint-knowledge` is the starter; this is the version the typed-knowledge-graph-spec actually anticipates.
+- **Status:** Resolved 2026-04-27 for the four mechanically-tractable subsets. Implementation:
+  - `pcc/scripts/lint-knowledge.py` extended with two content-drift checks scanning `docs/_internal/knowledge/*.md`:
+    - `stale-file-line` (error + symbol-drift warning) — `path/file.ext:NN[-MM][, ...]` citations are resolved against the project tree; missing files / out-of-range lines fail; if the citation includes a backticked symbol-hint (e.g., `` `pipeline.py:865-885` (`_classify_findings_no_control_path`) ``), the symbol must appear within ±25 lines of the cited range. Filtered to project-rooted paths (`backend/`, `frontend/`, `shared/`, `docs/`, `scripts/`, `tests/`, `send/`, `.lattice/`) — shorthand row-relative citations are silently skipped.
+    - `future-reader` (warning) — five regex patterns flag relative-tense markers: "as discussed above", "in the previous section", "we recently/just decided", "today/yesterday {decided,landed,...}", "in the meeting today/yesterday/this/last week".
+  - `pcc/scripts/audit-knowledge-graph.py` extended with two new typed-graph checks:
+    - `provenance-gap` (error) — `confidence: regulated_standard` and `confidence: internal_validated` facts must carry non-empty `derives_from`. Closes the loop the existing `cited_unverified_backlog` check left open; `heuristic` and `extrapolation` exempt by definition.
+    - `within-graph-contradiction` (warning) — bucket facts by `(species, sex, endpoints, fact_kind)` and flag pairs whose `value` blocks disagree without a `contradicts` edge declared. Skips non-discriminating scopes (`species: [any]` AND `endpoints: [any]`) where the value block IS the discriminator (catches `disable_marker` false positives).
+  - `lattice/commands/lattice/lint-knowledge.md` Step 1 documents the new content-drift checks + `--no-content-drift` flag; Step 2 lists `audit-knowledge-graph.py` as enforcing 8 invariants (was 6) including the two LIT-01 additions.
+- **Live output (this commit):** content-drift surfaces 1 real warning (`_classify_findings_no_control_path` cited at `findings_pipeline.py:865-885` no longer exists at that location); typed-graph audit fires 0 provenance-gap (corpus is well-maintained) + 0 within-graph-contradiction defects.
+- **Deferred with empirical rationale (revised 2026-04-27 after decision-audit pushback):** the original LIT-01 also called for *cross-registry* contradiction detection (numeric-claim conflict across `methods-index.md` / `species-profiles.md` / `vehicle-profiles.md`) and an *atomic-fact force-migration* rule. The first scoping framed this as "needs a prose parser / NLP" — that framing was sloppy and was correctly flagged by the decision-auditor as effort-biased. Re-investigated empirically: the un-typed registries' tables are **structured by ID + descriptive purpose**, not by numeric thresholds. `methods-index.md` columns are `| ID | Name | Purpose |` (one-line method descriptions); `species-profiles.md` is mostly an audit/inventory document with thresholds buried in numbered prose lists ("Magnitude floors (Cohen's d): Universal 0.5/1.0/1.5/2.0"); `vehicle-profiles.md` similarly. **A cross-registry numeric-conflict check would have no comparable tuples to extract from current content** — the registries don't host the kind of structured numeric data the check needs. The merit-driven path remains a CLAUDE.md rule (rule 22: atomic facts MUST live in the typed graph), shipped this commit. The check itself is unbuildable until the registries change form. Re-evaluate when one of: (a) species-profiles.md adopts a structured-thresholds table, (b) the typed-graph migration completes and any residual numeric content in un-typed registries warrants drift-checking against typed-graph entries.
+
+### ~~LIT-01-FOLLOW-1: Atomic-fact-must-be-typed CLAUDE.md rule~~ — RESOLVED 2026-04-27 (pcc-side)
+- **Tier:** 2 — knowledge integrity (force-migration of contradictable claims into the typed graph)
+- **Status:** Resolved 2026-04-27 in pcc. Implementation:
+  - `pcc/CLAUDE.md` rule 22 added: atomic, contradictable domain facts (numeric thresholds, species baselines, vehicle/route constraints, regulatory cutoffs, mechanistic disable-markers) MUST live in `knowledge-graph.md` as typed YAML facts. Un-typed registries cite by fact ID rather than restating values.
+- **Open at framework scope:** rule additions to `lattice/scaffold/CLAUDE.md` (so future projects inherit) and `lattice/commands/lattice/architect.md` / `peer-review.md` "atomic-fact placement" question are still pending. Filed below as `LIT-01-FOLLOW-1b`.
+
+### LIT-01-FOLLOW-1b: Propagate atomic-fact rule to lattice scaffold + reviewers
+- **Tier:** 3 — framework propagation (atomic-fact rule should ship to new projects, not just pcc)
+- **What:** Add an equivalent of pcc CLAUDE.md rule 22 to `lattice/scaffold/CLAUDE.md` so new projects inherit; extend `lattice/commands/lattice/architect.md` Mode 2 Gate and `lattice/commands/lattice/peer-review.md` synthesis-tier with an "atomic-fact placement" question (does this spec restate a numeric threshold that should be in the typed graph?).
+- **Why deferred from FOLLOW-1:** scaffold + reviewer-skill changes are framework-wide; the pcc rule lands first as the working exemplar, then ports cleanly. Fast follow.
+- **Where:** `lattice/scaffold/CLAUDE.md`, `lattice/commands/lattice/architect.md`, `lattice/commands/lattice/peer-review.md`.
 
 ### ~~LIT-02: Generalize typed-knowledge-graph beyond HCD~~ — SUBSUMED 2026-04-26
 - **Status:** Subsumed by F1 (Domain-truth oracle) in `pcc/docs/_internal/incoming/lattice-framework-redesign-spec.md`. F1 is the broader, deeper version: extends knowledge-graph schema for regulatory expectations, gate criteria, aggregation policy, direction constraints, plus a `query-knowledge.py` interface. Implementing agent owns this work.
@@ -106,13 +124,13 @@
 - **Where:** `.lattice/decisions.log` + possibly new rule in `CLAUDE.md` / scaffold
 - **Source:** obra-superpowers (TDD as universal practice — open question, partially answered for analytical code by F2)
 
-### LIT-07: Nyquist-auditor analog (distinct from F6, retained 2026-04-26)
+### ~~LIT-07: Nyquist-auditor analog (distinct from F6, retained 2026-04-26)~~ — RESOLVED 2026-04-27
 - **Tier:** 1 — science + bug-protocol cross-ref
-- **Status:** Adjacent to F6 (Bug-pattern propagation) in `pcc/docs/_internal/incoming/lattice-framework-redesign-spec.md` but **distinct**. F6 enforces propagation of a known fix across same-pattern code paths. Nyquist asks the upstream question: *"are tests dense enough on this code path that we'd catch the failure structurally, not by accident?"* — i.e., is validation-suite density sufficient on this surface, regardless of whether a known pattern exists. Both questions matter. LIT-07 retained as a separate item.
-- **What:** After a bug fix, run a coverage-density audit on the affected analytical surface. Report whether existing tests/properties would have caught the bug class pre-emptively, and if not, what's missing.
-- **Where:** Either new `commands/lattice/audit-coverage.md` skill OR extension of `ops:bug-stress` — coordinate with the redesign-spec implementing agent on placement (F2 property catalog is the natural intersection point).
-- **Source:** gsd (`gsd-nyquist-auditor` — sampling-adequacy of evals)
-- **Cross-ref:** lattice-framework-redesign-spec F2 + F6 (distinct but neighborhood)
+- **Status:** Resolved 2026-04-27. Implementation:
+  - `pcc/scripts/coverage-density-report.py` — given a changed module path, extracts public functions / classes (Python `def`/`class`, TypeScript `export function`/`export const`/`export class`), locates the conventional 1:1 test file AND the broader test root, and word-boundary-greps every test file for function-name references. Outputs density (% of functions referenced), names of unreferenced functions, and a reference-map (function -> test files exercising it). Calibrated thresholds: ≥75% adequate, 50-75% mixed (verify glue), <50% weak (add tests before closing retro).
+  - `lattice/commands/ops/bug-stress.md` extended with Step 4.5 ("Coverage-density audit -- Nyquist signal") between the Step 4 test-presence check and Step 5 oracle growth. The new step explicitly distinguishes "the bug-fix test passes" from "the surrounding module has structural coverage", invokes the script per changed module, and documents the action thresholds.
+- **Placement decision (extension vs new skill):** chose extension of `/ops:bug-stress` on merit grounds. Bug-stress is the gate where post-fix discipline already fires; routing through a separate `/lattice:audit-coverage` skill would add an invocation surface without a workflow trigger. The script is invocable standalone (`python scripts/coverage-density-report.py <module>`) so a future proactive trigger (e.g., new analytical function added) doesn't require duplicating logic.
+- **Adjacency to redesign-spec F2 / F6:** LIT-07 is distinct from F6 (which propagates a known pattern across instances) and F2 (which builds a property catalog for analytical functions). LIT-07 asks the *upstream* question: regardless of whether the pattern is named in F6's catalog, is the module densely-enough tested that the next instance would surface? The reference map in the script's output is also where F2 properties would attach — same surface, different axes. Coordinated note left in the script docstring.
 
 ### LIT-08: `/lattice:extract-learnings` skill
 - **Tier:** 2 — knowledge integrity
@@ -238,12 +256,12 @@
 - **Source:** ibm-carbon-design-system (role-based token naming is what makes Carbon's themes swap cleanly)
 - **Skip if:** no theme swap is on the roadmap. Speculative addition violates the spirit of CLAUDE.md rule 13.
 
-### LIT-DS-11: Built-not-mounted inventory script (maintained, not snapshot)
-- **Tier:** 3 — autopilot leverage; closes a documented snapshot-drift problem on a load-bearing inventory
-- **What:** A `scripts/find-unmounted-components.py` that greps `frontend/src/` for `*.tsx` component definitions, counts inbound imports per component, and emits two outputs: (a) the list of components with zero non-self imports (the "built-not-mounted" inventory), (b) a refresh of `.claude/rules/ux-audit-validate.md` Section 4 with current evidence. Run as part of cycle-close or `/lattice:lint-knowledge`. Rationale: today's Section 4 inventory is a 2026-04-26 snapshot that has already drifted (RecoveryPane was retracted by user, but the inventory still cites it). Block 1.3 of the design preamble (built-not-mounted check, in `commands/lattice/design.md`) cites Section 4 — its honesty depends on the inventory being maintained. A script that regenerates it makes the citation reliable.
-- **Where:** new `scripts/find-unmounted-components.py`; integration into cycle-close or `/lattice:lint-knowledge`; auto-update `.claude/rules/ux-audit-validate.md` Section 4 (or split Section 4 into two parts: a "human-curated rationale" prose section + a "machine-maintained component list" table that gets regenerated).
-- **Source:** datagrok-platform-docs (the wiring vs building cost asymmetry), ahrens-smart-notes (atomicity for graph-participating facts), CORRIGENDA.md "Built-not-mounted as a new finding class" observation.
-- **Dependency note:** the script can't distinguish "built-but-never-mounted" from "deleted-but-import-stub-remains" without git history check. Output should flag both classes separately so the human can decide whether to wire vs delete.
+### ~~LIT-DS-11: Built-not-mounted inventory script (maintained, not snapshot)~~ — RESOLVED 2026-04-27
+- **Status:** Resolved 2026-04-27. Implementation:
+  - `pcc/scripts/find-unmounted-components.py` — walks `frontend/src/**/*.{tsx,ts}`, parses static + dynamic + re-export imports, resolves `@/` alias, runs reachability BFS from `main.tsx`, classifies unreachable files as `COMPONENT` (.tsx with capital-letter export) or `HELPER` (.ts module). Per-file `last_commit_days` from `git log` distinguishes recently-built code awaiting wiring from abandoned drafts. Flags: `--format text|markdown|json`, `--update-section4` (rewrites the AUTOGEN block in `.claude/rules/ux-audit-validate.md` Section 4 in place), `--no-git` for fast scans.
+  - `pcc/.claude/rules/ux-audit-validate.md` Section 4 restructured per the TODO suggestion: human-curated prose (purpose, triage protocol, "Genuinely unbuilt" note) wraps an `<!-- AUTOGEN:built-not-mounted BEGIN/END -->` block holding the regenerated table.
+  - `lattice/commands/lattice/lint-knowledge.md` Step 2 lists the script alongside other typed-schema audits. Informational exit (always 0 unless src dir missing) — output is the regenerated table, not a defect gate.
+- **First scan output:** 27 unmounted components + 31 unmounted helpers across `frontend/src/`; the prior 3-row hand-curated snapshot was a strict subset. Recent activity (≤35 days) on most components suggests genuine "built but not yet wired" rather than stale code.
 
 ### LIT-DS-10: Lineage citation in datagrok-app-design-patterns.md
 - **Tier:** 4 — situational; one-paragraph cosmetic edit, low-cost

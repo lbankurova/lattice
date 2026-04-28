@@ -88,6 +88,32 @@ Check that the fix includes a test that:
 
 If no test was written: flag it. The pre-commit hook already enforces test-first for pipeline modules, but this catches bugs in non-pipeline code.
 
+## Step 4.5: Coverage-density audit (LIT-07 — Nyquist signal)
+
+A passing bug-fix test confirms the SPECIFIC branch is now covered. It does NOT confirm the SURROUNDING module has structural coverage. The Nyquist question (gsd literature note): *would the existing test suite have caught this bug class structurally, not by accident?* If the answer is no, the bug-pattern search in Step 3 found instances but the codebase has no scaffolding to catch the next instance pre-emptively.
+
+Run the density report on each module changed in the fix:
+
+```bash
+C:/pg/pcc/backend/venv/Scripts/python.exe scripts/coverage-density-report.py <changed-module>
+```
+
+Supported: `.py` (matches `backend/tests/test_<base>.py` + scans all `backend/tests/test_*.py` for name references), `.ts` / `.tsx` (matches `frontend/tests/<base>.test.ts(x)` and sibling `*.test.ts(x)`).
+
+Output classes:
+
+| Density | Reading | Action |
+|---|---|---|
+| **>= 65%** (calibrated adequate) | Structurally adequate. Most functions are referenced from at least one test file. | Proceed to Step 5. |
+| **35-65%** (mid-range) | Mixed. Verify the unreferenced functions are intentionally test-exempt (glue / wrappers / pure formatters). | Document the exempt set in the bug-stress retrospective; add tests for any that encode domain rules. |
+| **< 35%** (calibrated weak) | The bug-pattern search likely under-covered this module. | **Add tests for the listed unreferenced functions before closing the bug-stress retro.** Pair this gap with the Step 3 pattern search — same-pattern instances in undertested code are the highest-priority next-bug surface. |
+
+Thresholds calibrated 2026-04-27 against 7 representative analytical modules. Observed distribution was bimodal: backend modules tend to cluster low (18-33%, heavy use of private `_compute_*` helpers exercised transitively but not name-referenced); frontend modules tend to cluster high (67-80%, vitest tests typically import + call by name). The 35% / 65% bands separate those clusters; the mid-range gap is empirically unpopulated in the current corpus, so a module landing there warrants extra scrutiny.
+
+The check is heuristic — a name reference in a test file proves the function is at least imported and probably exercised, not that branch coverage is good. Pair with explicit branch coverage tooling (pytest --cov, vitest --coverage) when stronger evidence is needed. The density signal is calibrated to surface modules where the test suite cannot, by name reference alone, prove it touches the code path.
+
+The reference map in the script's output also serves as a cheap "where would I add the next test" guide — it shows which integration tests already exercise the module, which is usually the right place to add the next assertion.
+
 ## Step 5: Grow the oracle
 
 For each "SAME PATTERN FOUND" in Step 3 that has risk = likely:
