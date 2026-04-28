@@ -108,6 +108,28 @@ Development cycles are defined as YAML DAGs in `workflows/`. The DAG defines orc
 
 **Relationship to markdown skills:** YAML DAGs complement, not replace. The DAG references skills by name (`skill: lattice/research`). The executor reads the DAG, resolves the topological order, and dispatches each node using the skill's prompt. Markdown skills remain the authoritative source for agent instructions.
 
+## Propagating Framework Changes to Consumer Projects
+
+Lattice is the source of truth. Consumer projects (e.g., `pcc/`) carry independent **copies** of skills, agents, and scripts under `<project>/.claude/commands/lattice/`, `<project>/.claude/agents/`, and `<project>/scripts/` — these are mirrors, not symlinks. Editing only `C:/pg/lattice/commands/lattice/<skill>.md` does **not** reach the consumer's runtime; the project's own copy is what Claude Code loads when the slash command fires.
+
+**Workflow whenever you edit any of these in lattice:**
+- `agents/*.md`
+- `commands/lattice/*.md`
+- `commands/ops/*.md`
+- `scripts/*.sh`, `scripts/*.py`
+
+```bash
+bash C:/pg/lattice/scripts/sync-skills.sh <project-root>
+# e.g.
+bash C:/pg/lattice/scripts/sync-skills.sh C:/pg/pcc
+```
+
+Run for every consumer project. The script `cp`s files (not `rsync --delete`), so project-extra files survive.
+
+**Direction is one-way: lattice → project.** Edits made directly in `<project>/.claude/commands/lattice/` will be clobbered by the next sync. If you find yourself editing the project copy, stop — port the change back to `C:/pg/lattice/` first, then run the sync. The skill content is framework-tier; project-specific overrides belong in project-level rule files (`.claude/rules/`) or `CLAUDE.md`, not in skill copies.
+
+**Failure mode (caught 2026-04-27 during the peer-review subagent fix):** edited `lattice/commands/lattice/research-cycle.md` to retire an inlined-skill pattern; the next pcc cycle would have used pcc's stale copy and the optimization would not have taken effect. Make sync-skills.sh a reflex after any framework edit.
+
 ## Concurrent Sessions
 
 When multiple agents work in parallel terminals on the same repo:

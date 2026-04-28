@@ -67,12 +67,25 @@ per_topic: 40.00               # max USD accumulated across all runs for a topic
 per_node:                       # max USD per individual node execution
   research: 5.00
 alert_threshold: 0.8           # warn at 80% of any limit
+
+# Context-rot monitoring (LIT-09, b2680f8). Per-call utilization signal,
+# distinct from cumulative USD spend: a workflow can stay under USD budget
+# and still rot when individual calls saturate the context window. Cache
+# reads are not counted against utilization.
+context:
+  window_size: 1000000         # Opus 4.7 (1M); 200000 for Sonnet 4.6
+  warn_threshold: 0.5          # log a warning at 50% utilization
+  block_threshold: 0.75        # stop workflow at 75% utilization
 ```
 
 **Behavior:**
 - Below threshold: cost logged per node (`[implement] OK ($0.3842)`)
 - At threshold: `[BUDGET WARNING]` message
 - At limit: `[BUDGET EXCEEDED]` -- workflow stops, cost persisted, decision logged
+
+**Context-rot telemetry (LIT-09):** `appendContextTelemetry()` writes a JSONL row to `.lattice/context-telemetry.jsonl` after every skill-node call (always, even when no `context:` config — level=`ok`). Block-level rot stops the workflow with reason `CONTEXT_ROT` in `decisions.log`. `lattice context [--last N]` shows recent telemetry + peak utilization summary. Suggested response when warned: `/clear` and re-invoke the orchestrator at the next phase boundary (cycle.md is wired to checkpoint-and-stop at research→blueprint and blueprint→build transitions for exactly this reason).
+
+**Autopilot loop cap (LIT-10):** `AutopilotOptions.maxLoops` (default 50, `lattice autopilot --max-loops N`) caps the outer `while (madeProgress)` loop. When the cap is hit, autopilot prints an explicit force-stop message naming the failure mode (auto-resolve or phase routing oscillating without reaching steady state) and exits.
 
 ## 6. Decision Log (`.lattice/decisions.log`)
 
@@ -91,20 +104,28 @@ TIMESTAMP	SKILL	OUTCOME	CONTEXT	METRICS	NOTES
 
 Mechanical enforcement -- the agent cannot skip these:
 
-**PreToolUse (fire before `git commit`):**
+**PreToolUse on `Bash(git commit *)`:**
 
 | Hook | Action |
 |------|--------|
-| **Commit lock** | BLOCKS if another agent holds `.lattice/commit.lock`. Auto-expires stale locks >5min. |
+| **Commit lock** | BLOCKS if another agent holds `.lattice/commit.lock`. Auto-expires stale locks >5min. Pre-commit Step -1 acquires when no `LATTICE_LOCK_HOLDER` env is set; honors outer-held lock (autopilot, `/lattice:review`) when set, to prevent staging-drift conflation across concurrent commits. (922cf24, 20f2eb4) |
 | **Topic trailer** | WARNS (non-blocking) when `feat:`/`fix:` commits lack a `Topic:` trailer. |
 | **Review gate** | BLOCKS ALL commits without a fresh `.lattice/review-gate.json`. |
 
-**PostToolUse (fire after Write/Edit):**
+**PreToolUse on `Write|Edit|MultiEdit`:**
+
+| Hook | Action |
+|------|--------|
+| **Design-mode preamble gate** (`scripts/design-mode-gate.sh`) | BLOCKS in-scope `.tsx`/`.html`/`.ts` edits when `.lattice/design-mode.lock` exists with `preamble=pending`. The lock is created by `design-session.sh begin <trigger>`; flipped to `complete` by `preamble-done <evidence>` after the four `/lattice:design` Step 1 blocks (workflow audits, existing surfaces, first-principles, convention check) are authored to an evidence file. Stale locks (>1h) auto-clear. Out-of-scope files always allowed. Failure mode prevented: port-mode redesign — relocating UI without engaging engine outputs. (de8c1af, 09843ee, b349c71) |
+| **Block pcc-mirror edits** *(optional, user-global)* | DENIES Write/Edit/MultiEdit on `<project>/.claude/{commands/lattice/, commands/ops/, agents/}/...` with a message naming the lattice equivalent. Reinforces the "lattice is source of truth" rule physically — direct edits to consumer-project mirrors get clobbered on the next sync. See lattice/CLAUDE.md "Propagating Framework Changes to Consumer Projects". |
+
+**PostToolUse on `Write|Edit|MultiEdit`:**
 
 | Hook | Action |
 |------|--------|
 | **Co-author block** | BLOCKS writes containing `Co-Authored-By` (rule 4). |
 | **Build check** | Advisory -- runs TypeScript build after edits to code files. |
+| **Lattice → consumer sync** *(optional, user-global)* | When the edited file is under `C:/pg/lattice/{commands,agents,scripts}/...`, runs `bash C:/pg/lattice/scripts/sync-skills.sh <consumer>` for each registered consumer project and emits a `systemMessage` confirmation. Consumers list lives in the hook script. Removes the human-memory dependency of "remember to sync after editing lattice." |
 
 ## 8. Structural Quality Gates
 
@@ -113,11 +134,42 @@ File-based checks that cycle orchestrators run on skill outputs before proceedin
 | Gate | What it checks | Blocks proceed on failure |
 |------|---------------|--------------------------|
 | **Peer review quality** | >=3 findings, >=3 review dimensions, evidence per finding | Yes -- re-launches peer review |
+| **Algorithmic peer-review (F3)** | Every algorithmic spec or change to a function in `.lattice/algorithm-paths.txt` must produce a peer-review attestation citing at least one `query-knowledge.py` fact (or the explicit no-fact-found stub) before architect/build review proceeds | Yes -- `CONDITIONAL` / `FLAWED` / `INSUFFICIENT` BLOCKS the parent gate. Resolved by fix, citation of newly-populated fact, or explicit user defer with named dependency. (f9b2ca5) |
 | **Synthesis sections** | 6 mandatory sections present with content | Yes -- re-runs synthesize |
-| **Architect verdict** | REJECT/SCIENCE-FLAG require user decision | Yes -- STOP at decision point |
+| **Architect verdict** | REJECT/SCIENCE-FLAG require user decision (or SCIENCE-FLAG memo with ≥3 citations under autopilot) | Yes -- STOP at decision point |
 | **Probe results** | BREAKS/SCIENCE-FLAG require user decision | Yes -- STOP at decision point |
 | **Engine change marker** | `.lattice/engine-changed` exists -> validation ratchet required | Yes -- blocks commit |
 | **Spec value audit** (rule 17) | Multi-feature specs answer per-feature frequency/impact | Yes -- `/lattice:architect` gate Step 1.5 routes non-PASS back for rework |
+| **Spec lint (F5)** | 4-criterion check on `incoming/` specs: empirical claims cite data, behavioral requirements have tests, multi-feature → SPEC-VALUE-AUDIT, algorithmic specs cite domain truth | Yes -- `/lattice:architect` Step 1.4 (`scripts/lint-spec.py --strict`); defects block until fixed or waived via `kind=spec-lint-waiver` attestation in `decisions.log`. (06c614b) |
+| **Bug-pattern registry (F6)** | Every `fix:` commit registers/updates a `docs/_internal/knowledge/bug-patterns.md` entry naming the pattern, applies-to glob, and prevention class | Yes -- pcc pre-commit Step 0d enforces a `kind=bug-pattern` attestation when staged paths match any registered glob; `/ops:bug-stress` Step 7.5 emits the entry. (388427e) |
+| **Bug retro (F7)** | The 5-question retro is structured: root cause / genesis / detection gap / prevention class / lattice change | Yes -- pre-commit BLOCKS `fix:` commits whose BUG-SWEEP entry lacks the 5 retro fields. (5a9bc9b) |
+| **Algorithm defensibility (rule 18, BUG-031 hardening)** | Review must run the algorithm on PointCross + one other study and answer "would a regulatory toxicologist agree?" with citation to driving values | Yes -- SCIENCE-FLAG only clears via fix, data-grounded counter-evidence in this format, or named-dependency defer. Plumbing-only rebuttals do NOT clear it. (487797e) |
+
+### SIMPLIFY-1 unified attestations format
+
+All structural gate verdicts above (peer-review, architect-review, spec-lint, bug-pattern, persistent-arbiter, etc.) write to a single `attestations[]` array in `.lattice/review-gate.json`:
+
+```json
+{
+  "attestations": [
+    {
+      "kind": "peer-review",
+      "target": "<topic-or-spec-or-skill-ref>",
+      "verdict": "SOUND|CONDITIONAL|FLAWED|INSUFFICIENT",
+      "rationale": "one-line summary citing key fact(s) and why this verdict",
+      "id": "peer-review-{topic}-{ISO-timestamp}"
+    }
+  ]
+}
+```
+
+`scripts/append-attestation.sh` writes; `scripts/test-attestation-format.sh` is the regression suite. `write-review-gate.sh` validates each attestation: `rationale` must be ≥10 chars and not match a trivial value (`n/a` / `idk` / `tbd` / etc.), and `kind=peer-review` attestations on algorithmic-paths commits must reference at least one cited fact or no-fact-found stub. The pre-commit hook reads the gate and verifies required attestations exist for the staged file set. (829dc92)
+
+**SIMPLIFY auto-apply:** Architect findings flagged `Risk: None` (mechanical cuts — dead code, unused exports, redundant imports) auto-apply without user rubber-stamp. Non-trivial risk still routes to user. (ffbbb0f)
+
+### SCIENCE-FLAG memo path
+
+When a SCIENCE-FLAG fires under autopilot (rule 14, rule 18), the resolution contract is NOT "wait for SME." Autopilot authors a decision memo with ≥3 literature citations (species profiles, methods-index, peer-reviewed sources from `research/`) and proceeds. The memo path is wired into `workflows/research-cycle.yaml` and `workflows/blueprint-cycle.yaml` as a memo-required gate; the path is cited in the commit message and logged in `decisions.log`. If autopilot cannot find ≥3 citations supporting a defensible position, that itself is the escalation trigger and a row gets written to `ESCALATION.md`. (fc5fd38)
 
 ## 9. Concurrent Session Safety
 

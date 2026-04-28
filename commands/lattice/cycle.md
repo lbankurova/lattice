@@ -109,21 +109,27 @@ If the spike cycle determines the work needs research (user selects "Escalate to
 
 ### 4. Phase transitions
 
-When a sub-cycle completes, auto-dispatch to the next phase:
+When a sub-cycle completes, **default to checkpoint-and-stop**, not auto-dispatch. Each phase deliberately ran in its own session so the next phase can start with a clean context window — auto-chaining defeats the design.
 
-- **Research complete →** auto-dispatch `/lattice:blueprint-cycle {topic}`
-- **Blueprint complete →** auto-dispatch `/lattice:build-cycle {topic}`
+- **Research complete →** print: `"Research phase complete. Cycle state saved: phase=research-complete. Run /clear to free context, then /lattice:cycle {topic} to start blueprint phase."` Log a `PHASE_TRANSITION_PENDING` row in `.lattice/decisions.log`. STOP.
+- **Blueprint complete →** print: `"Blueprint phase complete. Cycle state saved: phase=blueprint-complete. Run /clear to free context, then /lattice:cycle {topic} to start build phase."` Log a `PHASE_TRANSITION_PENDING` row. STOP.
 - **Spike complete →** "Done." (spike → spec-from-code → review is a single path, no transitions)
 - **Bug fix complete →** "Done." (classify → investigate → fix → stress → review is a single path)
 - **Build complete →** "Done."
 
-Phase transitions are deterministic — auto-dispatch and log to `.lattice/decisions.log` as:
+When the user re-invokes `/lattice:cycle {topic}` after `/clear`, Step 1 reads the state file and dispatches the next phase deterministically — no re-classification, no re-decision. The skipped auto-dispatch is purely a context-rot defense.
+
+**Why default to stop:** the NOAEL-ALG cycle (2026-04-27) accumulated ~712K tokens by carrying research-phase context (7+ steps, 4 method decisions, R1+R2 reviews) into the blueprint phase, then both into the build phase. The cycle-state YAML already contains everything the next phase needs — `key_decisions`, `constraints`, `output`, `next_needs`. Carrying chat context on top of that is pure waste. Per `.lattice/budget.yaml`, this project warns at 500K and halts at 750K.
+
+**`--continue` flag (autopilot, not interactive):** when `/lattice:cycle {topic} --continue` is invoked, auto-dispatch the next phase in-session. Autopilot uses this; humans usually shouldn't. Log as `PHASE_TRANSITION` (not `PENDING`).
+
+**Pause for batch mode:** set `lifecycle_state: paused` in the state file (autopilot skips paused topics). Direct `/lattice:cycle {topic}` invocation treats the explicit command as resume intent and dispatches regardless of `paused`. Do not add in-cycle pause prompts.
+
+Phase transitions log to `.lattice/decisions.log` as:
 
 ```
-{timestamp}\tcycle\tPHASE_TRANSITION\ttopic={topic}\tfrom={research-complete|blueprint-complete}\tto={blueprint|build}
+{timestamp}\tcycle\tPHASE_TRANSITION{|_PENDING}\ttopic={topic}\tfrom={research-complete|blueprint-complete}\tto={blueprint|build}\tmode={auto|stop-for-clear}
 ```
-
-To pause a topic in batch mode, set `lifecycle_state: paused` in its state file (autopilot skips paused topics). Direct `/lattice:cycle {topic}` invocation treats the explicit command as resume intent and advances regardless. Do not add in-cycle pause prompts.
 
 ## Usage
 

@@ -168,12 +168,12 @@ Update state: `current_step: blueprint.4`.
 
 ### Step 4: Plan Review — Round 1
 
-**Launch a separate agent.** Same rules and gate checks as research-cycle peer review.
+**Launch a separate agent.** Same rules and gate checks as research-cycle peer review. Use `subagent_type: peer-review` (registered at `.claude/agents/peer-review.md`) — do NOT inline the skill content into the prompt.
 
 Launch with:
-- **Prompt:** Full `/lattice:peer-review` instructions
-- **Input:** Synthesis doc path ONLY — no reasoning, no context
-- **Output:** `docs/_internal/research/peer-reviews/{topic}-synthesis-review.md`
+- **subagent_type:** `peer-review`
+- **prompt:** the synthesis doc path ONLY; one sentence: "Review the synthesis at `{synthesis-path}` per the peer-review protocol (Implementation Plan / Synthesis tier)."
+- **Output:** `docs/_internal/research/peer-reviews/{topic}-synthesis-review.md` (agent writes this directly)
 
 **Gate check:** Same structural quality check as research-cycle — at least one CONDITIONAL/FLAWED, evidence per finding, at least 3 dimensions.
 
@@ -194,12 +194,12 @@ Update state: `current_step: blueprint.6`.
 
 ### Step 6: Plan Review — Round 2
 
-**Fresh separate agent** (not the R1 agent).
+**Fresh separate agent** (not the R1 agent). `subagent_type: peer-review` again — the harness gives a clean context per launch.
 
 Launch with:
-- **Input:** Updated synthesis doc AND R1 plan review
-- **Focus:** "Check revisions addressed R1 findings. Check for new issues. Don't re-raise addressed findings."
-- **Output:** `docs/_internal/research/peer-reviews/{topic}-synthesis-review-r2.md`
+- **subagent_type:** `peer-review`
+- **prompt:** updated synthesis doc path AND R1 plan review path; one sentence: "Review the synthesis at `{synthesis-path}`. Read R1 review at `{r1-path}` first; check revisions addressed R1 findings, check for new issues from revisions, do NOT re-raise addressed findings."
+- **Output:** `docs/_internal/research/peer-reviews/{topic}-synthesis-review-r2.md` (agent writes this directly)
 
 Same gate check and evaluation as research-cycle:
 | R2 outcome | Action |

@@ -144,12 +144,12 @@ Update state: `current_step: research.2`.
 
 ### Step 2: Peer Review — Round 1
 
-**Launch a separate agent. Non-negotiable.** Use the Agent tool with a fresh agent. Do NOT review in the current context — the research rationale is in your context window and will cause confirmation bias.
+**Launch a separate agent. Non-negotiable.** Use the Agent tool with `subagent_type: peer-review` (the registered agent at `.claude/agents/peer-review.md`). Do NOT review in the current context — the research rationale is in your context window and will cause confirmation bias.
 
 Launch with:
-- **Prompt:** Full `/lattice:peer-review` skill instructions from `commands/lattice/peer-review.md`
-- **Input:** The doc path ONLY — no reasoning, no rationale, no context
-- **Output:** `docs/_internal/research/peer-reviews/{topic}-review.md`
+- **subagent_type:** `peer-review` — the harness loads the agent's instructions; the orchestrator must NOT inline the skill content into the prompt (that pattern was retired 2026-04-27 after measuring ~10K wasted tokens per launch)
+- **prompt:** the doc path ONLY — no reasoning, no rationale, no context. One sentence: "Review the document at `{doc-path}` per the peer-review protocol."
+- **Output:** `docs/_internal/research/peer-reviews/{topic}-review.md` (the agent writes this directly)
 
 **Gate check:** After the agent returns, read the review and verify:
 1. At least one finding rated CONDITIONAL or FLAWED. All-SOUND is suspicious — re-read. If genuinely substantive, accept. If shallow, re-launch with: "Look harder — specifically at assumptions, failure modes, and literature conflicts."
@@ -173,12 +173,12 @@ Update state: `current_step: research.4`.
 
 ### Step 4: Peer Review — Round 2
 
-**Fresh separate agent** (not the R1 agent). Add `--novel` if flagged.
+**Fresh separate agent** (not the R1 agent). Use `subagent_type: peer-review` again — the harness gives a clean context per launch. Add `--novel` if flagged.
 
 Launch with:
-- **Input:** Updated doc path AND R1 review path
-- **Focus:** "Check revisions addressed R1 findings. Check for new issues from revisions. Don't re-raise addressed findings."
-- **Output:** `docs/_internal/research/peer-reviews/{topic}-review-r2.md`
+- **subagent_type:** `peer-review`
+- **prompt:** the updated doc path AND R1 review path; one sentence: "Review the document at `{doc-path}`. Read R1 review at `{r1-path}` first; check revisions addressed R1 findings, check for new issues from revisions, do NOT re-raise addressed findings.{` Use --novel mode.` if flagged}"
+- **Output:** `docs/_internal/research/peer-reviews/{topic}-review-r2.md` (the agent writes this directly)
 
 Same gate check as Step 2.
 

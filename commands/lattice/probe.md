@@ -75,6 +75,7 @@ For each affected subsystem, classify the implication:
 | **BREAKS** | Change alters this consumer's input in a way it doesn't handle | Flag with specific failure mode |
 | **SCIENCE-FLAG** | Change alters analytical output (scores, classifications, verdicts) | Flag per Science preservation gate (CLAUDE.md). **Resolution contract:** decision memo with ≥3 literature citations (species profiles, methods-index, peer-reviewed sources in research/) documenting the chosen behavior and why. The gate's job is to force that decision-with-rationale, not to pause indefinitely for an absent SME. Only escalate to the user if citations cannot be found. |
 | **STALE** | Connection in manifest no longer exists in code | Flag for manifest update |
+| **RECONSIDER-SURFACE** | Change orphans or alters the role of a UI surface (a region in a specific state — e.g., Findings center pane in unselected state after NOAEL migrates out of it) | Flag with `view.region.state` and trigger; the user (or a follow-on `/lattice:design "audit {view}.{region}.{state} after {trigger}"` invocation) decides keep / redesign / remove / re-purpose |
 
 ## Step 4: Check research registry
 

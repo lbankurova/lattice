@@ -74,7 +74,7 @@ If the spec is non-algorithmic (UI / plumbing / documentation / refactor with no
 
 If algorithmic:
 
-1. **Launch the peer-review skill** (`commands/lattice/peer-review.md`) on the spec with mode "Implementation Plan / Synthesis". Pass the spec path; the peer-reviewer follows the **Algorithmic-Tightening Requirements** in its own prompt (mandatory `query-knowledge.py` invocation, mandatory citation, blocking semantics for `CONDITIONAL` / `FLAWED`).
+1. **Launch the peer-review subagent** via the Agent tool with `subagent_type: peer-review` (registered at `.claude/agents/peer-review.md`). The harness loads the agent's instructions — do NOT inline `commands/lattice/peer-review.md` content into the prompt. Pass only the spec path with mode "Implementation Plan / Synthesis"; the peer-reviewer follows the **Algorithmic-Tightening Requirements** from its agent definition (mandatory `query-knowledge.py` invocation, mandatory citation, blocking semantics for `CONDITIONAL` / `FLAWED`).
 2. **Wait for the verdict.** Per spec §5.3 acceptance criterion 2, 100% of incoming/ algorithmic specs MUST have a peer-review verdict in `decisions.log` BEFORE architect-review starts.
 3. **Persist verdict** via the SIMPLIFY-1 attestation path:
    ```bash

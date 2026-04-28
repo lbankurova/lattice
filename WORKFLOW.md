@@ -111,10 +111,18 @@ lattice inspect <workflow>                 -- show execution plan
 |       |  test strategy (6 sections gated)                                 |
 |       v                                                                   |
 |  Step 2: /lattice:architect gate         <-- separate agent              |
+|       |  Step 1.25: F3 algorithmic peer-review                            |
+|       |    (BLOCKING for algorithmic specs; CONDITIONAL/FLAWED            |
+|       |    blocks the parent gate)                                        |
+|       |  Step 1.4: F5 spec lint (4 criteria, --strict)                    |
+|       |    (empirical citation, behavioral tests, multi-feature           |
+|       |    SPEC-VALUE-AUDIT, algorithmic domain truth)                    |
 |       |  Step 1.5: SPEC-VALUE-AUDIT first pass                            |
 |       |    (PASS / SCOPE REDUCTION REQUIRED / EVIDENCE GAP)               |
 |       |  Step 2: architect-reviewer                                       |
 |       |    (PASS / SIMPLIFY / REJECT / SCIENCE-FLAG)                      |
+|       |    (SIMPLIFY auto-applies on Risk: None; SCIENCE-FLAG             |
+|       |     resolved via memo with >=3 citations under autopilot)         |
 |       v                                                                   |
 |  Step 3: /lattice:probe                  <-- build plan impact check     |
 |       v                                                                   |
@@ -149,6 +157,11 @@ lattice inspect <workflow>                 -- show execution plan
 |       |  architect review (separate agent)                                |
 |       |  decision audit (separate agent -- merit enforcement)             |
 |       |  requirement trace (separate agent for spec work)                 |
+|       |  ALGORITHM CHECK (rule 18; BUG-031 hardening) when                 |
+|       |    diff touches algorithm-paths -- SCIENCE-FLAG clears             |
+|       |    only via fix, data-grounded counter-evidence, or                |
+|       |    named-dependency defer (NOT plumbing rebuttals)                |
+|       |  attestations[] persisted via SIMPLIFY-1 unified format            |
 |       v                                                                   |
 |  Step 4: build complete                                                   |
 |       |                                                                   |
@@ -226,14 +239,20 @@ lattice inspect <workflow>                 -- show execution plan
 
 ## Phase Transitions
 
-The three cycles form a pipeline with explicit boundaries. `/lattice:cycle` auto-dispatches:
+The three cycles form a pipeline with explicit boundaries. `/lattice:cycle` **defaults to checkpoint-and-stop** at phase boundaries — each phase deliberately runs in its own session so the next phase starts with a clean context window. Auto-chaining defeats the design (the cycle-state YAML already carries everything the next phase needs: `key_decisions`, `constraints`, `output`, `next_needs`).
 
-| From | To | Transition |
-|------|-----|-----------|
-| (start) | Research | New topic with no existing artifacts |
-| Research complete | Blueprint | Validated research exists, no synthesis |
-| Blueprint complete | Build | Validated build plan exists |
-| Build complete | Done | Code committed |
+| From | To | Behavior |
+|------|-----|----------|
+| (start) | Research | New topic with no existing artifacts → dispatches to `/lattice:research-cycle` |
+| Research complete | Blueprint | Prints "Research phase complete. Cycle state saved. Run `/clear` to free context, then `/lattice:cycle {topic}` to start blueprint phase." Logs `PHASE_TRANSITION_PENDING`. STOPS. |
+| Blueprint complete | Build | Same pattern — logs `PHASE_TRANSITION_PENDING`, STOPS. |
+| Build complete | Done | Code committed. |
+
+When the user re-invokes `/lattice:cycle {topic}` after `/clear`, the dispatcher reads the state file and dispatches the next phase deterministically — no re-classification, no re-decision.
+
+**`--continue` flag (autopilot, not interactive):** `lattice:cycle {topic} --continue` auto-dispatches the next phase in-session. Autopilot uses this; humans usually shouldn't.
+
+**Why the default flipped:** the NOAEL-ALG cycle (2026-04-27) accumulated ~712K tokens by carrying research-phase context (7+ steps, 4 method decisions, R1+R2 reviews) into the blueprint phase, then both into the build phase. Per `.lattice/budget.yaml`, this project warns at 500K context utilization and halts at 750K (LIT-09 telemetry).
 
 Each sub-cycle auto-detects its entry point within the phase -- no `--from` flags needed.
 

@@ -25,12 +25,12 @@ lattice/
   WORKFLOW.md                   # Pipeline diagram, phase transitions, skill list
   WORKFLOW-INTERNALS.md         # Executor, autopilot, coherence, peer-review protocol
   ENFORCEMENT.md                # Review gate, ratchet, hooks, structural gates
-  commands/lattice/             # 21 skills (AI agent prompts, .md)
+  commands/lattice/             # 25 skills (AI agent prompts, .md)
   commands/ops/                 #  6 ops commands
-  agents/                       #  3 independent reviewer agents
+  agents/                       #  4 independent reviewer agents
   workflows/                    #  7 YAML DAG definitions
   executor/src/                 # 14 TypeScript modules (DAG engine)
-  scripts/                      #  9 shell scripts (locking, sync, validation)
+  scripts/                      # 15 shell + Python scripts (locking, sync, validation, audits, design-gate)
   scaffold/                     # Project templates (docs, hooks, rules, config)
   .claude/rules/                # Session-loaded rules (design decisions)
 ```
@@ -74,12 +74,13 @@ Development cycles defined as executable YAML DAGs. Node types: `bash`, `skill`,
 
 ### Agents (`agents/`)
 
-Independent reviewer agents launched by skills. Separate context window prevents self-assessment.
+Independent reviewer agents launched by skills via the Agent tool's `subagent_type`. Separate context window prevents self-assessment; harness loads the agent definition once per launch instead of the orchestrator inlining the agent's instructions.
 
 | Agent | Launched by | Purpose |
 |-------|-------------|---------|
-| `architect-reviewer.md` | `/lattice:review` | Architecture quality, overengineering, science preservation |
+| `architect-reviewer.md` | `/lattice:architect`, `/lattice:review`, `/lattice:blueprint-cycle` | Architecture quality, overengineering, science preservation |
 | `decision-auditor.md` | `/lattice:review` | Merit-driven rationale (rule 12), unprompted deferrals (rule 13) |
+| `peer-review.md` | `/lattice:research-cycle`, `/lattice:blueprint-cycle`, `/lattice:architect` | Blind scientific challenge — domain expert, no project context. Includes F3 algorithmic-tightening requirements (mandatory `query-knowledge.py`, mandatory citation, blocking semantics on `CONDITIONAL`/`FLAWED`) when the input is algorithmic code or an algorithmic spec. |
 | `post-impl-reviewer.md` | `/lattice:review` | Spec-vs-code evidence trace |
 
 ## Executor CLI
@@ -162,24 +163,35 @@ The framework enforces quality through constraints, not just instructions:
 | Mechanism | What it does | How it enforces |
 |-----------|-------------|-----------------|
 | **Review gate** | Every commit requires `/lattice:review` or `write-review-gate.sh` | PreToolUse hook + pre-commit hook both block; gate is single-use |
+| **Unified attestations** (SIMPLIFY-1) | Peer-review, architect, spec-lint, bug-pattern verdicts all funnel through one `attestations[]` format in `review-gate.json` | `append-attestation.sh` writes; `write-review-gate.sh` validates kind, target, verdict, rationale (≥10 chars, no `n/a`/`tbd`/`idk`); pre-commit consumes |
+| **Algorithmic peer-review** (F3) | Algorithmic specs and edits to algorithm-paths funnel through `peer-review` subagent with mandatory `query-knowledge.py` + citation | `CONDITIONAL`/`FLAWED` verdicts BLOCK the parent gate (architect Step 1.25, build review). Algorithm paths default list in `.lattice/algorithm-paths.txt`, project-overridable. |
+| **Spec lint** (F5) | 4-criterion check on `incoming/` specs: empirical claims cite data, behavioral requirements have tests, multi-feature → SPEC-VALUE-AUDIT, algorithmic specs cite domain truth | `/lattice:architect` Step 1.4 runs `scripts/lint-spec.py --strict`; defects block until fixed or waived via attestation in `decisions.log` |
+| **Bug-pattern registry** (F6) | Every `fix:` commit must register or update a `bug-patterns.md` entry naming the pattern, applies-to glob, and prevention class | `/ops:bug-stress` Step 7.5 emits the entry; pcc pre-commit Step 0d enforces a `kind=bug-pattern` attestation when staged paths match any registered glob |
+| **Bug retro disposition** (F7) | The 5-question retrospective on every fix routes to a typed disposition (rule N tightened, hook added, registry update, etc.) — not free-form prose | `/ops:bug-stress` Step 8 records the disposition; pre-commit BLOCKS `fix:` commits where the BUG-SWEEP entry lacks the 5 retro fields |
+| **Design-mode preamble gate** | Hook-enforced 4-block preamble (1.1 Workflow audits, 1.2 Existing surfaces, 1.3 First-principles, 1.4 Convention check) before any UI edit | `scripts/design-mode-gate.sh` (PreToolUse Write\|Edit) BLOCKS in-scope `.tsx`/`.html`/`.ts` edits when `.lattice/design-mode.lock` is `preamble=pending`; `design-session.sh preamble-done <evidence>` flips it to `complete`. Failure mode prevented: port-mode redesign. |
+| **SCIENCE-FLAG memo path** | When a SCIENCE-FLAG fires, autopilot authors a decision memo with ≥3 literature citations and proceeds (per CLAUDE.md rule 14 + autopilot.md anti-pattern table); only escalates if it can't find citations | Wired into `workflows/research-cycle.yaml` and `workflows/blueprint-cycle.yaml` as a memo-required gate; memo path cited in commit message |
+| **Algorithm defensibility check** (BUG-031 hardening, rule 18) | Review agents must run the algorithm on PointCross + one other study and record the data-grounded interpretation; SCIENCE-FLAG only clears via fix, data-grounded counter-evidence, or named-dependency defer | `/lattice:review` ALGORITHM CHECK section (487797e); plumbing-only rebuttals are explicitly insufficient |
 | **Validation ratchet** | Compares analytical scores before/after changes | Pre-commit hook blocks if engine changed without ratchet |
 | **Coherence engine** | Detects cross-topic conflicts (subsystem overlap, stale blueprints, cascades) | `lattice coherence`, `lattice status`, and engine pre-run check |
 | **State reconciliation** | Derives topic state truth from git `Topic:` commit trailers | `lattice status` auto-corrects stale cycle-state files |
-| **Token tracker / budget** | Per-node cost tracking, budget limits per workflow/topic/node | Warns at threshold (default 80%), blocks workflow at limit |
+| **Token tracker / budget** | Per-node cost tracking, budget limits per workflow/topic/node, **per-call context-rot telemetry (LIT-09)** | Warns at threshold (default 80%); context-rot blocks workflow with reason `CONTEXT_ROT` in `decisions.log`; `lattice context [--last N]` reads `.lattice/context-telemetry.jsonl` |
+| **Autopilot loop cap** (LIT-10) | `--max-loops N` (default 50) caps the outer `while (madeProgress)` loop; named force-stop on auto-resolve / phase-routing oscillation | `lattice autopilot --max-loops N` flag wired through |
 | **E2E testing gate** | Branch-comparison behavioral verification (3 modes) | Build-cycle and bug-fix-cycle workflow nodes |
 | **Decision log** | Persistent experiment memory across sessions | Prevents re-trying failed approaches |
 | **Structural quality gates** | Checks peer review depth, synthesis sections, probe results | Orchestrator re-launches skill on gate failure |
-| **Independent agents** | Architect review, decision audit, requirement trace | Separate context window — prevents self-assessment |
-| **Claude Code hooks** | Review gate, commit lock, topic trailer, co-author block, build check | Mechanical — agent cannot skip |
+| **Independent agents** | Peer review, architect review, decision audit, requirement trace | Separate context window via `subagent_type` — prevents self-assessment; the harness loads agent definitions, orchestrator does NOT inline skill content into prompts |
+| **Claude Code hooks** | Review gate, commit lock, topic trailer, co-author block, build check, design-mode preamble, lattice→project sync, pcc-mirror edit block | Mechanical — agent cannot skip |
+| **Outer-held commit lock** | Autopilot and `/lattice:review` acquire `.lattice/commit.lock` BEFORE `git add` to prevent staging-drift conflation when concurrent commits land in the same window | `LATTICE_LOCK_HOLDER` env tells pre-commit Step -1 to honor the outer hold rather than re-acquire (922cf24, 20f2eb4) |
 | **Autopilot auto-resolve** | Targeted distill analysis for coherence conflicts | Resolves subsystem-overlap, stale-blueprint, SF-propagation |
 | **Commit/topic locking** | Prevents concurrent commits and concurrent work on same topic | Atomic mkdir locks with stale recovery |
-| **Autonomous execution** | Cycles run without human until critical decisions | Stops on: SCIENCE-FLAG, REJECT, BREAKS, persistent FLAWED |
+| **SIMPLIFY auto-apply** | Architect SIMPLIFY findings on `Risk: None` cuts auto-apply without user rubber-stamp; non-trivial risk still routes to user | Drops decision overhead on mechanical cleanups (ffbbb0f) |
+| **Autonomous execution** | Cycles run without human until critical decisions | Stops on: SCIENCE-FLAG (without ≥3 citations), REJECT, BREAKS, persistent FLAWED with verifiable contradiction |
 
 See [WORKFLOW.md](WORKFLOW.md) for the pipeline and skill list, [WORKFLOW-INTERNALS.md](WORKFLOW-INTERNALS.md) for protocol depth (peer-review rounds, autopilot stops, coherence conflict types), and [ENFORCEMENT.md](ENFORCEMENT.md) for the guardrail mechanisms.
 
 ## Hard Rules (CLAUDE.md)
 
-17 process rules that apply to every task:
+18 process rules that apply to every task:
 
 | # | Rule | Why |
 |---|------|-----|
@@ -198,6 +210,7 @@ See [WORKFLOW.md](WORKFLOW.md) for the pipeline and skill list, [WORKFLOW-INTERN
 | 15 | Impact analysis before touching shared code | Know what breaks before you edit |
 | 16 | Verify empirical claims against actual data | Don't infer from code -- read the output |
 | 17 | **Spec value audit before build** | Catch featuritis: per-feature frequency, workaround, and impact required before architect review signs off |
+| 18 | **Algorithm defensibility on real data** | When the diff modifies (or consumes the output of) NOAEL / scoring / classification / syndrome detection / severity / onset code, review must run the algorithm on PointCross + one other study, record the actual output, and answer "would a regulatory toxicologist agree this represents the data?" with citation to the driving values. Spec-vs-code consistency is not enough. SCIENCE-FLAG raised by any review agent only clears via fix, data-grounded counter-evidence in this format, or explicit user defer with named dependency — plumbing-only rebuttals do NOT clear it. Exemplar: BUG-031 (2026-04-26). |
 
 ## Research Quality Controls
 
@@ -224,14 +237,15 @@ Built into `/lattice:distill`:
 | Script | Purpose |
 |--------|---------|
 | `install-hooks.sh` | Install git hooks from `hooks/` to `.git/hooks/` (copy + marker, cross-platform) |
-| `sync-skills.sh` | Sync skills, agents, scripts from lattice to project repo |
+| `sync-skills.sh` | Sync `commands/lattice/`, `commands/ops/`, `agents/`, and `scripts/` (`*.sh` + `*.py`) from lattice to a consumer project. **Runs automatically on lattice edits via the optional PostToolUse hook described below.** |
 | `write-review-gate.sh` | Mechanical checks before writing review gate file |
 | `validation-ratchet.sh` | Capture/compare analytical validation scores |
-| `acquire-lock.sh` | Atomic commit lock (polls, stale recovery) |
-| `release-lock.sh` | Release commit lock |
-| `acquire-topic-lock.sh` | Per-topic WIP lock (prevents concurrent work on same topic) |
-| `release-topic-lock.sh` | Release topic WIP lock |
-| `merge-shared-state.sh` | Refresh shared files from HEAD during concurrent sessions |
+| `acquire-lock.sh` / `release-lock.sh` | Atomic commit lock (polls, stale recovery). Autopilot acquires before staging (outer-held lock pattern, 922cf24); pre-commit Step -1 also acquires (20f2eb4) when no outer holder is set. |
+| `acquire-topic-lock.sh` / `release-topic-lock.sh` | Per-topic WIP lock — prevents concurrent work on the same topic, 30-min stale threshold |
+| `append-attestation.sh` / `test-attestation-format.sh` | SIMPLIFY-1 unified `attestations[]` format for `review-gate.json` — peer-review verdicts, architect verdicts, spec-lint waivers all funnel through one format that `write-review-gate.sh` validates |
+| `design-session.sh` / `design-mode-gate.sh` | Design-mode preamble gate. `design-session.sh begin <trigger>` writes `.lattice/design-mode.lock`; `preamble-done <evidence>` validates the four `/lattice:design` Step 1 blocks were authored; `design-mode-gate.sh` is a PreToolUse Write\|Edit hook that BLOCKS in-scope UI edits when the lock is `pending`. Mechanical enforcement of the prompt-level gate (port-mode redesign was the failure mode). |
+| `discovery-scan.py` | Discovery-scan template — runs corpus-wide pattern checks |
+| `merge-shared-state.sh` | Refresh shared files (TODO.md, ROADMAP.md, etc.) from HEAD during concurrent sessions |
 | `context-meter.sh` | Measure conversation context usage |
 
 ## Scaffold (`scaffold/`)

@@ -94,7 +94,26 @@ Greps `git log` for `Topic:` and `Phase:` trailers, compares against cycle-state
 
 **Separate agent mandatory.** Peer review always runs in a launched agent with no access to the orchestrator's context. Self-review doesn't work -- the research rationale is in the context window.
 
+**Registered subagent_type** (`agents/peer-review.md`). Orchestrators (research-cycle, blueprint-cycle, architect) launch with `subagent_type: peer-review` and a one-sentence prompt naming the doc path. The harness loads the agent's instructions; the orchestrator does NOT inline `commands/lattice/peer-review.md` content into the prompt. (Retired 2026-04-27 after measuring ~10K wasted tokens per launch from the previous "Prompt: Full /lattice:peer-review skill instructions" pattern.)
+
 **Maximum 2 rounds per artifact.** Each round is a full `/lattice:peer-review` pass.
+
+### Algorithmic-tightening requirements (F3, BLOCKING)
+
+When the input is **algorithmic code** (a function in `.lattice/algorithm-paths.txt`) or an **algorithmic spec** (declares an algorithm in scope, modifies a function in algorithm-paths, or proposes a new analytical method), the peer-review agent MUST:
+
+1. **Run `python scripts/query-knowledge.py`** against the relevant scope (species, domain, fact_kind) and cite the returned facts (or the explicit no-fact-found stub) in the review. A peer-review that does not invoke `query-knowledge.py` for at least one fact in an algorithmic review is incomplete and gets re-launched.
+2. **Cite for every defensibility claim.** Acceptable citations: a regulatory standard (OECD / ICH / FDA / EFSA / EPA, named document + section), a literature reference (DOI / PMID, or a knowledge-graph fact ID returned by `query-knowledge.py`), or an internal validation-reference card. "Generally accepted" / "standard practice" / "tox common sense" is NOT a citation — claims without citation are downgraded to OPINION and don't count as findings.
+3. **Blocking semantics.** For algorithmic peer-review:
+
+| Verdict | Effect on parent gate (architect / build review) |
+|---------|--------------------------------------------------|
+| `SOUND` | Parent gate proceeds. Verdict logged. |
+| `CONDITIONAL` | **BLOCKS.** "What would fix it" must be addressed (fix code/spec, cite the missing fact via query-knowledge after populating it, or explicit user defer with named dependency). |
+| `FLAWED` | **BLOCKS unconditionally.** Fix the algorithmic defect and re-launch. |
+| `INSUFFICIENT` | **BLOCKS.** Provide the requested information and re-launch. |
+
+This is the §5.1 wiring: F3 becomes a hard gate at algorithmic-paths commits and at incoming/ algorithmic specs. The verdict is persisted via the SIMPLIFY-1 unified attestation format (see ENFORCEMENT.md §8). (f9b2ca5)
 
 ### Round 1 (standard)
 Peer reviewer challenges the artifact. Produces verdicts: SOUND, CONDITIONAL, FLAWED, INSUFFICIENT.
@@ -166,6 +185,10 @@ Your call: {what decision is needed}
 7. **VERDICT** -- pass/fail with evidence
 
 Missing section = incomplete review.
+
+**ALGORITHM CHECK (rule 18, BUG-031 hardening).** When the diff modifies (or consumes the output of) an analytical algorithm — NOAEL / LOAEL / scoring / classification / syndrome detection / severity / onset — the review must (a) run the algorithm against PointCross + at least one other representative study using `backend/generated/{study}/unified_findings.json`, (b) record the actual output, and (c) answer in writing: *"Would a regulatory toxicologist agree this output represents the data?"* with a one-paragraph interpretation citing the actual pairwise/group values that drove the result. **A SCIENCE-FLAG raised by any review agent only clears via fix, data-grounded counter-evidence in this format, or explicit user defer with named dependency.** Plumbing-only rebuttals do NOT clear the flag. Algorithm paths default list: `frontend/src/lib/derive-summaries.ts`, `endpoint-confidence.ts`, `findings-rail-engine.ts`, `cross-domain-syndromes.ts`, `syndrome-rules.ts`, `backend/services/analysis/**`. Override per-project via `.lattice/algorithm-paths.txt`. (487797e)
+
+**Verdict persistence (SIMPLIFY-1).** Each review section that produces a verdict (architect-reviewer, decision-auditor, peer-review when algorithmic, spec-lint when run) writes a row to `attestations[]` in `.lattice/review-gate.json` via `scripts/append-attestation.sh`. `write-review-gate.sh` validates kind / target / verdict / rationale (≥10 chars, no `n/a`/`tbd`/`idk`); pre-commit consumes after a successful commit (single-use gate). See ENFORCEMENT.md §8 for the format. (829dc92)
 
 ## Session Management
 
