@@ -188,6 +188,23 @@
 
 ## Design-system Backlog
 
+> **Last triaged: 2026-04-28** (LIT-DS triage pass). Result: all 10 LIT-DS items are non-actionable framework-side at this time — 4 have defer triggers not yet met, 3 are project-side work (pcc), 1 is dependency-blocked, 2 are conditional skips per their own rules. Per-item status:
+>
+> | # | Status | One-line reason |
+> |---|--------|-----------------|
+> | LIT-DS-01 | DEFER | Visual-rule refute rate 21% > 15% threshold; close visual gap first per item's own trigger |
+> | LIT-DS-02 | PROJECT | Migration map content is pcc-side; framework already names dg-developer responsibility |
+> | LIT-DS-03 | PROJECT | Playwright baselines are pcc-side artifacts |
+> | LIT-DS-04 | PROJECT | Component catalogue is pcc-side documentation |
+> | LIT-DS-05 | DEFER | "Forces" columns only for rules refuted ≥2x; no per-rule refute data yet |
+> | LIT-DS-06 | DEFER | Wait for real failure mode (orphan rule, contradictory pair); none surfaced |
+> | LIT-DS-07 | BLOCKED | Depends on LIT-DS-02 (migration-cost classifier needs the map first) |
+> | LIT-DS-08 | SKIP | Skip-if: single-frontend project; sendex still single-frontend |
+> | LIT-DS-09 | SKIP | Skip-if: no theme swap on roadmap; rule 13 violation if speculative |
+> | LIT-DS-10 | DEFER | Wait for agent re-deriving rejected convention twice without citation; not observed |
+>
+> Re-evaluation triggers (any of these flips one or more items): visual refute rate drops below 5%; Datagrok plugin migration kickoff scheduled; theme-swap appears on roadmap; an orphan rule or contradictory pair surfaces during a validate-stage sweep; a per-rule refute count reaches 2 for any Critical-severity rule.
+>
 > Items derived from cross-checking `docs/literature/` design-system source notes (Frost, Carbon, Appleton, Datagrok) against current sendex/lattice design-system state. Scope is design-system / UI-quality / plugin-migration axes.
 >
 > **Value axes** (the dev-framework axes, adapted for the design surface) each item must defend itself against:
