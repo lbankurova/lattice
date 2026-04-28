@@ -134,11 +134,14 @@
 - **Placement decision (extension vs new skill):** chose extension of `/ops:bug-stress` on merit grounds. Bug-stress is the gate where post-fix discipline already fires; routing through a separate `/lattice:audit-coverage` skill would add an invocation surface without a workflow trigger. The script is invocable standalone (`python scripts/coverage-density-report.py <module>`) so a future proactive trigger (e.g., new analytical function added) doesn't require duplicating logic.
 - **Adjacency to redesign-spec F2 / F6:** LIT-07 is distinct from F6 (which propagates a known pattern across instances) and F2 (which builds a property catalog for analytical functions). LIT-07 asks the *upstream* question: regardless of whether the pattern is named in F6's catalog, is the module densely-enough tested that the next instance would surface? The reference map in the script's output is also where F2 properties would attach — same surface, different axes. Coordinated note left in the script docstring.
 
-### LIT-08: `/lattice:extract-learnings` skill
+### ~~LIT-08: `/lattice:extract-learnings` skill~~ — RESOLVED 2026-04-28
 - **Tier:** 2 — knowledge integrity
-- **What:** Formalize CLAUDE.md rule 7 (doc lifecycle: spec → archive + extract durable knowledge) as an enforceable skill rather than convention. Today's commits show patchy enforcement — durable-knowledge extraction got skipped in the conflated commits (1370c103, 521f1d16) because the commit message didn't trigger the discipline.
-- **Where:** new `commands/lattice/extract-learnings.md`, hooked into `/lattice:review` cycle-close
-- **Source:** gsd (`gsd-extract-learnings`)
+- **Status:** Resolved 2026-04-28. Implementation:
+  - **`commands/lattice/extract-learnings.md`** — new skill (7 steps): read spec, classify candidates by destination (typed graph / methods-index / field-contracts / architecture / audit-checklist / design-decisions / contract-triangles / bug-patterns), locate-or-create destination, stage extractions (review or `--apply` mode), archive spec with back-references, update relevant architecture spec's last-validated date, persist findings via `decisions.log` row + `Knowledge:` commit trailer.
+  - **`commands/lattice/review.md` Step 5d** — new mandatory cycle-close substep that auto-invokes `/lattice:extract-learnings <spec-path> --apply` when the staged set or recent commits include an `incoming/*.md` removal/move (or `Topic:` trailer matches a spec being closed). Defect-blocks the gate when the skill produces zero extractions AND the spec has no explicit `Archived <date>. No durable knowledge extracted (rationale: ...)` annotation. Skipped during `/lattice:spike` close (spikes deliberately defer doc lifecycle to `/lattice:spec-from-code`).
+- **Failure mode prevented:** the conflation cases (1370c103, 521f1d16) where a spec extraction was bundled into a conflated commit; the commit message didn't trigger anyone's "extract before archive" discipline so durable knowledge was lost in commit-laundry. With Step 5d auto-running, cycle-close cannot proceed without either logged extractions or a logged "no extraction needed" rationale.
+- **Pairs with rule 19:** architect (Step 1.4 criterion 5) + peer-review (synthesis tier) ask the placement question on incoming specs; this skill closes the loop on outgoing specs by extracting the values to the typed graph at archive time.
+- **Source:** gsd (`gsd-extract-learnings`).
 
 ### ~~LIT-09: Context-rot telemetry~~ — RESOLVED 2026-04-26
 - **Tier:** 1 — autopilot + orchestrator confidence

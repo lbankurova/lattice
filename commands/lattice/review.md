@@ -533,6 +533,29 @@ GAPS PERSISTED:
 If no gaps were found, state: `GAPS: None identified.` This is informational — zero gaps is a valid outcome, not a missing section.
 If no bug fix component exists, state: `BUG SWEEP: N/A — no bug-fix component in this commit.`
 
+### 5d: Extract durable knowledge from archived specs (LIT-08, mandatory at cycle-close)
+
+If this commit closes out an `incoming/` spec — detected when (a) the staged set or recent commits include an `incoming/*.md` removal/move, OR (b) the `Topic:` trailer matches a spec in `incoming/` whose implementation just landed — invoke `/lattice:extract-learnings <spec-path> --apply` per CLAUDE.md rule 7 (doc lifecycle) and rule 19 (atomic facts placement).
+
+The skill at `commands/lattice/extract-learnings.md`:
+1. Reads the spec, classifies durable items by destination (typed graph, methods-index, field-contracts, architecture/, audit-checklist, etc.)
+2. Locates or creates the destination entry, applies the extraction
+3. Archives the spec with back-references to the extracted destinations
+4. Updates the relevant architecture spec's last-validated date + change log
+5. Records `Knowledge:` trailer for the commit and a `decisions.log` row
+
+**Defect:** if extract-learnings produces no extractions AND the spec has no `Archived <date>. No durable knowledge extracted (rationale: ...)` annotation, this step BLOCKS the gate. Resolution paths: (a) re-run with the spec author identifying extractable items, OR (b) author the explicit rationale in the spec head ("no durable knowledge extracted because <reason>"), OR (c) `/lattice:review --skip-extract-learnings` with reason logged to decisions.log.
+
+**Skip when:** this is a `/lattice:spike` close (spikes deliberately skip doc lifecycle per `commands/lattice/spike.md`); their learnings come through `/lattice:spec-from-code` followed by a separate cycle-close.
+
+**Output to GAPS section:**
+```
+EXTRACTIONS:
+- [N] items extracted to: <destinations-joined-with-commas>
+- spec archived: <archived-path>
+```
+If the spec has the explicit "no durable knowledge" rationale: `EXTRACTIONS: N/A (rationale: <one line>)`.
+
 ---
 
 ## Step 7: Commit gate (all work)

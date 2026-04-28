@@ -25,7 +25,7 @@ lattice/
   WORKFLOW.md                   # Pipeline diagram, phase transitions, skill list
   WORKFLOW-INTERNALS.md         # Executor, autopilot, coherence, peer-review protocol
   ENFORCEMENT.md                # Review gate, ratchet, hooks, structural gates
-  commands/lattice/             # 25 skills (AI agent prompts, .md)
+  commands/lattice/             # 26 skills (AI agent prompts, .md)
   commands/ops/                 #  6 ops commands
   agents/                       #  4 independent reviewer agents
   workflows/                    #  7 YAML DAG definitions
