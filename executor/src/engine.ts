@@ -156,12 +156,17 @@ export async function executeWorkflow(
         `[dry-run] Layer ${layer.index}: ${layerNodes.join(', ')}`
       );
       for (const id of layerNodes) {
+        // Synthetic result tagged with dryRun:true. Template engine throws
+        // if any downstream node references {{nodes.<id>.output}} so dry-run
+        // can never silently propagate the literal "(dry run)" string into
+        // bash commands, gate conditions, or skill prompts.
         run.nodeResults[id] = {
           nodeId: id,
           status: 'completed',
           output: '(dry run)',
           startedAt: new Date().toISOString(),
           completedAt: new Date().toISOString(),
+          dryRun: true,
         };
         ctx.nodes[id] = run.nodeResults[id];
       }

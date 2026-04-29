@@ -68,6 +68,31 @@ export function reconcileStates(
 }
 
 /**
+ * Default lookback window for the Topic:-trailer scan. Topics that haven't
+ * seen activity in 90 days are by definition stable; the retroactive TSV
+ * (loadRetroactiveAnnotations) covers anything older that still matters.
+ */
+const DEFAULT_LOOKBACK_DAYS = 90;
+
+/**
+ * Resolve the lookback date as an ISO YYYY-MM-DD string, computed from
+ * today minus N days. N comes from LATTICE_RECONCILE_LOOKBACK_DAYS if set
+ * to a positive integer, otherwise DEFAULT_LOOKBACK_DAYS.
+ */
+function resolveLookbackSince(): string {
+  const raw = process.env['LATTICE_RECONCILE_LOOKBACK_DAYS'];
+  let days = DEFAULT_LOOKBACK_DAYS;
+  if (raw !== undefined) {
+    const parsed = parseInt(raw, 10);
+    if (Number.isFinite(parsed) && parsed > 0) {
+      days = parsed;
+    }
+  }
+  const cutoff = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
+  return cutoff.toISOString().slice(0, 10);
+}
+
+/**
  * Grep git log for commits with Topic: trailers.
  */
 function collectTopicCommits(cwd: string): TopicCommit[] {
@@ -75,8 +100,9 @@ function collectTopicCommits(cwd: string): TopicCommit[] {
 
   try {
     // Format: hash|||subject|||body (body contains trailers)
+    const since = resolveLookbackSince();
     const output = execSync(
-      'git log --since=2026-01-01 --format=%h|||%s|||%b',
+      `git log --since=${since} --format=%h|||%s|||%b`,
       { cwd, encoding: 'utf-8', timeout: 15_000, stdio: ['pipe', 'pipe', 'pipe'] }
     ).trim();
 

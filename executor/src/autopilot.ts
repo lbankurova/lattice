@@ -162,6 +162,25 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
   let madeProgress = true;
   let autoResolveAttempted = false; // Prevent infinite auto-resolve loops
 
+  // Loop-scoped cache for portfolio state. loadPortfolioState performs deep
+  // doc enrichment (coherence.ts:258-313 reads up to 3 docs per topic at
+  // ~100 lines each), so calling it 3-4x per iteration becomes the dominant
+  // cost outside the actual skill calls. We cache the enriched state and
+  // invalidate only when something actually mutates state files:
+  //   - reconcileStates (write mode) corrects stale states
+  //   - tryAutoResolve writes resolution to state files
+  //   - executeWorkflow runs a skill that mutates state
+  // The cache is local to runAutopilot — no global memoization layer.
+  let cachedTopics: TopicState[] | null = null;
+  let cacheDirty = true;
+  const loadTopicsCached = (): TopicState[] => {
+    if (cacheDirty || cachedTopics === null) {
+      cachedTopics = loadPortfolioState(stateDir, cwd);
+      cacheDirty = false;
+    }
+    return cachedTopics;
+  };
+
   while (madeProgress) {
     if (result.loopsCompleted >= maxLoops) {
       await adapter.sendMessage(`\n[AUTOPILOT] Max-loops cap reached (${maxLoops}). Forcing stop.`);
@@ -182,8 +201,11 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
       break;
     }
 
-    // 1a. Reconcile state against git — derive truth before analysis
-    const rawTopics = loadPortfolioState(stateDir, cwd);
+    // 1a. Reconcile state against git — derive truth before analysis.
+    // The raw load here skips deep doc enrichment (no projectRoot arg):
+    // reconcile only inspects phase/lifecycleState/currentStep/stateFile,
+    // so the enrichment work would be discarded.
+    const rawTopics = loadPortfolioState(stateDir);
     const recon = reconcileStates(rawTopics, cwd, true);
     const corrections = recon.filter(r => r.action === 'corrected');
     if (corrections.length > 0) {
@@ -191,10 +213,12 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
       for (const c of corrections) {
         await adapter.sendMessage(`  ${c.topic}: ${c.stateBefore} -> ${c.stateAfter}`);
       }
+      cacheDirty = true; // reconcile wrote state files
     }
 
-    // 1b. Re-load after corrections
-    const topics = loadPortfolioState(stateDir, cwd);
+    // 1b. Re-load after corrections (primes the loop-scoped cache).
+    cacheDirty = true; // force fresh enriched read at the top of each iteration
+    const topics = loadTopicsCached();
     if (topics.length === 0) {
       await adapter.sendMessage('No active topics.');
       break;
@@ -251,6 +275,7 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
           await adapter.sendMessage(`\nAuto-resolved ${resolved.length}/${blockerConflicts.length} conflict(s). Re-running coherence...`);
           // State files were updated by applyResolution — re-run coherence
           // and loop again to see if topics are now advanceable
+          cacheDirty = true; // applyResolution wrote state files
           madeProgress = true;
           continue;
         }
@@ -296,7 +321,10 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
       const { topic, action } = batch[i];
 
       if (i > 0) {
-        const freshTopics = loadPortfolioState(stateDir, cwd);
+        // Re-evaluates safety against the fresh post-workflow state.
+        // loadTopicsCached returns the cached enriched topics unless a
+        // prior workflow / auto-resolve marked the cache dirty.
+        const freshTopics = loadTopicsCached();
         const freshReport = checkCoherence(freshTopics);
         const safety = isTopicSafe(topic.topic, freshReport);
         if (!safety.safe) {
@@ -325,6 +353,11 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
           latticeRoot,
           skipCoherence: true, // Already checked at autopilot level
         });
+        // Any workflow run (completed, paused, failed) may have mutated
+        // state files / decisions.log / research docs — invalidate cache
+        // so the next mid-batch safety check or post-batch decision
+        // collection sees fresh state.
+        cacheDirty = true;
 
         if (run.status === 'completed') {
           result.topicsAdvanced.push(topic.topic);
@@ -341,6 +374,7 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
         }
       } catch (err) {
         result.topicsFailed.push(topic.topic);
+        cacheDirty = true; // a partial workflow run may have written state
         await adapter.sendMessage(`  ${topic.topic}: ERROR — ${err instanceof Error ? err.message : err}`);
       }
     }
@@ -349,8 +383,9 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
       await adapter.sendMessage(`\nSkipped (became unsafe mid-batch): ${skippedDueToStateChange}`);
     }
 
-    // 6. Collect decisions from blocked topics
-    const finalTopics = loadPortfolioState(stateDir, cwd);
+    // 6. Collect decisions from blocked topics. Re-uses the cached enriched
+    // state when no workflow / auto-resolve mutated it during this iteration.
+    const finalTopics = loadTopicsCached();
     const finalReport = checkCoherence(finalTopics);
     result.coherenceReport = finalReport;
     collectPendingDecisions(finalTopics, finalReport, result);

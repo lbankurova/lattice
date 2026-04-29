@@ -131,39 +131,6 @@ export function loadE2EConfig(projectRoot: string): E2EConfig | null {
  * Minimal glob matcher for testability patterns.
  * Supports: ** (recursive), * (single segment wildcard), literal segments.
  */
-function matchGlob(pattern: string, filePath: string): boolean {
-  // Normalize separators
-  const p = pattern.replace(/\\/g, '/');
-  const f = filePath.replace(/\\/g, '/');
-
-  // Convert glob to regex
-  const parts = p.split('/');
-  let regex = '^';
-  for (let i = 0; i < parts.length; i++) {
-    if (i > 0) regex += '/';
-    const part = parts[i];
-    if (part === '**') {
-      // ** matches zero or more path segments
-      regex += '(?:.+/)?';
-      // Remove trailing slash if next part exists
-      if (i < parts.length - 1) {
-        regex = regex.slice(0, -1); // Remove the ?
-        regex += '(?:.+/)?';
-      } else {
-        regex = regex.slice(0, -regex.length) + '^(?:.+/)?';
-        regex = '^(?:.*/)?';
-      }
-      // Restart — simpler approach: convert whole pattern
-      return matchGlobSimple(p, f);
-    } else {
-      regex += part.replace(/\./g, '\\.').replace(/\*/g, '[^/]*');
-    }
-  }
-  regex += '$';
-  return new RegExp(regex).test(f);
-}
-
-/** Simpler glob matching that handles ** correctly. */
 function matchGlobSimple(pattern: string, filePath: string): boolean {
   // Convert glob pattern to regex
   let regex = '^';

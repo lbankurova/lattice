@@ -156,6 +156,9 @@ export interface NodeResult {
   selectedOption?: string;
   /** Token usage and cost (skill nodes only) */
   cost?: NodeCost;
+  /** True when this result was synthesised by a dry-run pass (no real execution).
+   * Template references to a dry-run node's output throw — see template.ts. */
+  dryRun?: boolean;
 }
 
 export interface WorkflowRun {

@@ -66,6 +66,20 @@ function resolveExpression(expr: string, ctx: TemplateContext): string | undefin
       const nodeResult = ctx.nodes[nodeId];
       if (!nodeResult) return '';
 
+      // Dry-run: refuse to substitute synthetic outputs into downstream
+      // nodes. Silently propagating "(dry run)" into bash commands or gate
+      // conditions made dry-runs appear to "complete" while feeding garbage
+      // through the DAG. Throw loudly so the caller sees the dependency.
+      // status/exit_code/route are still safe to read (status='completed'
+      // is a meaningful planning signal). Only output substitution throws.
+      if (nodeResult.dryRun && parts[2] === 'output') {
+        throw new Error(
+          `Template references {{nodes.${nodeId}.${parts.slice(2).join('.')}}} but '${nodeId}' was not executed (dry-run mode). ` +
+          `Dry-run only validates the execution plan; it cannot satisfy data-flow templates. ` +
+          `Run without --dry-run to execute, or remove the {{nodes.${nodeId}.output...}} reference from this node.`
+        );
+      }
+
       if (parts[2] === 'output') {
         if (parts.length === 3) {
           // {{nodes.X.output}} -- full output text

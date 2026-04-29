@@ -12,6 +12,7 @@
 
 import { resolve, dirname } from 'node:path';
 import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { parseArgs as nodeParseArgs } from 'node:util';
 import yaml from 'js-yaml';
 import { loadWorkflow, resolveWorkflowPath } from './loader.js';
 import { buildExecutionLayers } from './dag.js';
@@ -72,15 +73,78 @@ function findLatticeRoot(): string {
   );
 }
 
+/**
+ * Known boolean flags across all commands. node:util.parseArgs needs
+ * type='boolean' for these so it doesn't consume the next positional as
+ * the flag's value. Adding a new boolean flag? Append it here.
+ */
+const BOOLEAN_FLAGS = new Set([
+  'dry-run',
+  'force',
+  'loop',
+  'skip-reconcile',
+]);
+
+/**
+ * Parse `args` (process.argv after the command) into a flat
+ * Record<string, string>. Boolean flags map to 'true'. Unknown flags are
+ * accepted as strings (cmdRun forwards arbitrary --<workflow-input>).
+ *
+ * Wraps node:util.parseArgs (Node 18.3+; stable since 20). Returning the
+ * legacy Record<string, string> shape keeps every call-site (`'dry-run' in
+ * flags`, `flags['max']`, `flags['topic']`, etc.) backwards-compatible.
+ */
 function parseArgs(): Record<string, string> {
-  const result: Record<string, string> = {};
+  // Build option config: every BOOLEAN_FLAGS entry registered as boolean,
+  // everything else treated as string. parseArgs in non-strict mode also
+  // accepts options not listed here; for unregistered flags it will treat
+  // the next non-flag token as a positional unless we mark it as string.
+  // We pre-register every flag we know about plus give cmdRun a permissive
+  // fallback by setting strict:false and scanning args ourselves first.
+  const knownStringFlags = new Set<string>([
+    'lattice-root', 'mode', 'topic', 'max', 'max-loops', 'filter', 'base', 'last',
+  ]);
+
+  // Pre-scan args to discover any --foo flag the caller passed that isn't
+  // in our static lists. Treat them as string-typed so parseArgs consumes
+  // the following token as the value (preserves cmdRun's pass-through
+  // surface for arbitrary workflow inputs like --topic, --species, etc.).
+  const dynamicStringFlags = new Set<string>();
   for (let i = 0; i < args.length; i++) {
-    if (args[i].startsWith('--')) {
-      const key = args[i].slice(2);
-      const value = args[i + 1] && !args[i + 1].startsWith('--') ? args[i + 1] : 'true';
-      result[key] = value;
-      if (value !== 'true') i++;
-    }
+    const a = args[i];
+    if (!a.startsWith('--')) continue;
+    const name = a.slice(2).split('=')[0];
+    if (!name) continue;
+    if (BOOLEAN_FLAGS.has(name) || knownStringFlags.has(name)) continue;
+    dynamicStringFlags.add(name);
+  }
+
+  const options: Record<string, { type: 'string' | 'boolean'; multiple?: boolean }> = {};
+  for (const name of BOOLEAN_FLAGS) options[name] = { type: 'boolean' };
+  for (const name of knownStringFlags) options[name] = { type: 'string' };
+  for (const name of dynamicStringFlags) options[name] = { type: 'string' };
+
+  let parsed: { values: Record<string, string | boolean | undefined> };
+  try {
+    parsed = nodeParseArgs({
+      args,
+      options,
+      strict: false,
+      allowPositionals: true,
+    }) as { values: Record<string, string | boolean | undefined> };
+  } catch (err) {
+    // parseArgs throws on malformed input (e.g. --flag= with no value when
+    // type=string). Surface a clear error rather than silently dropping.
+    throw new Error(
+      `Failed to parse CLI arguments: ${err instanceof Error ? err.message : String(err)}`
+    );
+  }
+
+  const result: Record<string, string> = {};
+  for (const [key, value] of Object.entries(parsed.values)) {
+    if (value === undefined) continue;
+    // Boolean true -> 'true' string (legacy shape); false flags simply absent.
+    result[key] = value === true ? 'true' : value === false ? 'false' : String(value);
   }
   return result;
 }

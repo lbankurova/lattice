@@ -312,8 +312,38 @@ async function executeApproval(
 // ── Condition evaluator ─────────────────────────────────────
 
 /**
+ * Split `expr` on `delim` (a 2-char operator like `&&` or `||`), but only at
+ * top level — occurrences inside single-quoted string literals are ignored.
+ * Returns the original string as a single-element array if no top-level
+ * occurrence is found.
+ */
+function splitTopLevel(expr: string, delim: string): string[] {
+  const parts: string[] = [];
+  let inString = false;
+  let start = 0;
+  for (let i = 0; i < expr.length; i++) {
+    const ch = expr[i];
+    if (ch === "'") {
+      inString = !inString;
+      continue;
+    }
+    if (!inString && expr.startsWith(delim, i)) {
+      parts.push(expr.slice(start, i));
+      i += delim.length - 1;
+      start = i + 1;
+    }
+  }
+  parts.push(expr.slice(start));
+  return parts;
+}
+
+/**
  * Evaluate a simple condition expression.
  * Supports: ==, !=, contains(), !exists, exists, &&, ||, true, false.
+ *
+ * Precedence: || binds looser than && (standard). Splits respect single-
+ * quoted string literals so `inputs.x == 'a && b'` is not mis-split at the
+ * `&&` inside the literal.
  */
 function evaluateCondition(expr: string): boolean {
   const trimmed = expr.trim();
@@ -322,14 +352,17 @@ function evaluateCondition(expr: string): boolean {
   if (trimmed === 'true') return true;
   if (trimmed === 'false') return false;
 
-  // && (higher precedence)
-  if (trimmed.includes('&&')) {
-    return trimmed.split('&&').every(part => evaluateCondition(part));
+  // || has lower precedence — split first so `a || b && c` parses as `a || (b && c)`.
+  // Splits ignore occurrences inside single-quoted string literals.
+  const orParts = splitTopLevel(trimmed, '||');
+  if (orParts.length > 1) {
+    return orParts.some(part => evaluateCondition(part));
   }
 
-  // ||
-  if (trimmed.includes('||')) {
-    return trimmed.split('||').some(part => evaluateCondition(part));
+  // && has higher precedence than ||.
+  const andParts = splitTopLevel(trimmed, '&&');
+  if (andParts.length > 1) {
+    return andParts.every(part => evaluateCondition(part));
   }
 
   // == comparison
@@ -408,8 +441,34 @@ interface ClaudeJsonResponse {
 }
 
 /**
+ * Heuristic: does this trimmed plain-text output look like a Claude CLI
+ * failure message (auth, rate limit, network, OOM, etc.)? Used by the
+ * non-JSON fallback path in `parseClaudeJsonOutput` to avoid silently
+ * absorbing catastrophic CLI failures as successful node output.
+ */
+function looksLikeErrorOutput(text: string): boolean {
+  const lower = text.toLowerCase();
+  return (
+    lower.includes('error') ||
+    lower.includes('rate limit') ||
+    lower.includes('authentication') ||
+    lower.includes('unauthorized') ||
+    lower.includes('out of memory') ||
+    lower.includes('oom') ||
+    lower.includes('econnrefused') ||
+    lower.includes('etimedout') ||
+    lower.includes('network')
+  );
+}
+
+/**
  * Parse Claude CLI `--output-format json` response.
  * Extracts text result and token usage/cost metrics.
+ *
+ * Throws when the CLI signals failure (`is_error: true` in the JSON, or a
+ * non-JSON fallback that looks like an error message). The caller's catch
+ * is responsible for producing a `failed` NodeResult so skill failures do
+ * not pass silently through the orchestrator.
  */
 function parseClaudeJsonOutput(raw: string): { text: string; cost?: NodeCost } {
   const trimmed = raw.trim();
@@ -419,8 +478,18 @@ function parseClaudeJsonOutput(raw: string): { text: string; cost?: NodeCost } {
   try {
     parsed = JSON.parse(trimmed);
   } catch {
-    // Not valid JSON — treat as plain text (fallback)
+    // Not valid JSON — legitimate for skills that return plain text, but a
+    // CLI auth/rate-limit/network failure can also exit 0 and emit a bare
+    // error string. Heuristically distinguish the two.
+    if (looksLikeErrorOutput(trimmed)) {
+      throw new Error(`Claude CLI returned non-JSON error output: ${trimmed.slice(0, 500)}`);
+    }
     return { text: trimmed };
+  }
+
+  if (parsed.is_error === true) {
+    const detail = (parsed.result ?? '').trim() || 'is_error=true with no result message';
+    throw new Error(`Claude CLI reported is_error=true: ${detail.slice(0, 500)}`);
   }
 
   const text = (parsed.result ?? '').trim();
