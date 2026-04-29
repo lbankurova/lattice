@@ -4,8 +4,12 @@
 # Usage: bash scripts/sync-skills.sh <project-root>
 #   e.g.: bash scripts/sync-skills.sh C:/pg/pcc
 #
-# Copies commands/lattice/ and commands/ops/ to <project>/.claude/commands/
-# Also copies agents/ to <project>/.claude/agents/ if it exists
+# Copies:
+#   commands/lattice/      -> <project>/.claude/commands/lattice/
+#   commands/ops/          -> <project>/.claude/commands/ops/
+#   agents/                -> <project>/.claude/agents/
+#   docs/skills-includes/  -> <project>/docs/skills-includes/
+#   scripts/*.{sh,py}      -> <project>/scripts/   (excluding sync-skills.sh itself)
 
 set -euo pipefail
 
@@ -54,6 +58,27 @@ if [ -d "$FRAMEWORK_ROOT/agents" ]; then
         count=$((count + 1))
     done
     echo "  agents:  $count agents"
+fi
+
+# Sync skill partner files (docs/skills-includes/) if they exist.
+# These are skill prompt fragments referenced by skills via path
+# (e.g., commands/lattice/review.md -> docs/skills-includes/review-protocols.md).
+# They live OUTSIDE commands/ so Claude Code's skill auto-discovery
+# doesn't surface them as standalone skills, but they must still be
+# present at the referenced path in the consumer project. Without this
+# sync, a skill that points to a partner file would resolve to a
+# missing path in the project (broken pointer).
+if [ -d "$FRAMEWORK_ROOT/docs/skills-includes" ]; then
+    SKILL_INCLUDES_DIR="$TARGET/docs/skills-includes"
+    mkdir -p "$SKILL_INCLUDES_DIR"
+    count=0
+    shopt -s nullglob
+    for f in "$FRAMEWORK_ROOT"/docs/skills-includes/*.md; do
+        cp "$f" "$SKILL_INCLUDES_DIR/"
+        count=$((count + 1))
+    done
+    shopt -u nullglob
+    echo "  partners: $count skill-include files"
 fi
 
 # Sync scripts (lock, merge, validation ratchet, audits, linters).
