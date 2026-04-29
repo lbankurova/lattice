@@ -33,6 +33,8 @@ The structural contrast with single-cadence frameworks (every topic traverses th
 /lattice:blueprint-cycle {topic}            -- blueprint phase: synthesize + architect gate + plan review
 /lattice:build-cycle {topic}               -- build phase: design + implement + review + commit
 /lattice:autopilot                         -- advance all safe topics, batch human decisions
+/lattice:autopilot --discover              -- pre-loop discovery-scan; fold safe gaps into queue (LIT-03)
+/lattice:autopilot --consolidate           -- surface synthesize suggestions for dense knowledge clusters (LIT-04)
 /lattice:probe {change}                    -- cross-impact analysis (targeted, --integrity, --safety)
 /lattice:architect audit {path}            -- ad-hoc architecture audit
 /lattice:architect gate {spec}             -- pre-implementation architecture gate

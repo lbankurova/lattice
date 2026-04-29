@@ -51,7 +51,14 @@ The executor (`executor/src/`) runs workflow YAML DAGs. It is separate from the 
 - Coherence conflicts that can't be auto-resolved (prerequisite violations, BREAKS cascades)
 - Validation degradation (expected vs unexpected)
 
-**Flags:** `--dry-run` (report without executing), `--loop` (continuous, default is single pass), `--max N` (cap topics per loop, default 3), `--filter PATTERN` (substring match on topic names).
+**Flags:** `--dry-run` (report without executing), `--loop` (continuous, default is single pass), `--max N` (cap topics per loop, default 3), `--filter PATTERN` (substring match on topic names), `--max-loops N` (LIT-10; cap the outer `while (madeProgress)` loop, default 50; force-stop names auto-resolve / phase-routing oscillation).
+
+**Optional modes (LIT-03 / LIT-04):**
+
+- **`--discover`** — pre-loop probe. Runs the project's `scripts/discovery-scan.py` (if present), parses the resulting `scripts/data/discovery-report.md`, re-classifies each `Gap` against autopilot safety gates, and folds safe gaps into the Step 2 queue with `kind: discover` + score derived from severity. Ambiguous gaps escalate to `ESCALATION.md`. If the script is absent, emits a one-line notice and continues with the normal loop. Force-multiplier on gap detection (Karpathy llm-wiki sparse-area signal).
+- **`--consolidate`** — runs after Step 4. Uses `git log --since="14 days ago"` over `docs/_internal/research/` + `docs/_internal/knowledge/`; clusters files by filename keyword / `derives_from` chain / mutual citation; ≥3-file clusters surface as a `RECOMMENDATIONS` block in the Step 5 summary. Does NOT auto-invoke `/lattice:synthesize` — surfaces the suggestion for the next cycle. Ahrens "emergence" signal cited in `commands/lattice/autopilot.md`.
+
+`--discover` and `--consolidate` are independent; running both in one invocation runs `--discover` pre-loop and `--consolidate` post-Step-4. The Step 5 summary lists discovery work in `Advanced:` and synthesis suggestions in `Recommendations`.
 
 Every auto-decision is logged. The user can audit after the fact and re-enter at any step.
 
