@@ -236,6 +236,8 @@ Built into `/lattice:distill`:
 - **Contradiction detection** — when corpus documents disagree, both positions presented with evidence. No silent resolution.
 - **Freshness check** — checks REGISTRY for research stream status before citing conclusions.
 
+**Scale note (corpus load):** Step 0 Layer 3 currently selects deep-read targets by title-scanning `INDEX.md`. This works for a single-maintainer corpus up to ~150 files. **At ~200+ research files, or when multiple contributors share the corpus**, swap to semantic vector search (DuckDB + Voyage AI embeddings, or equivalent) — title-based selection misses semantically related files with different terminology. Re-author the prior `ENH-01` entry (archived in `docs/decisions/todo-pruned-2026-04-28.md`) with the current dependency landscape when the threshold is hit.
+
 ## Scripts (`scripts/`)
 
 | Script | Purpose |

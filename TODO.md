@@ -42,14 +42,7 @@
 - Scaffold template so new Lattice projects inherit the checklist.
 - Originating precedent: pcc `study-design-override-surfaces` spec (9 of 14 features flagged featuritis).
 
-### ENH-01: Vector search for corpus load (Zabaca/lattice integration)
-- **Skill affected:** `/lattice:distill` Step 0 Layer 3, `/lattice:research` Step 0
-- **What:** Replace title-scanning of INDEX.md with semantic vector search for selecting which research files to deep-read. Use [Zabaca/lattice](https://github.com/Zabaca/lattice) (DuckDB + Voyage AI embeddings) as the search backend.
-- **Integration point:** Distill Step 0 Layer 3 ("Deep Read — purpose-driven selection") and research corpus load. Call `lattice search "{question}"` to rank files by semantic relevance instead of keyword/title matching.
-- **Why:** Current title-based selection is fragile — misses semantically related files with different terminology (e.g., "organ weight normalization" vs "body weight mediation"). Vector search would improve recall.
-- **Dependencies:** Voyage AI API key, `@zabaca/lattice` npm package, sync step after research file creation/update.
-- **When:** Revisit when research corpus exceeds ~200 files, or when multiple contributors work in the corpus. Current corpus size (~100 files, single maintainer) makes the marginal value small.
-- **Priority:** P3 (low — not a current bottleneck)
+_(no open ENH items at this time — see `docs/decisions/todo-pruned-2026-04-28.md` for items moved out of active backlog.)_
 
 ---
 
@@ -172,19 +165,17 @@
 - **Deferred (separate scope):** workflow-level `max_iterations` per archon — would cap node-level iteration counts inside a single workflow run (e.g., gates routing back to retry nodes). Not in current failure-mode evidence; revisit if a workflow infinite-loops.
 - **Source:** archon (`max_iterations` per-loop caps)
 
-### LIT-11: GSD `seeds/` pattern (situational)
-- **Tier:** 4 — process clarity, conditional on felt pain
-- **What:** Milestone-keyed deferred-idea bucket. Reconciles CLAUDE.md rule 13 ("no unprompted deferrals") with the reality that some ideas genuinely have to wait for a milestone. Today these go to TODO.md `needs-user`, ESCALATION.md, or get lost in conversation.
-- **Where:** `docs/_internal/seeds/` (new directory if adopted), referenced from TODO.md
-- **Source:** gsd (`commands/gsd/plant-seed.md`)
-- **Skip if:** existing TODO/ROADMAP/ESCALATION mechanisms cover this without the new directory.
-
-### LIT-12: Slack integration (parked)
-- **Tier:** parked — operational, deferred-but-tracked
-- **What:** Inbound channel for user instructions while away from terminal. Voice-of-user signal that supplements in-session conversation.
-- **Pre-work needed before un-defer:** scope spec (which channels, auth model, command grammar, security boundary, MCP vs custom integration); pick activation trigger (e.g., when the user hits a recurring "had to wait until I got home to direct Claude" pain).
-- **Where:** TBD (likely an MCP server or `.claude/settings.json` hook integration)
-- **Source:** prior conversation (deferred without scope)
+### LIT-12: Slack integration — work-from-anywhere capability
+- **Tier:** active — user-prioritized 2026-04-28 ("sooner rather than later")
+- **What:** Inbound channel for user instructions while away from desktop CLI. The pain is real: user is currently bound to terminal access for any directive flow, which limits practical use to in-office hours. A Slack inbound surface (DM the user's bot, bot relays to a long-running session or queues for next session) would unblock remote / mobile / on-the-go directives.
+- **Scope to settle in a follow-up session:**
+  - **Channels & auth.** Slack DM only (single user)? Single channel? Workspace-level OAuth scopes needed. App-level token vs. user-token tradeoffs.
+  - **Command grammar.** Free-form prose passed through verbatim, or a thin grammar (e.g. `/lattice cycle X`, `/notes "..."`, `@bot review my latest commit`)? The first is more flexible; the second is parseable.
+  - **Delivery model.** Long-running daemon (a Node service holding the Anthropic SDK + Claude Code session) vs. queued-for-next-session (Slack writes to `.lattice/inbound/<timestamp>.md`, next session ingests). The daemon is real-time; the queue is operationally simpler and avoids "agent orchestrating in the background while user isn't watching."
+  - **Security boundary.** Slack DM = identity-of-user-on-this-workspace = trusted? What if the workspace adds another user? Hard requirement: `LATTICE_SLACK_USER_ID` allowlist.
+  - **Integration surface.** MCP server (clean) vs. `.claude/settings.json` hook (lighter weight) vs. external Node service (most flexible).
+- **Where:** TBD — likely a Node service `executor/src/slack.ts` with optional `lattice slack` CLI command, or an MCP server in `executor/mcp/` consumed by Claude Code via settings.
+- **Source:** user request, 2026-04-28 audit conversation. Not speculative — reflects actual operational pain.
 
 ### ~~LIT-DS-GAP: Design-system axis literature pass~~ — RESOLVED 2026-04-26
 - **Status:** Resolved by four literature notes ([`frost-atomic-design.md`](docs/literature/frost-atomic-design.md), [`ibm-carbon-design-system.md`](docs/literature/ibm-carbon-design-system.md), [`appleton-pattern-languages.md`](docs/literature/appleton-pattern-languages.md), [`datagrok-platform-docs.md`](docs/literature/datagrok-platform-docs.md)) plus the **Design-system backlog** section below. The 4 sources cover: design-system primer (Frost), large-scale shipped instance (Carbon), opinionated tools-for-thought framing (Appleton), and the actual plugin-migration target (Datagrok). The README scope line was extended to formally include design-system reading.
@@ -225,68 +216,7 @@
 >
 > Tier 1 = pulls 2+ axes. Tier 2 = strong single axis. Tier 3 = autopilot leverage. Tier 4 = situational. Items rejected on value grounds are listed at the bottom for audit trail.
 
-### LIT-DS-01: Accessibility-as-gate in audit-checklist
-- **Tier:** 1 — design-consistency + analytical-fitness (largest unaddressed Carbon principle in sendex)
-- **What:** Add an `A11Y` section to `docs/_internal/design-system/audit-checklist.md` with WCAG 2.1 AA rules: keyboard navigation completeness, focus-visible on every interactive element, ARIA roles on charts (or text-table fallback), color-contrast ratios on charts, screen-reader label coverage on icon buttons. Today's 79 rules are entirely visual; this is a real coverage gap, not aesthetic. Start with a minimum set (~10 rules) and grow from observed failures.
-- **Where:** `docs/_internal/design-system/audit-checklist.md` (new `A11Y` section), reference from `commands/lattice/ux-designer.md` audit protocol
-- **Source:** ibm-carbon-design-system (accessibility-as-gate is a first-class Carbon principle)
-- **Defer trigger:** if audit-checklist visual rules are still drifting (refute rate >15% at validate stage), close the visual gap first.
-
-### LIT-DS-02: Datagrok viewer-migration map
-- **Tier:** 1 — design-consistency + knowledge (preserves the plugin-migration path per `MEMORY.md` `project_datagrok_target.md`)
-- **What:** A single table in `docs/_internal/design-system/datagrok-migration-map.md` mapping each sendex chart component to its Datagrok-viewer migration target (or "custom viewer" if no platform equivalent). Includes interaction parity notes (e.g., violet-tint right-click affordance has no Datagrok analog). Produced by the `dg-developer` skill.
-- **Where:** new `docs/_internal/design-system/datagrok-migration-map.md`; `dg-developer` skill produces and refreshes it
-- **Source:** datagrok-platform-docs (the strategic implication of plugin-migration target)
-- **Why now:** design changes that increase migration cost are cheap to revert before the migration milestone, expensive after. The map turns implicit migration debt into a visible quantity.
-
-### LIT-DS-03: Canonical fixture-page baselines
-- **Tier:** 1 — autopilot + knowledge (lint signal for design drift on the most-walked workflows)
-- **What:** A small set of "this is the NOAEL workflow page on PointCross" reference renders, captured by Playwright at known viewport sizes (1920x1080, 2560x1440), stored next to the workflow audit. Drift between the catalogue and these baselines becomes a lint signal — autopilot can flag "the canonical NOAEL page changed visually since the last baseline" for human review.
-- **Where:** extend `docs/_internal/audits/workflow-audits/{persona}-{workflow}/baselines/` (or similar); regen step in cycle-close
-- **Source:** frost-atomic-design (pages stress the system; pages are the canonical reference where library meets reality)
-- **Cross-ref:** integrates with the existing `commands/lattice/ux-audit-walk.md` Playwright pipeline.
-
-### LIT-DS-04: Positive-form component catalogue
-- **Tier:** 2 — knowledge (today's catalogue is in negation-form via Rule 6 "use this / not this"; positive form makes the inventory grep-able)
-- **What:** A `docs/_internal/design-system/component-catalogue.md` listing every reusable component with: one-line role, dimensions / viewport budget, props summary, reference screenshot, linked audit-checklist rule IDs, "do/don't" example pair. The Carbon-style component bundle, scaled down for sendex's component count (~30).
-- **Where:** new `docs/_internal/design-system/component-catalogue.md`
-- **Source:** frost-atomic-design (library-is-the-deliverable in positive form), ibm-carbon-design-system (per-component bundle)
-- **Note:** overlaps with Frost's "tier vocabulary" item (LIT-DS-08) and Carbon's "per-component pages" — treat as a single deliverable with two motivations.
-
-### LIT-DS-05: "Forces" + "Examples" columns on critical-tier audit-checklist rules
-- **Tier:** 2 — knowledge (rules become pattern-language entries with full Alexander schema)
-- **What:** For the Critical-severity rules in audit-checklist (C-01..C-05, the casing rules, the dose-label tier rules — not all 79), add a **Forces** column ("why does this tension exist?") and an **Examples** column ("real PR or commit where this rule was violated, and the fix"). Today's rule rows have name + test + use/don't-use; the missing pieces (forces, examples) are what let an agent know when the rule binds and when it doesn't.
-- **Where:** `docs/_internal/design-system/audit-checklist.md` Critical-severity rows
-- **Source:** appleton-pattern-languages (Alexander pattern schema: name + problem + forces + solution + examples + related)
-- **Defer trigger:** only land for rules that have been refuted ≥2 times at the validate stage — the refute is the empirical signal that "forces" needs to be explicit.
-
-### LIT-DS-06: Pattern-language graph renderer
-- **Tier:** 2 — knowledge (orphan-rule and cycle detection across the design-decisions / audit-checklist cross-refs)
-- **What:** A small script that parses `.claude/rules/design-decisions.md` and `docs/_internal/design-system/audit-checklist.md`, extracts every "see X-NN" reference, and emits a DOT graph or markdown edge-table. Surfaces orphan rules (no inbound edges, no outbound edges) and rule cycles. Run as part of cycle-close or `/lattice:lint-knowledge`.
-- **Where:** `scripts/render-design-pattern-graph.py` (or similar); regen step in cycle-close or extension of `/lattice:lint-knowledge`
-- **Source:** appleton-pattern-languages (a pattern *language* is graph-shaped; rendering exposes structure)
-- **Defer trigger:** wait until a real failure mode (an orphan rule that should have been linked, a contradictory pair) actually surfaces — premature otherwise.
-
-### LIT-DS-07: `migration-cost` column on audit-checklist
-- **Tier:** 3 — autopilot + knowledge (autopilot can pre-screen design changes against migration cost)
-- **What:** Each audit-checklist rule that references a sendex-specific affordance (violet column tint, `OverridePill`, custom rail split, etc.) gets a `migration-cost: low/med/high` tag. Rules with `high` migration cost get extra scrutiny when the rule is being added or strengthened — autopilot can warn "this rule increases coupling to a non-Datagrok-portable affordance." Mostly mechanical to add once LIT-DS-02 (viewer-migration map) is in place.
-- **Where:** `docs/_internal/design-system/audit-checklist.md` (new column); autopilot reads it during design-rule changes
-- **Source:** datagrok-platform-docs (preserve migration path per `project_datagrok_target.md`)
-- **Depends on:** LIT-DS-02 — the migration-cost classifier needs the migration map as ground truth.
-
-### LIT-DS-08: Tier vocabulary (atom / molecule / organism / template) in design-decisions.md
-- **Tier:** 4 — situational; conditional on multi-frontend reuse becoming real
-- **What:** Add a one-row table at the top of `.claude/rules/design-decisions.md` mapping the four sendex tiers (token, component, view-section, view) to Frost's atom/molecule/organism/template names. Cost is a few lines of doc; benefit lands when (and only when) a second frontend project starts sharing components with sendex.
-- **Where:** `.claude/rules/design-decisions.md` header
-- **Source:** frost-atomic-design (shared lexicon at the molecule / organism level)
-- **Skip if:** sendex remains a single-frontend project. Re-evaluate at Datagrok plugin migration kickoff.
-
-### LIT-DS-09: Semantic-role token aliases
-- **Tier:** 4 — situational; conditional on Datagrok-migration kickoff or a second theme requirement
-- **What:** Add a parallel role-based token layer (`--surface-1` / `--surface-2` / `--text-primary` / `--text-secondary`) alongside the value-based tokens (`--background`, `--muted`). Keeps backwards compat; future theme swaps re-bind the role-based layer rather than touching components.
-- **Where:** `frontend/src/index.css`, `frontend/src/lib/design-tokens.ts`
-- **Source:** ibm-carbon-design-system (role-based token naming is what makes Carbon's themes swap cleanly)
-- **Skip if:** no theme swap is on the roadmap. Speculative addition violates the spirit of CLAUDE.md rule 13.
+_(LIT-DS-01 through LIT-DS-10 have their per-item bodies archived to `docs/decisions/todo-pruned-2026-04-28.md`. The triage table above carries the operational status; if any trigger condition fires, restore the relevant entry from the archive.)_
 
 ### ~~LIT-DS-11: Built-not-mounted inventory script (maintained, not snapshot)~~ — RESOLVED 2026-04-27
 - **Status:** Resolved 2026-04-27. Implementation:
@@ -295,12 +225,7 @@
   - `lattice/commands/lattice/lint-knowledge.md` Step 2 lists the script alongside other typed-schema audits. Informational exit (always 0 unless src dir missing) — output is the regenerated table, not a defect gate.
 - **First scan output:** 27 unmounted components + 31 unmounted helpers across `frontend/src/`; the prior 3-row hand-curated snapshot was a strict subset. Recent activity (≤35 days) on most components suggests genuine "built but not yet wired" rather than stale code.
 
-### LIT-DS-10: Lineage citation in datagrok-app-design-patterns.md
-- **Tier:** 4 — situational; one-paragraph cosmetic edit, low-cost
-- **What:** A one-paragraph "Lineage" section in `docs/_internal/design-system/datagrok-app-design-patterns.md` naming Alexander → Tufte → Appleton, with a one-sentence statement of why this lineage matters (tools, not media; patterns, not rules; analytical value over engagement). Cost: a paragraph. Benefit: future agents have a citation when justifying rejection of consumer-app conventions.
-- **Where:** `docs/_internal/design-system/datagrok-app-design-patterns.md`
-- **Source:** appleton-pattern-languages (lineage citation makes rejections of consumer-app conventions defensible by reference rather than re-derivation)
-- **Defer trigger:** only land when an agent has actually re-derived a rejected consumer-app convention twice and lacked a citation to point to. Cosmetic until then.
+_(LIT-DS-10 body archived to `docs/decisions/todo-pruned-2026-04-28.md`. Triage status above remains DEFER pending the trigger named in the archive.)_
 
 #### Open verification (delete when confirmed)
 
