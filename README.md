@@ -44,15 +44,15 @@ TypeScript DAG engine that runs workflow YAML files. Resolves topological layers
 
 | Module | Purpose |
 |--------|---------|
-| `engine.ts` | Core execution loop — layers, filtering, checkpoints (full-map resume; throws on un-substituted state-path), cost aggregation |
-| `nodes.ts` | Node executors (bash, skill, gate, approval) + Claude CLI JSON parser. Skill failures (`is_error: true` or error-shaped text) surface as failed nodes; previously absorbed silently. Condition parser respects single-quoted strings + standard `\|\|`/`&&` precedence. Skill prompts go through `spawnSync` argv-form (no shell), avoiding Windows shell-quoting corruption. |
-| `cli.ts` | CLI entry point — 9 commands. Uses `node:util.parseArgs`. |
+| `engine.ts` | Core execution loop — layers, filtering, full-map checkpoint resume, un-substituted state-path detection, cost aggregation |
+| `nodes.ts` | Node executors (bash, skill, gate, approval) + Claude CLI JSON parser. Surfaces `is_error: true` and error-shaped text output as failed nodes. Condition parser honors `\|\|`/`&&` precedence and respects single-quoted literals. Skill prompts pass via `spawnSync` argv-form (no shell quoting). |
+| `cli.ts` | CLI entry point — 9 commands. Argument parsing via `node:util.parseArgs`. |
 | `dag.ts` | Kahn's algorithm for topological sort |
 | `loader.ts` | YAML workflow parser + validator |
-| `template.ts` | `{{}}` expression resolver. Throws on `{{nodes.X.output}}` substitution against a dry-run sentinel result (was silently propagating literal "(dry run)" before). |
-| `coherence.ts` | Portfolio-level conflict detection (4 conflict types). Subsystem regex anchored (`\bS\d{2}\b`) so file paths and prose stop inflating overlap blockers. |
+| `template.ts` | `{{}}` expression resolver. Throws on output substitution against a dry-run sentinel result; planning fields (`status`, `route`) still resolve. |
+| `coherence.ts` | Portfolio-level conflict detection (4 conflict types). Subsystem references matched by anchored regex `\bS\d{2}\b`. |
 | `reconcile.ts` | Derive topic state truth from git `Topic:` trailers. Lookback configurable via `LATTICE_RECONCILE_LOOKBACK_DAYS` (default 90). |
-| `autopilot.ts` | Continuous portfolio advancement loop. Loop-local portfolio cache; mutation points flip `cacheDirty` so reconcile / auto-resolve / workflow returns trigger fresh reads (~75% reduction in enriched reloads in steady-state idle loops). |
+| `autopilot.ts` | Continuous portfolio advancement loop. Loop-local portfolio cache invalidated on state-mutating calls (reconcile, auto-resolve, workflow returns). |
 | `auto-resolve.ts` | Resolve coherence conflicts via targeted distill analysis |
 | `budget.ts` | Cost tracking, budget limits, alerting |
 | `e2e.ts` | Branch-comparison E2E testing gate |
