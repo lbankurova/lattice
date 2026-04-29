@@ -29,10 +29,12 @@ lattice/
   commands/ops/                 #  6 ops commands
   agents/                       #  4 independent reviewer agents
   workflows/                    #  7 YAML DAG definitions
+  workflows/_includes/          #  Shared sub-workflow fragments (e.g. science-flag-resolution.yaml)
   executor/src/                 # 14 TypeScript modules (DAG engine)
-  scripts/                      # 15 shell + Python scripts (locking, sync, validation, audits, design-gate)
+  scripts/                      # 16+ shell + Python scripts (locking, sync, validation, audits, design-gate)
   scaffold/                     # Project templates (docs, hooks, rules, config)
-  docs/decisions/               # Framework decision memos (TDD scope, etc.)
+  docs/decisions/               # Framework decision memos (TDD scope, framework-audit-2026-04-28, etc.)
+  docs/skills-includes/         # Skill partner files referenced by-path (sync'd to consumers)
   .claude/rules/                # Session-loaded rules (design decisions)
 ```
 
@@ -42,15 +44,15 @@ TypeScript DAG engine that runs workflow YAML files. Resolves topological layers
 
 | Module | Purpose |
 |--------|---------|
-| `engine.ts` | Core execution loop — layers, filtering, checkpoints, cost aggregation |
-| `nodes.ts` | Node executors (bash, skill, gate, approval) + Claude CLI JSON parser |
-| `cli.ts` | CLI entry point — 9 commands |
+| `engine.ts` | Core execution loop — layers, filtering, checkpoints (full-map resume; throws on un-substituted state-path), cost aggregation |
+| `nodes.ts` | Node executors (bash, skill, gate, approval) + Claude CLI JSON parser. Skill failures (`is_error: true` or error-shaped text) surface as failed nodes; previously absorbed silently. Condition parser respects single-quoted strings + standard `\|\|`/`&&` precedence. Skill prompts go through `spawnSync` argv-form (no shell), avoiding Windows shell-quoting corruption. |
+| `cli.ts` | CLI entry point — 9 commands. Uses `node:util.parseArgs`. |
 | `dag.ts` | Kahn's algorithm for topological sort |
 | `loader.ts` | YAML workflow parser + validator |
-| `template.ts` | `{{}}` expression resolver |
-| `coherence.ts` | Portfolio-level conflict detection (4 conflict types) |
-| `reconcile.ts` | Derive topic state truth from git `Topic:` trailers |
-| `autopilot.ts` | Continuous portfolio advancement loop |
+| `template.ts` | `{{}}` expression resolver. Throws on `{{nodes.X.output}}` substitution against a dry-run sentinel result (was silently propagating literal "(dry run)" before). |
+| `coherence.ts` | Portfolio-level conflict detection (4 conflict types). Subsystem regex anchored (`\bS\d{2}\b`) so file paths and prose stop inflating overlap blockers. |
+| `reconcile.ts` | Derive topic state truth from git `Topic:` trailers. Lookback configurable via `LATTICE_RECONCILE_LOOKBACK_DAYS` (default 90). |
+| `autopilot.ts` | Continuous portfolio advancement loop. Loop-local portfolio cache; mutation points flip `cacheDirty` so reconcile / auto-resolve / workflow returns trigger fresh reads (~75% reduction in enriched reloads in steady-state idle loops). |
 | `auto-resolve.ts` | Resolve coherence conflicts via targeted distill analysis |
 | `budget.ts` | Cost tracking, budget limits, alerting |
 | `e2e.ts` | Branch-comparison E2E testing gate |
@@ -239,7 +241,8 @@ Built into `/lattice:distill`:
 | Script | Purpose |
 |--------|---------|
 | `install-hooks.sh` | Install git hooks from `hooks/` to `.git/hooks/` (copy + marker, cross-platform) |
-| `sync-skills.sh` | Sync `commands/lattice/`, `commands/ops/`, `agents/`, and `scripts/` (`*.sh` + `*.py`) from lattice to a consumer project. **Runs automatically on lattice edits via the optional PostToolUse hook described below.** |
+| `sync-skills.sh` | Sync `commands/lattice/`, `commands/ops/`, `agents/`, `docs/skills-includes/`, and `scripts/` (`*.sh` + `*.py`) from lattice to a consumer project. **Runs automatically on lattice edits via the optional PostToolUse hook described below.** Partner files at `docs/skills-includes/` propagate so skills referencing them (e.g. `review.md → review-protocols.md`) don't hit broken pointers in the consumer. |
+| `sync-workflow-includes.{sh,py}` | Synthesize each consumer workflow's marker-delimited region from `workflows/_includes/*.yaml` (e.g. `science-flag-resolution.yaml`). Replaces ~150 × 3 lines of duplicated science-memo protocol that previously lived inline in `blueprint-cycle`, `research-cycle`, `bug-fix-cycle`. `--check` mode for CI; non-zero exit when consumers drift from the include. |
 | `write-review-gate.sh` | Mechanical checks before writing review gate file |
 | `validation-ratchet.sh` | Capture/compare analytical validation scores |
 | `acquire-lock.sh` / `release-lock.sh` | Atomic commit lock (polls, stale recovery). Autopilot acquires before staging (outer-held lock pattern, 922cf24); pre-commit Step -1 also acquires (20f2eb4) when no outer holder is set. |

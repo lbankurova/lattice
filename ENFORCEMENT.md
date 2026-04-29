@@ -125,7 +125,7 @@ Mechanical enforcement -- the agent cannot skip these:
 |------|--------|
 | **Co-author block** | BLOCKS writes containing `Co-Authored-By` (rule 4). |
 | **Build check** | Advisory -- runs TypeScript build after edits to code files. |
-| **Lattice → consumer sync** *(optional, user-global)* | When the edited file is under `C:/pg/lattice/{commands,agents,scripts}/...`, runs `bash C:/pg/lattice/scripts/sync-skills.sh <consumer>` for each registered consumer project and emits a `systemMessage` confirmation. Consumers list lives in the hook script. Removes the human-memory dependency of "remember to sync after editing lattice." |
+| **Lattice → consumer sync** *(optional, user-global)* | When the edited file is under `C:/pg/lattice/{commands,agents,scripts,docs/skills-includes}/...`, runs `bash C:/pg/lattice/scripts/sync-skills.sh <consumer>` for each registered consumer project and emits a `systemMessage` confirmation. Consumers list lives in the hook script. Removes the human-memory dependency of "remember to sync after editing lattice." Skill partner files at `docs/skills-includes/` propagate alongside `commands/` so by-path references (e.g. `review.md → review-protocols.md`) don't drift into broken-pointer state. |
 
 ## 8. Structural Quality Gates
 
