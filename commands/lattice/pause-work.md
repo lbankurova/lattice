@@ -21,15 +21,26 @@ Assess current work state:
 
 Ask the user to clarify anything you're unsure about — especially decisions and context that isn't in the code.
 
-### 2. Write handoff file
+### 2. Pick a slug and write handoff file
 
-Write `.continue-here.md` in the project root:
+Handoff files use the slug pattern `.continue-here-<slug>.md` so concurrent paused sessions don't collide on a single canonical filename. Slug source, in priority order:
+
+1. **Active cycle-state filename.** If `.lattice/cycle-state/<topic>.yaml` is the topic of work, slug = `<topic>` (without the `.yaml`).
+2. **Commit-intent topic.** If `.lattice/commit-intent.txt` carries `Topic: <slug>`, use that.
+3. **User input.** Ask the user for a short, hyphen-separated descriptor (e.g. `mechanical-checks-buildout`, `radar-forest-cleanup`).
+
+Slug must match `[a-z0-9-]+`. Avoid generic names like `wip` or `pause`.
+
+If multiple `.continue-here-*.md` files already exist, that is normal -- multiple paused sessions coexist, the resume command lists them.
+
+Write `.continue-here-<slug>.md` in the project root:
 
 ```markdown
-# Continue Here
+# Continue Here -- <slug>
 
 > Paused: [date and time]
 > Branch: [branch name]
+> Slug: <slug>
 > Task: [1-line summary]
 
 ## Where I stopped
@@ -57,7 +68,12 @@ Write `.continue-here.md` in the project root:
 
 ## Uncommitted changes
 [Output of git diff --stat, or "all committed"]
+
+## Companion handoffs
+[If other `.continue-here-*.md` files exist, list them with slug + 1-line task so the resume agent has cross-context.]
 ```
+
+Legacy form `.continue-here.md` (no slug) is still readable by `/lattice:resume-work` for back-compat with older paused sessions, but new pauses must always use the slugged form.
 
 ### 3. Confirm with user
 
@@ -67,4 +83,4 @@ Show the handoff file and ask:
 
 ### 4. Final message
 
-Tell the user: **"Handoff saved to `.continue-here.md`. Next session, start with `/resume-work`."**
+Tell the user: **"Handoff saved to `.continue-here-<slug>.md`. Next session, start with `/resume-work` -- if multiple paused sessions exist, the resume command lists them and asks which to resume."**
