@@ -103,7 +103,7 @@ export interface CoherenceReport {
 
 // ── State extraction ────────────────────────────────────────
 
-const SUBSYSTEM_RE = /S(\d{2})/g;
+const SUBSYSTEM_RE = /\bS(\d{2})\b/g;
 const COMPLETED_PHASES = new Set(['complete', 'build-complete']);
 const SKIP_LIFECYCLE = new Set<LifecycleState>(['archived']);
 
@@ -325,7 +325,7 @@ function extractSubsystemInteractions(content: string): SubsystemInteraction[] {
 
   for (const line of lines) {
     // Table rows with subsystem references and relationship keywords
-    const tableMatch = line.match(/\|\s*.*?(S\d{2}).*?\|\s*(COMPATIBLE|MODIFIES|BREAKS|CASCADE|PROPAGATES|SAFE|N\/A)\s*\|\s*(.+?)\s*\|/i);
+    const tableMatch = line.match(/\|\s*.*?\b(S\d{2})\b.*?\|\s*(COMPATIBLE|MODIFIES|BREAKS|CASCADE|PROPAGATES|SAFE|N\/A)\s*\|\s*(.+?)\s*\|/i);
     if (tableMatch) {
       interactions.push({
         subsystem: tableMatch[1],
@@ -336,7 +336,7 @@ function extractSubsystemInteractions(content: string): SubsystemInteraction[] {
     }
 
     // "Cascade through SXX" patterns
-    const cascadeMatch = line.match(/[Cc]ascade\s+through\s+(S\d{2})\s*(?:\(([^)]+)\))?/);
+    const cascadeMatch = line.match(/[Cc]ascade\s+through\s+\b(S\d{2})\b\s*(?:\(([^)]+)\))?/);
     if (cascadeMatch) {
       interactions.push({
         subsystem: cascadeMatch[1],

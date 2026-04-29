@@ -23,7 +23,7 @@ The review MUST produce ALL of these named sections in its output. A missing sec
 2. **ARCHITECT REVIEW** — complexity and science preservation check (separate agent)
 3. **DECISION AUDIT** — merit-based evaluation of every architectural/method decision
 4. **REQUIREMENT TRACE** — four-dimension check (WHAT/WHEN/UNLESS/HOW) — adapted to context
-5. **MECHANICAL CHECKS** — build, lint, tests, code quality, VISUAL check (Playwright), DATA check (fixture against generated JSON for any empirical claim in the spec), TRIANGLE check (contract triangle synchronization per CLAUDE.md rule 18, when the diff modifies any contract surface), and ALGORITHM check (algorithm output vs tox-defensible answer per CLAUDE.md rule 19, when the diff touches or consumes algorithmic code). VISUAL and DATA sub-checks must appear for frontend work; TRIANGLE must appear whenever a contract field is touched; ALGORITHM must appear whenever algorithmic code is touched or its output consumed.
+5. **MECHANICAL CHECKS** — build, lint, tests, code quality, plus the four protocols (VISUAL / DATA / TRIANGLE / ALGORITHM) defined in `docs/skills-includes/review-protocols.md`. Each protocol emits PASS / FAIL / SKIPPED per the trigger table in that file.
 6. **DOCS UPDATE** — MANIFEST, specs, TODO
 7. **VERDICT** — pass/fail with evidence
 
@@ -34,6 +34,7 @@ If you catch yourself skipping a section or writing "N/A — not applicable" wit
 ## Step 0: Detect context
 
 **Re-read state first (context discipline).** Do not rely on file contents or reasoning from earlier in the session:
+
 1. Cycle state (`.lattice/cycle-state/{topic}.yaml`) — if this implements from a spec, read the checkpoint decisions
 2. Decisions log (`.lattice/decisions.log`) — any known issues with this topic
 3. The changed files themselves — re-read via `git diff`, don't rely on memory of what you wrote
@@ -43,8 +44,8 @@ Then determine what kind of work you're reviewing:
 1. Check `git diff --stat` and `git status` to see what changed
 2. Ask the user (if not obvious): **"Did this implement from a spec? If so, which file?"**
 
-**If a spec exists** → run the full protocol (Steps 0.5–7 below)
-**If no spec** (spike, bug fix, ad-hoc) → still run ALL steps, but adapt Steps 1-2 (see below)
+**If a spec exists** → run the full protocol (Steps 1–7 below)
+**If no spec** (spike, bug fix, ad-hoc) → still run ALL steps, but adapt Steps 1–2 (see below)
 
 ---
 
@@ -53,6 +54,7 @@ Then determine what kind of work you're reviewing:
 **Launch all applicable review agents in parallel.** These agents are independent by design — each receives zero implementation context, preventing confirmation bias. Running them concurrently cuts review wall-clock time without sacrificing quality.
 
 Collect inputs once before launching:
+
 - `git diff --name-only` — changed file list
 - `git diff` — full diff
 - Spec path (if spec work)
@@ -67,6 +69,7 @@ Collect inputs once before launching:
 For spec work where the architect gate already ran during research: skip this agent but note: "Architect review: passed during synthesis (see `peer-reviews/{topic}-architect-review.md`)."
 
 For all other work (spikes, bug fixes, ad-hoc):
+
 - **Agent type:** `architect-reviewer`
 - **Input:** Changed file list, full diff, guardrails doc path
 - **Mode:** "review" (diff review)
@@ -85,10 +88,10 @@ For all other work (spikes, bug fixes, ad-hoc):
 
 #### Agent D: Peer-Reviewer (algorithmic-paths only — F3)
 
-**Trigger:** any staged file matches `.lattice/algorithm-paths.txt` (the same regex used by ALGORITHM CHECK and `write-review-gate.sh`'s `LATTICE_ALGORITHM_CHECK` enforcement). When the trigger does not fire, skip this agent entirely.
+**Trigger:** any staged file matches `.lattice/algorithm-paths.txt` (the same regex used by ALGORITHM and `write-review-gate.sh`'s `LATTICE_ALGORITHM_CHECK` enforcement). When the trigger does not fire, skip this agent entirely.
 
 - **Agent type:** `general-purpose` (no specialized agent needed; the peer-review skill prompt does the work)
-- **Prompt:** Use the prompt at `commands/lattice/peer-review.md`. Pass the diff + a one-line scope description ("review the algorithmic logic in {file} against domain truth"). Tell the agent to follow the **Algorithmic-Tightening Requirements** section: invoke `query-knowledge.py`, cite sources, return `SOUND`/`CONDITIONAL`/`FLAWED`/`INSUFFICIENT`.
+- **Prompt:** Use the prompt at `commands/lattice/peer-review.md`. Pass the diff + a one-line scope description ("review the algorithmic logic in {file} against domain truth"). Tell the agent to follow the **Algorithmic-Tightening Requirements** section: invoke `query-knowledge.py`, cite sources, return `SOUND` / `CONDITIONAL` / `FLAWED` / `INSUFFICIENT`.
 - **No implementation context.** Same discipline as the other parallel agents — do not feed the agent your synthesis or the rationale for the change.
 
 After the agent returns, persist the verdict via the SIMPLIFY-1 attestation path (one entry per peer-review run, AFTER the review's mechanical checks pass and BEFORE `write-review-gate.sh`):
@@ -106,51 +109,36 @@ This unblocks the pcc-side pre-commit kind-specific check (which verifies an alg
 
 ### Convergence — wait for all agents, then evaluate verdicts
 
-**Trigger rule: `all_done`.** Wait for every launched agent to return before proceeding. Then evaluate each verdict:
+**Trigger rule: `all_done`.** Wait for every launched agent to return before proceeding. Then evaluate verdicts under the single rule:
 
-| Agent | Verdict | Review action |
-|-------|---------|---------------|
-| Architect | PASS | Note in ARCHITECT REVIEW section, continue |
-| Architect | SIMPLIFY | List items. User decides: fix now or accept. If "fix now", fix before continuing. |
-| Architect | SCIENCE-FLAG | List in section. **WAIT** for user acknowledgment on each flag before continuing. Rebuttal protocol below applies. |
-| Decision Auditor | PASS | Include report in DECISION AUDIT section, continue |
-| Decision Auditor | FAIL: EFFORT-BIASED | **STOP** — present flagged decisions to user. Fix before continuing. |
-| Decision Auditor | FAIL: UNPROMPTED-DEFERRAL | **STOP** — present deferrals to user. Do the work now or get explicit approval to defer. |
-| Decision Auditor | FAIL: SILENT-DROP | **STOP** — present dropped requirements. Implement or get explicit approval to defer. |
-| Decision Auditor | FAIL: SCIENCE-FLAG | **STOP** — present flag to user. Rebuttal protocol below applies. |
-| Requirement Reviewer | Evidence table | Feed into Step 2 (four-dimension trace). Merge with your own verification. |
-| Peer-Reviewer (algorithmic only) | SOUND | Note in DECISION AUDIT section, persist attestation, continue |
-| Peer-Reviewer (algorithmic only) | CONDITIONAL | **STOP** — present "what would fix it" to user. Fix the algorithmic concern (or cite the missing fact via query-knowledge after populating it, OR get explicit user defer with named dependency). Re-launch peer-review. |
-| Peer-Reviewer (algorithmic only) | FLAWED | **STOP** — present the flaw. Fix the algorithmic defect, then re-launch peer-review. Plumbing-only rebuttals do NOT clear (same protocol as SCIENCE-FLAG below). |
-| Peer-Reviewer (algorithmic only) | INSUFFICIENT | **STOP** — provide the requested information (often missing context about dose levels, study design, or scope) and re-launch peer-review. |
+> **Any blocking verdict from any agent stops the review.** Process all blocking verdicts together — present them as a batch, not one at a time.
 
-**Any STOP verdict blocks the review** regardless of what the other agents returned. Process all STOP verdicts together — present them as a batch, not one at a time.
+Blocking verdicts (each is a STOP — fix, rebut per the SCIENCE-FLAG protocol below, or get explicit user defer):
+
+- **Architect:** SCIENCE-FLAG.
+- **Decision Auditor:** any FAIL — EFFORT-BIASED, UNPROMPTED-DEFERRAL, SILENT-DROP, SCIENCE-FLAG.
+- **Peer-Reviewer (algorithmic only):** CONDITIONAL, FLAWED, INSUFFICIENT.
+
+Non-blocking verdicts (note in the relevant section and continue):
+
+- **Architect:** PASS (note); SIMPLIFY (list items, user decides whether to fix now or accept).
+- **Decision Auditor:** PASS (include report).
+- **Requirement Reviewer:** evidence table (feed into Step 2).
+- **Peer-Reviewer (algorithmic only):** SOUND (note + persist attestation).
+
+### Peer-review re-launch cap (BLOCKING enforcement)
+
+After fixing the algorithmic concern surfaced by a CONDITIONAL / FLAWED / INSUFFICIENT verdict, re-launch the peer-review agent. **Cap re-launches at 2 attempts (i.e., the original launch + at most 2 re-launches; 3 total runs).** On the 3rd CONDITIONAL / FLAWED verdict in a single review session:
+
+- STOP. Do NOT re-launch.
+- Surface all verdicts (original + both re-launches) to the user with their full rationales.
+- Ask the user to direct: (a) accept the latest verdict and apply a SCIENCE-FLAG rebuttal per the protocol below, (b) escalate the algorithmic concern to a separate research cycle, or (c) explicit defer with named dependency.
+
+This cap exists because uncapped re-launching of a peer-review agent that keeps returning CONDITIONAL is a loop hazard — the agent may be flagging a real algorithmic concern that no patch in the current cycle can fix, and successive patches without escalation just consume budget.
 
 ### SCIENCE-FLAG rebuttal protocol (BLOCKING — no exceptions)
 
-A SCIENCE-FLAG raised by ANY agent (architect, decision auditor, requirement reviewer) can be cleared in EXACTLY one of three ways:
-
-1. **Fix it.** Address the analytical concern directly. Re-run the agent that raised it.
-2. **Data-grounded counter-evidence.** Show that the concern does not apply by running the algorithm against representative generated output (`backend/generated/{study}/unified_findings.json` or equivalent) and citing observed values + a one-paragraph toxicological interpretation. Format:
-   ```
-   SCIENCE-FLAG REBUTTAL — DATA-GROUNDED
-   Flag: [exact wording from agent]
-   Algorithm: [function:line — e.g., derive-summaries.ts:836 computeNoaelForFindings]
-   Study: [PointCross / Nimble / etc.]
-   Observed output: [actual NOAEL/LOAEL/score/classification with cited values from JSON]
-   Tox interpretation: [why a regulatory toxicologist would agree this output represents the data]
-   ```
-3. **Explicit user defer.** The user names the deferred work and the dependency (real technical blocker, missing scientist input, scoped to a future cycle with a TODO entry). Recorded in `.lattice/decisions.log` as `science-flag-deferred`.
-
-**Forbidden rebuttals (do NOT clear a SCIENCE-FLAG):**
-
-- Plumbing arguments alone — "the toggle still flows through", "the data path is wired correctly", "the React Query cache invalidates" — these answer "does the wiring work" not "is the output defensible".
-- Spec-vs-code consistency — "the code matches the spec" — irrelevant if the spec itself was wrong about defensibility.
-- Mirror tests passing — they verify code matches spec, not spec matches reality.
-- Build/lint/test pass — they verify type/syntax/regression, not analytical correctness.
-- Architect SIMPLIFY/PASS verdict on the same diff — different question, different mandate.
-
-**Exemplar of the failure mode this protocol prevents:** BUG-031 (noael-pane-display-consistency-fix attempt, 2026-04-26). Decision auditor raised SCIENCE-FLAG on a NOAEL display change. Rebuttal was accepted on plumbing grounds (scheduled-only toggle does flow through API round-trip — empirically verified). But the actual algorithm output on PointCross BW was indefensible (3 NS sign-flipping single-timepoint hits drove LOAEL=lowest dose). The rebuttal answered the wrong question. Had this protocol been in force, the rebuttal would have been required to cite the algorithm output on representative data + a tox interpretation — which would have surfaced the bug before any commit was attempted.
+A SCIENCE-FLAG raised by ANY agent (architect, decision auditor, requirement reviewer, peer-reviewer) clears in EXACTLY one of three ways — the rule-19 protocol. See CLAUDE.md rule 19 for the authoritative statement and the worked exemplar (BUG-031). Forbidden rebuttals (plumbing arguments alone, spec-vs-code consistency, mirror tests passing, build/lint/test pass, architect SIMPLIFY/PASS on the same diff) do NOT clear the flag.
 
 If the spec has its own verification checklist, tell the agent to run it first. Every item: PASS, FAIL, or N/A with a file:line reference.
 
@@ -198,14 +186,18 @@ Do not paraphrase the spec. Copy the exact sentence.
 ## Step 2a: Data reuse audit (all work)
 
 For every new function/computation/derived value:
+
 - Search codebase for existing hooks, utilities, generated JSON computing the same value
 - Cross-reference `docs/_internal/knowledge/methods-index.md` and `field-contracts-index.md`
 - Flag duplications: "DUPLICATION — [new location] recomputes [value] already available from [existing source]"
 
 For every new or changed computed field crossing the engine→UI boundary:
+
 - Check `docs/_internal/knowledge/api-field-contracts.md` and `docs/_internal/knowledge/field-contracts.md`
 - If no entry exists, create one. If stale, update it.
 - Flag: "CONTRACT DRIFT — [ID] documented as [X], code produces [Y]"
+
+The TRIANGLE protocol (Step 3b) supersedes this reuse audit for contract fields specifically — the reuse audit asks "is this duplicated"; the triangle check asks "is this synchronized."
 
 ---
 
@@ -224,24 +216,28 @@ Run the commit checklist (`docs/_internal/checklists/COMMIT-CHECKLIST.md`). Ever
 Check the changed files against this review checklist:
 
 ### Build & Types
+
 - [ ] `npm run build` passes (zero TS errors)
 - [ ] `npm run lint` passes (zero lint errors)
 - [ ] No unused imports or variables (strict mode)
 - [ ] `import type` used for type-only imports (`verbatimModuleSyntax`)
 
 ### UI Conventions
+
 - [ ] Sentence case for labels, headers (L2+), buttons, descriptions
 - [ ] Title Case only for L1 headers, dialog titles, context menu labels
 - [ ] Color values match `lib/severity-colors.ts` and CLAUDE.md design decisions
 - [ ] No dead clicks — every interactive element responds
 
 ### Code Quality
+
 - [ ] No hardcoded data that should come from API
 - [ ] Null guards on nullable fields (e.g., `avg_severity ?? 0`)
 - [ ] No security issues (XSS, injection, open CORS beyond dev)
 - [ ] Error states and loading states handled
 
 ### Dead Code & Performance
+
 - [ ] No unused exports
 - [ ] No orphaned files
 - [ ] No duplicate components
@@ -281,201 +277,26 @@ Outputs: `docs/validation/summary.md`, `docs/validation/signal-detection.md`, `d
 Diff the regenerated coverage-facts.md against `docs/_internal/capabilities.yaml`:
 
 1. **Dimension tables** — check `hcd_matrix`, `species_overrides`, `compound_profiles`, `validation_studies`. If coverage-facts shows data that the capability model doesn't reflect (e.g., new HCD species/strain, new domain processor, new compound profile), update the dimension table in-place.
-
 2. **Pillar state** — check `state_by_dimension` in each pillar. If a gap listed under `gaps` has been resolved by this commit, move it to the appropriate `shipped` or `state_by_dimension` entry and remove it from `gaps`.
-
 3. **Cascade edges** — if this commit satisfies a `depends_on` in the `cascades` section, note that the dependency is now met.
-
 4. **Wiki** — update `docs/_internal/help/wiki_sendex_coverage.md` to match capabilities.yaml dimension tables. The wiki is a downstream rendering, not an independent document.
 
 **Stage ALL regenerated files with the commit.** If any generator fails, stop and fix before proceeding — a broken generator means the code change broke a doc contract.
 
 ---
 
-## Step 3b: Visual Verification + Data Verification (frontend changes — produces VISUAL CHECK + DATA CHECK in MECHANICAL CHECKS)
+## Step 3b: Protocol checks (VISUAL / DATA / TRIANGLE / ALGORITHM)
 
-**Trigger:** Skip this step if the changeset contains NO frontend files (`.tsx`, `.ts` under `src/`, `.css`). Otherwise BOTH the visual verification and the data verification are **mandatory** — do not defer to the user.
+The four protocol bodies live in the partner file `docs/skills-includes/review-protocols.md` (sited outside `commands/` so it is not auto-discovered as a skill). Run the protocols whose triggers fire on this diff and emit one PASS / FAIL / SKIPPED line per protocol into the MECHANICAL CHECKS section, using the output format documented at the bottom of that file.
 
-The two checks answer different questions:
-- **Visual verification (Playwright):** "did the page render without errors?" — catches crashes, blank states, missing DOM.
-- **Data verification (fixture against generated JSON):** "does the data say the page SHOULD have content?" — catches spec claims that don't match reality.
+Trigger summary (full table + protocol bodies in `docs/skills-includes/review-protocols.md`):
 
-Visual alone is not sufficient. A chart that renders an empty SVG passes the visual check but fails the user. Data verification is what catches that.
+- **VISUAL** — diff contains any frontend file. Catches "did the page render?" via Playwright. VISUAL FAIL is non-blocking; SKIPPED is acceptable only when Playwright is unreachable AND DATA still runs.
+- **DATA** — spec contains any cardinality / numeric / "shows X" claim, OR diff consumes generated output. Catches "should the page have content?" via fixture against `backend/generated/{study}/unified_findings.json`. DATA FAIL is a hard block.
+- **TRIANGLE** — diff modifies any contract surface (enum, schema, Pydantic model, TS union, contract-doc row, pytest invariant). Triangle hygiene per CLAUDE.md rule 18 — see `docs/skills-includes/review-protocols.md` § TRIANGLE for the audit-script invocation. TRIANGLE FAIL is a hard block.
+- **ALGORITHM** — diff modifies OR consumes the output of a path matching `.lattice/algorithm-paths.txt`. Algorithm defensibility per CLAUDE.md rule 19 — see `docs/skills-includes/review-protocols.md` § ALGORITHM for the on-data verification protocol. ALGORITHM FAIL is a hard block.
 
-Use the Playwright MCP tools for visual and Python/fixture tests for data.
-
-### Prerequisites
-
-- Frontend dev server running (default: `http://localhost:5173`)
-- Backend running (default: `http://localhost:8000`) if views need data
-- Playwright MCP server configured in `.mcp.json`
-- Generated JSON exists at `backend/generated/{study}/unified_findings.json` for at least one representative study
-
-If prerequisites aren't met, attempt to detect them:
-1. `browser_navigate` to the app URL — if it fails on first attempt, retry ONCE. If second attempt fails, state: `VISUAL: SKIPPED — Playwright unreachable after retry` and fall back to data verification. Do NOT mark the review blocked on first failure.
-2. If only the backend is down, views may show loading/error states — note this in the output, don't count it as a UI failure.
-3. Data verification requires generated JSON only — it can run without the dev server or Playwright. If Playwright fails, data verification is still mandatory.
-
-### Step 1: Map changes to views
-
-Read the changed frontend files and determine which view(s) / route(s) they affect. Examples:
-- `FindingsView.tsx` changed → navigate to the Findings view
-- `DoseResponseChartPanel.tsx` changed → navigate to a view that renders it
-- `severity-colors.ts` changed → check multiple views (shared utility)
-- `lib/` utility changed → check the primary consumer
-
-If you can't determine the route, navigate to the app root and verify it loads.
-
-### Step 2: Navigate and screenshot
-
-For each affected view:
-
-1. **`browser_navigate`** to the view URL
-2. **`browser_console_messages`** — check for JavaScript errors. Errors originating from changed files = FAIL.
-3. **`browser_take_screenshot`** — save for user review. State the screenshot path in output.
-4. **`browser_snapshot`** (accessibility tree) — verify:
-   - The view rendered (not blank, not stuck on loading spinner, not showing error boundary)
-   - Key data elements are present (tables have rows, charts have content, rails have items)
-   - No `undefined`, `NaN`, `[object Object]` visible in data displays
-
-### Step 3: Interaction smoke test
-
-If the changeset modifies **click handlers, hover behavior, selection logic, or toggle/filter state**:
-
-1. Identify the primary interaction the change affects
-2. Execute it via `browser_click` or `browser_hover`
-3. Take a second screenshot or snapshot — verify the expected response occurred (panel updated, selection changed, tooltip appeared, series toggled)
-
-Skip this step if the change is purely presentational (styling, labels, layout).
-
-### Step 4: Multi-view check (shared code only)
-
-If the changed file is consumed by 3+ views (utilities in `lib/`, shared components):
-- Navigate to at least 2 different views that use the changed code
-- Verify both render correctly
-
-### Step 5: Data verification (mandatory for spec work with empirical claims — Verify empirical claims, CLAUDE.md)
-
-For every numeric/cardinality claim in the spec's acceptance criteria, re-run the check against the actual generated JSON. This is INDEPENDENT of visual verification — Playwright tells you "did it render", data verification tells you "should it have content at all". Run both.
-
-**When to run this:**
-- The spec contains any claim of the form "count is X", "≤ N rows", "shows the fragile subjects", "matches the chart", or similar cardinality/content assertion.
-- Any time Playwright is unavailable — data verification is the mandatory fallback, not SKIPPED.
-- Any review of frontend code that consumes generated output (findings, analytics, scoring).
-
-**How to run it:**
-1. Identify every empirical claim in the spec. Copy the exact wording.
-2. For each claim, load the relevant `backend/generated/{study}/unified_findings.json` (or other generated file) and compute the actual value.
-3. Compare observed vs expected. Cite both.
-4. If the observed value doesn't match, flag as `DATA: FAIL — spec says X, observed Y` and block the commit until resolved.
-
-**Forms of data verification that satisfy this step:**
-
-- A fixture-based test that loads real generated output (preferred — runs in CI going forward). See `frontend/tests/loo-sensitivity-pane-logic.test.ts` "PointCross BW data fixture" describe block for the pattern.
-- A Python one-liner recorded in the review output: `backend/venv/Scripts/python.exe -c "import json; ..."` with the actual printed value shown.
-- `/ops:explore-data` with the specific question from the spec.
-
-**Forms that do NOT satisfy this step:**
-
-- Mirror-pattern unit tests (they test code-vs-spec, not code-vs-reality).
-- "I read the code and it looks right" — the bug that motivated this rule shipped with correct-looking code.
-- "The build passes" — build catches type/syntax errors, not empirical mismatches.
-- "Playwright rendered the page without console errors" — a blank chart has no console errors.
-
-### Step 6: Algorithm defensibility check (mandatory when algorithmic code is touched — CLAUDE.md rule 18)
-
-Distinct from DATA verification. DATA asks "does the spec's claim match what the code produces"; ALGORITHM asks "does what the code produces match what the *data* warrants from a tox-reviewer's perspective". A spec can be wrong; a code can match the spec; an algorithm can still produce an indefensible answer.
-
-**When to run this:**
-- Any time the diff modifies, OR consumes the output of, an analytical algorithm — NOAEL/LOAEL/scoring/classification/syndrome detection/severity assignment/onset determination.
-- Trigger by path match against `.lattice/algorithm-paths.txt` (one path glob per line). If the file does not exist, default trigger paths are: `**/derive-summaries.ts`, `**/endpoint-confidence.ts`, `**/findings-rail-engine.ts`, `**/cross-domain-syndromes.ts`, `**/syndrome-rules.ts`, `**/services/analysis/**/*.py` (when those files contain NOAEL/LOAEL/scoring keywords).
-
-**How to run it:**
-
-For each algorithm touched by the diff (or consumed by the diff's UI changes):
-
-1. Identify the algorithm's input data shape and where representative data exists (`backend/generated/{study}/unified_findings.json`).
-2. Run the algorithm against PointCross + at least one other representative study (Nimble, PDS, or another with the relevant domain populated).
-3. Record the actual output: NOAEL value + tier, LOAEL dose level, score value + classification, syndrome detection result, severity assignment.
-4. Answer in writing: **"Would a regulatory toxicologist agree this output represents the data?"** with a one-paragraph interpretation citing the actual pairwise/group values that drove the result.
-
-**Forms that satisfy this step:**
-
-- Python one-liner recorded in the review output, replicating the algorithm's logic against the JSON, with the printed output cited verbatim. See BUG-031 retrospective for a worked example.
-- A new fixture-based test that runs the algorithm against real generated output and asserts the defensible result. Strongly preferred — it carries the check forward in CI.
-- `/ops:explore-data` with the specific algorithm question.
-
-**Forms that do NOT satisfy this step:**
-
-- "The function passes its unit tests" — unit tests verify the function does what its mock inputs say it should do.
-- "The build passes" / "lint passes" / "all 2051 tests pass" — none verify algorithmic defensibility.
-- "The spec says this is the expected output" — the spec itself may be wrong (BUG-031: spec author treated the indefensible output as the desired outcome).
-- "The change is downstream of the algorithm" — if the diff CONSUMES the algorithm's output, you still need to verify that the output is defensible. Shipping a UI that displays an indefensible NOAEL more consistently is worse than shipping inconsistent UIs that hide it.
-
-**FAIL handling:** ALGORITHM: FAIL is a hard block. The fix is to escalate (ESCALATION.md) and revert the consumer change — do NOT ship a UI that locks in the indefensible output. See BUG-031 for the canonical example.
-
-### Output
-
-Append to the MECHANICAL CHECKS section:
-
-```
-VISUAL: PASS — [view name(s)] render correctly, no console errors, [N] interactions verified
-VISUAL: FAIL — [specific issue: console error in X / blank render / broken interaction]
-VISUAL: SKIPPED — [reason: no frontend changes / Playwright unreachable after retry]
-
-DATA: PASS — [N] empirical claims verified against generated JSON
-  - "{exact spec quote}" → observed {value}, cited {file:line or command}
-  - ...
-DATA: FAIL — [spec claim X] says {expected}, observed {actual} in {file}
-DATA: SKIPPED — [reason: no empirical claims in spec / no generated JSON for verification]
-
-TRIANGLE: PASS — [N] contract triangles touched, all three sites updated in this commit
-  - {field}: declaration={file:line}, enforcement={file:line}, consumption={file:line list}
-  - ...
-TRIANGLE: FAIL — [field] modified at {site} but {other site(s)} still reference old vocabulary
-TRIANGLE: SKIPPED — no contract surface modified (no enum/field/cardinality/nullability changes)
-
-ALGORITHM: PASS — [N] algorithms verified defensible on representative data
-  - {algorithm} on {study}: observed {output}, tox interpretation: "{one-paragraph rationale}"
-  - ...
-ALGORITHM: FAIL — {algorithm} on {study} produces {output}; tox-indefensible because {reason}. Escalating.
-ALGORITHM: SKIPPED — no algorithmic code touched (no path match against .lattice/algorithm-paths.txt)
-```
-
-Include screenshot path(s) so the user can inspect the visual. Include the cited JSON path and observed values for data verification. A VISUAL FAIL does not auto-block the review. A DATA FAIL DOES auto-block — empirical mismatch with the spec's claim is a scientific correctness issue, not a cosmetic one. A TRIANGLE FAIL DOES auto-block — silent declaration/enforcement/consumption divergence is the bug class CLAUDE.md rule 18 exists to prevent.
-
-### Triangle check protocol (when contract surface is touched)
-
-If the diff modifies any of: an enum constant, a JSON schema, a Pydantic model, a TS type union, a contract-doc table row, or a pytest invariant over generated JSON, run the automated audit:
-
-```bash
-cd <project-root> && python scripts/audit-contract-triangles.py
-```
-
-The script:
-1. Parses `docs/_internal/knowledge/contract-triangles.md` for triangles with explicit `Vocabulary: {...}` declarations.
-2. Verifies every cited file:line still resolves.
-3. Scans the registered scan directories for proper-subset literals (e.g., a 3-value `{adverse, warning, normal}` literal where the canonical vocabulary is 4-value) — the BFIELD-21 straggler shape.
-4. Diffs against `scripts/data/triangle-audit-baseline.txt` — only NEW stragglers fail the check; pre-existing ones in the baseline are tracked tech-debt.
-
-Exit code 0 = PASS; 1 = FAIL with new stragglers; 2 = config error (registry missing/unparseable).
-
-If the script reports NEW stragglers, walk each and either:
-- Fix it (widen the subset to match the canonical vocabulary), OR
-- Add `triangle-audit:exempt -- <rationale>` on the line if the subset is intentionally narrower (e.g., a sub-enum like BFIELD-27's `SEVERITY_NO_NORMAL`), OR
-- Run `python scripts/audit-contract-triangles.py --write-baseline` to accept the new state — but only after explicit triage and with the triage rationale in the commit body.
-
-If the diff introduced a new contract field (new enum value, new BFIELD), require a new row in `contract-triangles.md` with declaration/enforcement/consumption sites. If site count grew on an existing triangle, update the row.
-
-The TRIANGLE check supersedes Step 2a's reuse audit for contract fields specifically — the reuse audit asks "is this duplicated"; the triangle check asks "is this synchronized."
-
-### Anti-patterns
-
-**Do not treat "Visual verification required by user" as an acceptable output when Playwright MCP is available.** That phrasing is a legacy escape hatch from before agents had browser access. If the MCP tools are available and the dev server is running, USE THEM. Only fall back to user verification when the tools genuinely cannot be used (server down, MCP not configured). On first failure, retry ONCE before giving up.
-
-**Do not mark VISUAL: SKIPPED without also running data verification.** Playwright unreachable is not a reason to skip everything. Data verification requires only the generated JSON and a Python interpreter, both of which are always available in this environment.
-
-**Do not substitute mirror tests for data verification.** Mirror tests pass when code matches spec text; data verification catches the spec-vs-reality gap. They are complementary, not alternatives. The loo-display-scoping cycle (2026-04-07) had 20 passing mirror tests AND shipped an empty chart because nobody ran the spec's count claim against real data.
+When in doubt about a trigger, run the protocol — SKIPPED is cheap, missed FAIL is expensive.
 
 ---
 
@@ -496,6 +317,7 @@ The TRIANGLE check supersedes Step 2a's reuse audit for contract fields specific
 ### 5a: Spec gaps (spec work only)
 
 For each FAIL from Step 2:
+
 - Create a todo item with: spec section reference, which dimension failed, exact spec quote, code's actual behavior, file:line reference
 - Document decision points where implementation chose one approach over alternatives
 - Flag cross-spec integration gaps
@@ -504,7 +326,7 @@ Present the complete requirement trace to the user. This is the evidence table, 
 
 ### 5b: Persist all discovered gaps (all work)
 
-During the review you may have identified research gaps, data gaps, or implementation gaps — from the architect review, the requirement trace, the reuse audit, or the visual verification. **Persist them now.**
+During the review you may have identified research gaps, data gaps, or implementation gaps — from the architect review, the requirement trace, the reuse audit, or the protocol checks. **Persist them now.**
 
 1. **Read `docs/_internal/research/REGISTRY.md`** — for each research gap (needs investigation before deciding), add a new stream or append to an existing stream's `open-questions`. Set `source: "review/{commit-or-topic}"`.
 2. **Read `docs/_internal/TODO.md`** — for each data gap or implementation gap, append with appropriate `[Area:]` tag.
@@ -533,38 +355,20 @@ GAPS PERSISTED:
 If no gaps were found, state: `GAPS: None identified.` This is informational — zero gaps is a valid outcome, not a missing section.
 If no bug fix component exists, state: `BUG SWEEP: N/A — no bug-fix component in this commit.`
 
-### 5d: Extract durable knowledge from archived specs (LIT-08, mandatory at cycle-close)
-
-If this commit closes out an `incoming/` spec — detected when (a) the staged set or recent commits include an `incoming/*.md` removal/move, OR (b) the `Topic:` trailer matches a spec in `incoming/` whose implementation just landed — invoke `/lattice:extract-learnings <spec-path> --apply` per CLAUDE.md rule 7 (doc lifecycle) and rule 19 (atomic facts placement).
-
-The skill at `commands/lattice/extract-learnings.md`:
-1. Reads the spec, classifies durable items by destination (typed graph, methods-index, field-contracts, architecture/, audit-checklist, etc.)
-2. Locates or creates the destination entry, applies the extraction
-3. Archives the spec with back-references to the extracted destinations
-4. Updates the relevant architecture spec's last-validated date + change log
-5. Records `Knowledge:` trailer for the commit and a `decisions.log` row
-
-**Defect:** if extract-learnings produces no extractions AND the spec has no `Archived <date>. No durable knowledge extracted (rationale: ...)` annotation, this step BLOCKS the gate. Resolution paths: (a) re-run with the spec author identifying extractable items, OR (b) author the explicit rationale in the spec head ("no durable knowledge extracted because <reason>"), OR (c) `/lattice:review --skip-extract-learnings` with reason logged to decisions.log.
-
-**Skip when:** this is a `/lattice:spike` close (spikes deliberately skip doc lifecycle per `commands/lattice/spike.md`); their learnings come through `/lattice:spec-from-code` followed by a separate cycle-close.
-
-**Output to GAPS section:**
-```
-EXTRACTIONS:
-- [N] items extracted to: <destinations-joined-with-commas>
-- spec archived: <archived-path>
-```
-If the spec has the explicit "no durable knowledge" rationale: `EXTRACTIONS: N/A (rationale: <one line>)`.
+> **Spec-archive learnings extraction was previously Step 5d here.** It has been relocated to a project-side post-commit / pre-commit hook keyed on the `incoming/X.md → incoming/archive/X.md` rename event, because the correct granularity is per-spec-archive (not per-cycle-close). See `commands/lattice/extract-learnings.md` § "Wiring this into a project" for the rename-detection regex and hook entry-point.
 
 ---
 
-## Step 7: Commit gate (all work)
+## Step 6: Commit gate (all work)
 
 When ALL checks pass:
+
 1. **Write the review gate file** (mandatory — the pre-commit hook and Claude Code hooks BLOCK commits without it):
+
    ```bash
    bash scripts/write-review-gate.sh "pass" "Review passed — {one-line summary}"
    ```
+
    This gate file is **single-use**: the pre-commit hook deletes it after a successful commit. Every commit needs a fresh review.
 
    **Attestations (SIMPLIFY-1 unified format).** The gate file carries an `attestations[]` array. Reserved kinds (delivered by F3 / F6 / F7):
@@ -577,11 +381,13 @@ When ALL checks pass:
 2. Tell the user: **"All checks pass. Ready to commit. Here's what changed: [file list + summary]. Shall I commit?"**
 
 3. If user approves, **acquire the commit lock BEFORE staging** (critical — prevents conflation with concurrent commits):
+
    ```bash
    export LATTICE_LOCK_HOLDER="review-{topic-or-branch}-pid-$$"
    bash scripts/acquire-lock.sh "$LATTICE_LOCK_HOLDER" --poll
    bash scripts/merge-shared-state.sh
    ```
+
    The `LATTICE_LOCK_HOLDER` env var tells the pre-commit hook to recognize this outer-held lock and skip re-acquisition. The lock ensures only one commit at a time across the entire add → commit window. `merge-shared-state.sh` refreshes shared files (REGISTRY.md, TODO.md, MANIFEST.md, decisions.log, ROADMAP.md) from git HEAD — incorporating changes committed by other agents while this review was running — then re-applies your local additions on top.
 
    If `merge-shared-state.sh` reports conflicts (rare), inspect the conflict markers and resolve them before staging.
@@ -591,12 +397,15 @@ When ALL checks pass:
 5. **Create the commit (`git commit -m "..."`)** — pre-commit hook will see `LATTICE_LOCK_HOLDER` and skip re-acquiring. The commit fires inside the lock window.
 
 6. **Release the lock IMMEDIATELY after `git commit` returns** (success or failure path):
+
    ```bash
    bash scripts/release-lock.sh
    unset LATTICE_LOCK_HOLDER
    rm -f .lattice/engine-changed .lattice/validation-compared 2>/dev/null
    ```
+
 7. Append to `.lattice/decisions.log`:
+
    ```
    {timestamp}	review	{PASS|FAIL}	{commit hash}	files:{count} deviations:{count} deferred:{count}	{one-line summary}
    ```
@@ -605,9 +414,10 @@ When ALL checks pass:
 
 ---
 
-## Session End Protocol
+## Step 7: Session end protocol
 
 Update `.claude/roles/review-notes.md` with:
+
 - What you reviewed this session (commits, files, aspects)
 - Issues found and fixed (with file paths)
 - Issues that need another agent (and which role)
@@ -622,15 +432,16 @@ Update `.claude/roles/review-notes.md` with:
 
 1. **Skipping the Decision Audit.** "No architectural decisions were made" is almost never true. A bug fix chose a root cause hypothesis. A spike chose an approach. A feature chose a data flow. If you wrote code, you made decisions. The decision auditor agent evaluates them independently.
 2. **Skipping the four-dimension trace for non-spec work.** "There's no spec to trace against" is not an excuse. Trace against the code's own intent — read each function, verify it does what it claims, check edge cases. The four dimensions (WHAT/WHEN/UNLESS/HOW) apply to all code.
-3. **Reviewing your own code.** The implementer has confirmation bias. Step 1b requires an independent agent for spec work.
+3. **Reviewing your own code.** The implementer has confirmation bias. Step 1 Agent C requires an independent agent for spec work.
 4. **Writing PASS from memory.** Re-read both the spec and the code. Every time.
 5. **Paraphrasing the spec.** Copy the exact words.
 6. **Checking WHAT but not HOW.** Both must pass.
-7. **Treating build+tests as behavioral verification.** They don't tell you the chart is oriented correctly. When Playwright MCP is available, use it — Step 3b exists for this reason.
+7. **Treating build+tests as behavioral verification.** They don't tell you the chart is oriented correctly. When Playwright MCP is available, use it — Step 3b § VISUAL exists for this reason.
 8. **Feeding implementation context to the review agent.** Spec path + changed file list only.
 9. **Self-assessing the Decision Audit.** The decision auditor runs as a separate agent specifically to prevent confirmation bias. Never evaluate your own decisions — launch the agent.
 10. **Producing a review without all 7 mandatory output sections.** An incomplete review is not a review.
 11. **Accepting "data exists but isn't wired" as a deferral.** If the data is in the pipeline and the function is in the codebase, connecting them is work — not a dependency. Apply the deferral litmus test.
 12. **Skipping the architect review for spikes.** Spikes are the MOST likely to introduce accidental complexity because they skip spec ceremony. The architect check is mandatory.
-13. **Proceeding past SCIENCE-FLAG without user acknowledgment.** Science flags are hard stops. The user must explicitly accept or reject each one.
+13. **Proceeding past SCIENCE-FLAG without user acknowledgment.** Science flags are hard stops. The user must explicitly accept or reject each one per CLAUDE.md rule 19.
 14. **Accepting audit-recommended refactors at face value.** When the architect review proposes extractions or splits, verify the pain point yourself before including it as an action item. Read the code — a long file with clean sub-components needs no action. A refactoring recommendation that doesn't survive "what specific problem does this solve?" should be downgraded to informational, not listed as a required fix.
+15. **Re-launching peer-review uncapped after CONDITIONAL/FLAWED.** Cap at 2 re-launches (3 total runs). On the 3rd, escalate to the user with both verdicts surfaced — do NOT keep iterating.

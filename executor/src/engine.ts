@@ -116,7 +116,7 @@ export async function executeWorkflow(
 
   // Load state for resume
   const stateData = loadStateFile(wf, inputs, cwd);
-  const completedKeys = getCompletedCheckpoints(stateData);
+  const completedKeys = getCompletedCheckpoints(wf, inputs, cwd);
 
   // Build context
   const ctx = buildInitialContext(inputs, stateData);
@@ -456,6 +456,12 @@ function resolveStatePath(wf: Workflow, inputs: Record<string, string | number |
   for (const [key, value] of Object.entries(inputs)) {
     path = path.replace(`{{inputs.${key}}}`, String(value));
   }
+  const unresolved = path.match(/\{\{\s*inputs\.([^}\s]+)\s*\}\}/);
+  if (unresolved) {
+    throw new Error(
+      `resolveStatePath: state.file template '${wf.state.file}' references input '${unresolved[1]}' which is not provided. Refusing to write literal '{{...}}' filename.`
+    );
+  }
   return `${cwd}/${path}`;
 }
 
@@ -483,16 +489,24 @@ function loadStateFile(
   }
 }
 
-function getCompletedCheckpoints(stateData: Record<string, string>): Set<string> {
+function getCompletedCheckpoints(
+  wf: Workflow,
+  inputs: Record<string, string | number | boolean>,
+  cwd: string,
+): Set<string> {
   const completed = new Set<string>();
-  // The checkpoints section in state files lists completed steps
-  // For now, treat current_step as the last completed checkpoint
-  const currentStep = stateData['current_step'];
-  if (currentStep) {
-    // All steps before current_step are completed
-    // This is a simplified heuristic -- full implementation would track
-    // each checkpoint individually in the state file
-    completed.add(currentStep);
+  const path = resolveStatePath(wf, inputs, cwd);
+  if (!path || !existsSync(path)) return completed;
+  try {
+    const data = yaml.load(readFileSync(path, 'utf-8')) as Record<string, unknown> ?? {};
+    const checkpoints = data['checkpoints'];
+    if (checkpoints && typeof checkpoints === 'object') {
+      for (const key of Object.keys(checkpoints as Record<string, unknown>)) {
+        completed.add(key);
+      }
+    }
+  } catch {
+    // ignore — partial/corrupt state means resume from start
   }
   return completed;
 }
@@ -614,7 +628,7 @@ async function maybeWipCommit(
 
     execSync('git add -A', { cwd, timeout: 10000 });
     const msg = `wip: ${topicName} checkpoint ${stateKey}\n\nTopic: ${topicName}`;
-    execSync(`git commit -m "${msg}" --no-verify`, { cwd, encoding: 'utf-8', timeout: 30000 });
+    execSync(`git commit -m "${msg}"`, { cwd, encoding: 'utf-8', timeout: 30000 });
 
     await adapter.sendMessage(`  [wip] Checkpoint commit created`);
   } catch {

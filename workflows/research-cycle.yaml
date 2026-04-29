@@ -399,7 +399,14 @@ workflow:
     # Per the d8dd418 contract: SCIENCE-FLAG resolves by Claude authoring
     # a decision memo with >=3 literature citations, NOT by waiting for
     # an SME. User escalation only when citations cannot be found.
+    #
+    # The block below is auto-synced from
+    # `workflows/_includes/science-flag-resolution.yaml` by
+    # `scripts/sync-workflow-includes.py`. DO NOT edit between the markers.
+    # To change the protocol: edit the include, run the sync script, then
+    # `node executor/dist/cli.js validate`.
 
+    # === BEGIN SCIENCE-FLAG-MEMO (synced from _includes/science-flag-resolution.yaml) ===
     probe-science-memo:
       type: skill
       skill: null
@@ -422,7 +429,7 @@ workflow:
         - prior validated decisions in .lattice/decisions.log
 
         For each flag, output:
-          FLAG_ID: [identifier from probe output]
+          FLAG_ID: [identifier from upstream output]
           DESCRIPTION: [what the flag claims would change analytically]
           DECISION: ACCEPT_CHANGE | REJECT_CHANGE
           MEMO_PATH: [decisions.log entry, or research/ doc path if substantive]
@@ -430,8 +437,8 @@ workflow:
           STATUS: RESOLVED | CITATIONS_NOT_FOUND
 
         If a flag has fewer than 3 verifiable citations after genuine
-        search, output STATUS: CITATIONS_NOT_FOUND with what you
-        searched and what specific evidence was missing. Do not
+        search, output STATUS: CITATIONS_NOT_FOUND with a list of what
+        you searched and what specific evidence was missing. Do not
         manufacture citations.
 
         Append RESOLVED memos to .lattice/decisions.log:
@@ -465,12 +472,13 @@ workflow:
         - id: accept
           label: "Accept -- note rationale in commit message"
           route: verify-gaps
-        - id: reject
+        - id: revise
           label: "Reject -- revise research"
           route: research
         - id: abort
           label: "Abort"
           route: release-lock
+    # === END SCIENCE-FLAG-MEMO ===
 
     # ── Layer 7: Verify + Complete ───────────────────────────
 

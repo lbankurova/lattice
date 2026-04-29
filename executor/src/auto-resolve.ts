@@ -17,7 +17,7 @@
  */
 
 import { readFileSync, writeFileSync, existsSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { spawnSync } from 'node:child_process';
 import yaml from 'js-yaml';
 import type { PlatformAdapter } from './types.js';
 import type { Conflict, TopicState } from './coherence.js';
@@ -253,24 +253,40 @@ function buildResolutionPrompt(
 
 /**
  * Execute the resolution analysis via Claude CLI.
+ *
+ * Uses spawnSync argv-form (shell: false) so the prompt is passed as a
+ * single argv element. No shell quoting required — newlines, single
+ * quotes, dollars, and backslashes round-trip unchanged on POSIX and
+ * Windows alike. Prior bash-only `$'...'` quoting corrupted prompts on
+ * Windows where Claude CLI may not run under bash.
  */
 function executeResolutionAnalysis(prompt: string, cwd: string): string {
   const args = [
     '--print',
     '--output-format', 'text',
+    prompt,
   ];
 
-  const command = `claude ${args.join(' ')} ${shellQuote(prompt)}`;
-
-  const stdout = execSync(command, {
+  const result = spawnSync('claude', args, {
     cwd,
     encoding: 'utf-8',
     timeout: 300_000, // 5 min for analysis
     stdio: ['pipe', 'pipe', 'pipe'],
     env: { ...process.env },
+    shell: false,
   });
 
-  return stdout.trim();
+  if (result.error) {
+    throw result.error;
+  }
+  if (typeof result.status === 'number' && result.status !== 0) {
+    const stderr = (result.stderr ?? '').toString().trim();
+    throw new Error(
+      `claude exited with status ${result.status}${stderr ? `: ${stderr}` : ''}`,
+    );
+  }
+
+  return (result.stdout ?? '').toString().trim();
 }
 
 /**
@@ -417,6 +433,3 @@ function findStateFile(topicName: string, cwd: string): string | null {
   return existsSync(path) ? path : null;
 }
 
-function shellQuote(s: string): string {
-  return `$'${s.replace(/'/g, "\\'").replace(/\n/g, '\\n')}'`;
-}

@@ -240,7 +240,14 @@ workflow:
     # a decision memo with >=3 literature citations, NOT by waiting for
     # an SME. Architect and probe both route SCIENCE-FLAG verdicts here.
     # User escalation only when citations cannot be found.
+    #
+    # The block below is auto-synced from
+    # `workflows/_includes/science-flag-resolution.yaml` by
+    # `scripts/sync-workflow-includes.py`. DO NOT edit between the markers.
+    # To change the protocol: edit the include, run the sync script, then
+    # `node executor/dist/cli.js validate`.
 
+    # === BEGIN SCIENCE-FLAG-MEMO (synced from _includes/science-flag-resolution.yaml) ===
     architect-science-memo:
       type: skill
       skill: null
@@ -262,7 +269,7 @@ workflow:
         - prior validated decisions in .lattice/decisions.log
 
         For each flag, output:
-          FLAG_ID: [identifier from architect / probe output]
+          FLAG_ID: [identifier from upstream output]
           DESCRIPTION: [what the flag claims would change analytically]
           DECISION: ACCEPT_CHANGE | REJECT_CHANGE
           MEMO_PATH: [decisions.log entry, or research/ doc path if substantive]
@@ -303,14 +310,15 @@ workflow:
         How do you want to proceed?
       options:
         - id: accept
-          label: "Accept the change anyway -- note rationale in commit message"
+          label: "Accept -- note rationale in commit message"
           route: plan-review-r1
-        - id: reject
+        - id: revise
           label: "Reject -- revise synthesis to preserve current behavior"
           route: synthesize
         - id: abort
           label: "Abort"
           route: release-lock
+    # === END SCIENCE-FLAG-MEMO ===
 
     probe-stop-breaks:
       type: approval

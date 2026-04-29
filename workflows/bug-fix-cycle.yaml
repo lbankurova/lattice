@@ -396,13 +396,24 @@ workflow:
     # ── Layer 7: Bug stress ──────────────────────────────────
     #
     # Skip for cosmetic bugs. Mandatory for everything else.
+    #
+    # Severity-aware review skip: per the 2026-04-28 framework audit
+    # (W-2), cosmetic bugs route directly to `update-artifacts`,
+    # bypassing both `bug-stress` and the 636-line `lattice/review`
+    # skill (plus its parallel-agent invocations). Discipline is
+    # preserved: the commit step still runs through the full pre-commit
+    # framework (Step -0.5 commit-intent, Step 0 review-gate, Step 5
+    # bug retro, doc regen) -- those gates fire regardless of whether
+    # this workflow invokes `/lattice:review` here. What's saved is
+    # the prompt cost + agent fan-out for a class of bugs (visual-only,
+    # no data impact) where that cost is not earning anything.
 
     stress-gate:
       type: gate
       depends_on: [write-test, e2e-classify, e2e-run]
       evaluate:
         - condition: "{{nodes.classify.output.severity}} == 'cosmetic'"
-          route: review
+          route: update-artifacts
         - condition: default
           route: bug-stress
 
@@ -497,7 +508,14 @@ workflow:
     # Per the d8dd418 contract: SCIENCE-FLAG resolves by Claude authoring
     # a decision memo with >=3 literature citations, NOT by waiting for
     # an SME. User escalation only when citations cannot be found.
+    #
+    # The block below is auto-synced from
+    # `workflows/_includes/science-flag-resolution.yaml` by
+    # `scripts/sync-workflow-includes.py`. DO NOT edit between the markers.
+    # To change the protocol: edit the include, run the sync script, then
+    # `node executor/dist/cli.js validate`.
 
+    # === BEGIN SCIENCE-FLAG-MEMO (synced from _includes/science-flag-resolution.yaml) ===
     self-fix-science-memo:
       type: skill
       skill: null
@@ -520,7 +538,7 @@ workflow:
         - prior validated decisions in .lattice/decisions.log
 
         For each flag, output:
-          FLAG_ID: [identifier from review output]
+          FLAG_ID: [identifier from upstream output]
           DESCRIPTION: [what the flag claims would change analytically]
           DECISION: ACCEPT_CHANGE | REJECT_CHANGE
           MEMO_PATH: [decisions.log entry, or research/ doc path if substantive]
@@ -528,8 +546,8 @@ workflow:
           STATUS: RESOLVED | CITATIONS_NOT_FOUND
 
         If a flag has fewer than 3 verifiable citations after genuine
-        search, output STATUS: CITATIONS_NOT_FOUND with what you
-        searched and what specific evidence was missing. Do not
+        search, output STATUS: CITATIONS_NOT_FOUND with a list of what
+        you searched and what specific evidence was missing. Do not
         manufacture citations.
 
         Append RESOLVED memos to .lattice/decisions.log:
@@ -561,7 +579,7 @@ workflow:
         How do you want to proceed?
       options:
         - id: accept
-          label: "Accept -- proceed with fix, note rationale in commit"
+          label: "Accept -- note rationale in commit message"
           route: update-artifacts
         - id: revise
           label: "Revise fix to preserve current behavior"
@@ -569,6 +587,7 @@ workflow:
         - id: abort
           label: "Abort"
           route: release-lock
+    # === END SCIENCE-FLAG-MEMO ===
 
     # ═══════════════════════════════════════════════════════════
     # PHASE 6: UPDATE ALL ARTIFACTS
@@ -578,8 +597,16 @@ workflow:
       type: skill
       skill: null
       context: inherit
-      depends_on: [self-fix-gate, self-fix]
+      depends_on: [self-fix-gate, self-fix, stress-gate]
       # trigger_rule: one_success
+      # `stress-gate` is in depends_on so the cosmetic short-circuit
+      # path (severity == cosmetic skips bug-stress + review + self-fix)
+      # can trigger update-artifacts. Non-cosmetic paths still arrive
+      # via self-fix-gate / self-fix as before. Template references
+      # to `{{nodes.bug-stress.*}}` and `{{nodes.review.*}}` resolve
+      # to empty strings on the cosmetic path (template.ts:67), which
+      # the prompt below tolerates -- artifact updates degrade
+      # gracefully (no PATTERN-GAP, no review-self-fix to record).
       prompt_append: |
         Update all bug-related artifacts before commit.
         This is mandatory -- a bug fix without updated artifacts is incomplete.

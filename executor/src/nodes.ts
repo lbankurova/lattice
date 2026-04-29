@@ -6,7 +6,7 @@
  * Phase 3 (Headless): skill = Claude API direct call.
  */
 
-import { execSync, type ExecSyncOptionsWithStringEncoding } from 'node:child_process';
+import { execSync, spawnSync, type ExecSyncOptionsWithStringEncoding } from 'node:child_process';
 import { createInterface } from 'node:readline';
 import type {
   WorkflowNode, BashNode, SkillNode, GateNode, ApprovalNode, ParallelNode,
@@ -168,15 +168,33 @@ async function executeSkill(
       cliArgs.push('--no-context');
     }
 
-    const command = `claude ${cliArgs.join(' ')} ${shellQuote(prompt)}`;
-    const stdout = execSync(command, {
+    cliArgs.push(prompt);
+
+    // spawnSync argv-form (shell: false) — prompt passed as a single argv
+    // element so newlines / quotes / dollars / backslashes round-trip
+    // unchanged on POSIX and Windows alike. Avoids the bash-only $'...'
+    // quoting that previously corrupted prompts on Windows.
+    const result = spawnSync('claude', cliArgs, {
       cwd,
       encoding: 'utf-8',
       timeout: 600_000, // 10 min for skill execution
       stdio: ['pipe', 'pipe', 'pipe'],
       env: { ...process.env },
+      shell: false,
     });
 
+    if (result.error) throw result.error;
+    if (typeof result.status === 'number' && result.status !== 0) {
+      const execLikeErr: { status: number; stdout: string; stderr: string; message: string } = {
+        status: result.status,
+        stdout: (result.stdout ?? '').toString(),
+        stderr: (result.stderr ?? '').toString(),
+        message: `claude exited with status ${result.status}`,
+      };
+      throw execLikeErr;
+    }
+
+    const stdout = (result.stdout ?? '').toString();
     const { text, cost } = parseClaudeJsonOutput(stdout);
 
     return {
@@ -427,13 +445,6 @@ function parseClaudeJsonOutput(raw: string): { text: string; cost?: NodeCost } {
   };
 
   return { text, cost };
-}
-
-// ── Helpers ─────────────────────────────────────────────────
-
-function shellQuote(s: string): string {
-  // For Windows + bash: use $'...' quoting with escaped single quotes
-  return `$'${s.replace(/'/g, "\\'").replace(/\n/g, '\\n')}'`;
 }
 
 // ── CLI Adapter ─────────────────────────────────────────────

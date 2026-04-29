@@ -1,0 +1,99 @@
+# SHARED FRAGMENT — DO NOT REGISTER AS A TOP-LEVEL WORKFLOW
+# (the leading underscore in `_includes/` keeps the executor from picking it up
+# as a workflow; see executor/src/loader.ts which only scans workflows/*.yaml).
+#
+# Purpose: SCIENCE-FLAG memo-resolution protocol. Per the d8dd418 contract,
+# SCIENCE-FLAG resolves by Claude authoring a decision memo with >=3 literature
+# citations, NOT by waiting for an SME. User escalation only when citations
+# cannot be found.
+#
+# This protocol was duplicated near-verbatim across blueprint-cycle.yaml,
+# research-cycle.yaml, and bug-fix-cycle.yaml (~150 lines × 3). It is now
+# authored ONCE here and synced into each consumer workflow by
+# `scripts/sync-workflow-includes.py`. To change the protocol:
+#   1. Edit this file.
+#   2. Run `bash scripts/sync-workflow-includes.sh` (or `python scripts/sync-workflow-includes.py`).
+#   3. Verify by running `node executor/dist/cli.js validate`.
+#
+# The sync script substitutes the placeholders below into each consumer:
+#
+#   ${PREFIX}          node-name prefix     (architect | probe | self-fix)
+#   ${UPSTREAM}        upstream gate node   (architect-verdict | probe-gate | self-fix-gate)
+#   ${RESOLVED_ROUTE}  on-success route     (plan-review-r1 | verify-gaps | update-artifacts)
+#   ${REVISE_ROUTE}    on-revise route      (synthesize | research | fix)
+#   ${REVISE_LABEL}    revise option text   (e.g. "Reject -- revise synthesis...")
+#   ${LOG_TAG}         decisions.log tag    (architect | probe | bug-fix)
+#   ${MEMO_INTRO}      one-line intro       (workflow-specific framing)
+#
+# The substituted region is delimited in each consumer by:
+#   # === BEGIN SCIENCE-FLAG-MEMO (synced from _includes/science-flag-resolution.yaml) ===
+#   ...
+#   # === END SCIENCE-FLAG-MEMO ===
+# Edits between those markers WILL be overwritten by the sync script.
+
+    ${PREFIX}-science-memo:
+      type: skill
+      skill: null
+      context: fresh
+      depends_on: [${UPSTREAM}]
+      prompt_append: |
+        ${MEMO_INTRO}
+
+        Permitted sources for citations:
+        - docs/_internal/knowledge/species-profiles.md
+        - docs/_internal/knowledge/vehicle-profiles.md
+        - docs/_internal/knowledge/methods-index.md
+        - docs/_internal/knowledge/field-contracts.md
+        - peer-reviewed research streams in docs/_internal/research/
+        - prior validated decisions in .lattice/decisions.log
+
+        For each flag, output:
+          FLAG_ID: [identifier from upstream output]
+          DESCRIPTION: [what the flag claims would change analytically]
+          DECISION: ACCEPT_CHANGE | REJECT_CHANGE
+          MEMO_PATH: [decisions.log entry, or research/ doc path if substantive]
+          CITATIONS: [list of >=3 cited sources with file:line or paper refs]
+          STATUS: RESOLVED | CITATIONS_NOT_FOUND
+
+        If a flag has fewer than 3 verifiable citations after genuine
+        search, output STATUS: CITATIONS_NOT_FOUND with a list of what
+        you searched and what specific evidence was missing. Do not
+        manufacture citations.
+
+        Append RESOLVED memos to .lattice/decisions.log:
+        TIMESTAMP\t${LOG_TAG}\tSCIENCE_FLAG_RESOLVED\ttopic={{inputs.topic}}\tflag=<id>\tdecision=<accept|reject>\tcitations=<n>
+
+        Final summary line:
+        MEMO_VERDICT=all_resolved | MEMO_VERDICT=partial_unresolved
+      log: true
+
+    ${PREFIX}-science-route:
+      type: gate
+      depends_on: [${PREFIX}-science-memo]
+      evaluate:
+        - condition: "{{nodes.${PREFIX}-science-memo.output}}.contains('MEMO_VERDICT=all_resolved')"
+          route: ${RESOLVED_ROUTE}
+        - condition: default
+          route: ${PREFIX}-stop-science
+
+    ${PREFIX}-stop-science:
+      type: approval
+      depends_on: [${PREFIX}-science-route]
+      prompt: |
+        SCIENCE-FLAG could not be fully resolved via the citation-memo
+        path -- one or more flags lacked >=3 verifiable citations after
+        genuine search. The arbiter's report:
+
+        {{nodes.${PREFIX}-science-memo.output}}
+
+        How do you want to proceed?
+      options:
+        - id: accept
+          label: "Accept -- note rationale in commit message"
+          route: ${RESOLVED_ROUTE}
+        - id: revise
+          label: "${REVISE_LABEL}"
+          route: ${REVISE_ROUTE}
+        - id: abort
+          label: "Abort"
+          route: release-lock

@@ -1,11 +1,13 @@
 ---
 name: lattice:extract-learnings
-description: Extract durable knowledge from implemented specs into knowledge/ + architecture/ before archive. Enforces CLAUDE.md rule 7. Auto-invoked at /lattice:review cycle-close.
+description: Extract durable knowledge from implemented specs into knowledge/ + architecture/ at archive. Enforces CLAUDE.md rule 7. Fires per spec-archive event (project-side hook), not per cycle-close.
 ---
 
 # /lattice:extract-learnings
 
 Formalizes CLAUDE.md rule 7 ("Doc lifecycle: specs are disposable, system docs are durable") as an enforceable skill rather than a convention.
+
+**Canonical fire-time:** when a spec is moved from `docs/_internal/incoming/X.md` to `docs/_internal/incoming/archive/.../X.md`. That rename is the durable signal that the spec's implementation has landed and the spec is being retired. Earlier guidance (now removed) wired this skill into `/lattice:review` Step 5d as a per-cycle-close auto-invoke; that was the wrong granularity — most cycle-closes do not archive a spec, and many spec-archives happen outside a cycle (sweep, batch cleanup, manual archival). Per-archive triggering is the correct surface.
 
 The failure mode this catches: a spec lands with novel domain facts, architectural patterns, or contract additions; the spec gets archived; the durable knowledge it surfaced never makes it into `knowledge/` or `architecture/`; the next spec author re-derives it from scratch (or worse, contradicts it). Conflated commits 1370c103 and 521f1d16 are the canonical cases — the conflated commit message didn't trigger anyone's "extract before archive" discipline, so the durable knowledge was lost in commit-laundry.
 
@@ -17,7 +19,7 @@ The failure mode this catches: a spec lands with novel domain facts, architectur
 
 ## When invoked
 
-- **Automatic:** `/lattice:review` Step 5d (cycle-close) calls `/lattice:extract-learnings <spec-path>` when the staged set includes an `incoming/*.md` spec being closed (signal: spec referenced in commit message and no longer in `incoming/` after the commit, OR spec referenced in commit but moved to `incoming/archive/` in the same diff).
+- **Automatic (project-side hook):** a project's pre-commit (or post-commit) hook detects a spec-archive rename in the staged diff and invokes `/lattice:extract-learnings <archived-spec-path> --apply`. See "Wiring this into a project" below for the rename-detection regex and entry-point. This replaces the earlier `/lattice:review` Step 5d auto-invoke, which fired at the wrong granularity.
 - **Manual:** after implementing a spec but before committing: `/lattice:extract-learnings docs/_internal/incoming/foo-spec.md`. Reviews and applies.
 - **Sweep:** `/lattice:extract-learnings --sweep` scans for unprocessed specs (in `incoming/` >7 days, none with `[archived]` cross-reference). Useful at the end of a cycle to catch missed extractions.
 
@@ -107,11 +109,46 @@ After all extractions are applied (or staged for review):
 - **Does not propose new architecture-spec creation without user approval.** Bound by CLAUDE.md rule 1 (design-system) and rule 8 (no directory sprawl).
 - **Does not run during `/lattice:spike`.** Spikes intentionally skip the doc lifecycle (per `commands/lattice/spike.md`); their learnings are extracted via `/lattice:spec-from-code` followed by a normal cycle close, not via this skill.
 
-## Auto-invocation contract (`/lattice:review` Step 5d)
+## Wiring this into a project
 
-When `/lattice:review` runs at cycle-close and detects a spec being archived in the same commit (or moved out of `incoming/` to `incoming/archive/`), it MUST call this skill before writing the review gate. The skill runs in `--apply` mode by default at cycle-close (the cycle is being closed; the user has already approved the work).
+This skill fires per spec-archive event. Each project (e.g. `pcc`) wires the trigger into its own pre-commit (or post-commit) hook, since the archive directory layout and hook entry-point are project-specific. The lattice repo itself does not host the hook.
 
-If the skill produces no extractions AND the spec has no `Archived <date>. No durable knowledge extracted` rationale, `/lattice:review` flags this as a defect: the spec author either missed extractable knowledge or didn't author the rationale. The review-gate writer accepts the defect on user override (`/lattice:review --skip-extract-learnings`) but logs the override to decisions.log so periodic sweeps can audit.
+### Rename-detection regex
+
+The trigger is the rename of an `incoming/*.md` spec into `incoming/archive/`. Detect it in a hook by inspecting the staged diff for `R`-status (rename) entries:
+
+```bash
+git diff --cached --name-status | awk '
+  $1 ~ /^R/ \
+  && $2 ~ /(^|\/)docs\/_internal\/incoming\/[^/]+\.md$/ \
+  && $3 ~ /(^|\/)docs\/_internal\/incoming\/archive\//   {print $3}'
+```
+
+The output is a list of archived-spec paths (the destinations). For each one, the hook invokes:
+
+```
+/lattice:extract-learnings <archived-spec-path> --apply
+```
+
+Notes on the regex:
+
+- Source must match `docs/_internal/incoming/<basename>.md` (one path segment after `incoming/`, no further nesting). This avoids re-firing on already-archived specs that are reorganized within `incoming/archive/`.
+- Destination must contain `docs/_internal/incoming/archive/` (further nesting under `archive/<year>-<month>/` is allowed and expected).
+- Both anchors use `(^|\/)` to handle relative-path emissions from `git diff` (some hook environments run from a sub-directory).
+
+### Recommended hook placement
+
+The project's **pre-commit** hook is the natural invocation point — it runs while the working tree still contains the unstaged side of any in-flight edits, and the rename is already in the staged set by the time the hook fires. If the project prefers post-commit (e.g., to avoid blocking the commit on extraction failures), the same regex applies; the trade-off is that a failed extraction won't block the commit, only flag it for follow-up.
+
+Either way, the hook should:
+
+1. Run the regex above against the staged (or just-committed) diff.
+2. For each archived-spec path, invoke `/lattice:extract-learnings <path> --apply`.
+3. If the skill exits non-zero, surface the failure but do not retry — re-running the skill on an already-extracted spec is idempotent only after the spec body has been edited to carry the back-references, so a second auto-invoke can corrupt state.
+
+### Defect / override behavior
+
+If the skill produces no extractions AND the spec has no `Archived <date>. No durable knowledge extracted` rationale, this is a defect: the spec author either missed extractable knowledge or didn't author the rationale. The hook should surface this loudly so the user can either (a) re-run with the spec author identifying extractable items, (b) author the explicit "no durable knowledge extracted because <reason>" rationale in the spec head, or (c) accept the defect with `--skip-extract-learnings` (logged to `decisions.log` so periodic sweeps can audit).
 
 ## Failure modes prevented
 
