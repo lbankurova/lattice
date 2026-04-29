@@ -211,6 +211,24 @@ For every new or changed computed field crossing the engine→UI boundary:
 
 The TRIANGLE protocol (Step 3b) supersedes this reuse audit for contract fields specifically — the reuse audit asks "is this duplicated"; the triangle check asks "is this synchronized."
 
+### REUSE-ANCHOR-DRIFT check (mechanical, project-side)
+
+Before the qualitative audit above, run the project's mechanical reuse-anchor checker:
+
+```
+python scripts/audit-spec-reuse.py
+```
+
+This parses `file.ext:LINE` citations from the active spec and verifies the staged diff actually imports the cited symbols (or modifies the cited file directly). Mismatches surface as `REUSE-ANCHOR-DRIFT` rows. Failure mode prevented: implementation copies the structure / class names from the cited file but bypasses the cited file itself (the `organ-tbl` + colgroup-with-percentages pattern that ships matching WHAT without consuming WHERE-FROM, 2026-04-29 retro).
+
+**Verdict semantics:**
+
+- New drift entries (not in `.lattice/reuse-anchor-baseline.json`): emit as a non-blocking advisory in v1; promote to BLOCKING via `LATTICE_REUSE_ANCHOR_BLOCK=1` once the baseline is tuned. The script exits 0 in advisory mode and 1 in strict mode.
+- Drift entries already in the baseline: noted but not flagged. The baseline is editable; refresh with `UPDATE_BASELINE=1 python scripts/audit-spec-reuse.py`.
+- The qualitative reuse audit above still runs — the mechanical check catches `file:line` citations only, not "you should have used `Table` instead of `<table>`."
+
+**Companion default-component check** (qualitative for now): for any new raw `<table>`, `<button>`, `<select>`, `<input>` JSX, verify the file imports the corresponding default component from `frontend/src/components/ui/` per `frontend-ui-gate.md` Rule 6. Missing imports are `DEFAULT-COMPONENT-DRIFT` and surface in the same audit section.
+
 ---
 
 ## Step 3: Mechanical quality gate (all work)

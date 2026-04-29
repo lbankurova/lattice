@@ -30,6 +30,7 @@ Then proceed:
    - `docs/_internal/knowledge/code-quality-guardrails.md`
    - Domain knowledge map (`.claude/rules/domain-knowledge-map.md`) for relevant topics
    - All files the spec proposes to modify (Pre-write protocol, CLAUDE.md: read before writing)
+   - **All files cited as reuse anchors in the spec, even if you're not modifying them.** A `file.ext:LINE` citation is a contract -- the implementation must consume the cited file's symbols, not just copy its structure. Open each cited file and read the surrounding code at the cited line; do not read the line description alone. This is the structural fix for the colgroup-percentages-instead-of-col-w-classes failure mode (CLAUDE.md rule 5 strengthening, 2026-04-29).
 
 3. **Present the execution plan to the user.** Brief — 5-10 lines max:
    ```
