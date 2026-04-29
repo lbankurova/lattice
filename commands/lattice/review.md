@@ -66,13 +66,25 @@ Collect inputs once before launching:
 
 #### Agent A: Architect Reviewer (ALL work)
 
-For spec work where the architect gate already ran during research: skip this agent but note: "Architect review: passed during synthesis (see `peer-reviews/{topic}-architect-review.md`)."
+The architect agent runs on the IMPLEMENTATION diff. The synthesis-time architect saw the spec, not the implementation; implementations routinely introduce abstractions the spec didn't describe (new helper modules, callback bridges, indirection layers), and those abstractions get no architect-level scrutiny if the agent is skipped categorically.
 
-For all other work (spikes, bug fixes, ad-hoc):
+**Skip ONLY when** synthesis architect already ran AND **none** of these triggers fire on the implementation diff:
+
+1. **New file added** that is not named in the spec's contract / touch list. Detect via `git diff --diff-filter=A --name-only`. Exclude test files (`*.test.ts`, `*.test.tsx`, `*.spec.ts`, `test_*.py`, `*_test.py`) and auto-generated outputs (`docs/validation/engine-output.md`, `signal-detection.md`, `summary.md`, anything under `dist/`, `__pycache__/`).
+2. **New exported symbol** on a previously-existing file. Detect via `git diff -U0 | grep -E '^\+(export\s+(default\s+)?(function|class|const|let|var|type|interface|enum)|def\s+[A-Za-z_])'` ignoring deletions. New API surface area = new architectural decision.
+3. **New cross-module import edge** — a module that didn't import from another module before this diff now does. Catches bridge callbacks and wiring layer additions like the F8 `setFindingsSetScopeCallback` pattern.
+
+When ANY trigger fires, run the architect agent. Pass the trigger reason ("new file `X`", "new exported symbol `Y` in `Z`", "new cross-module import edge from `A` to `B`") in the agent prompt so it focuses on whether the new abstraction is justified by the spec's contract or constitutes accidental complexity.
+
+**Skipped form** (synthesis ran, no triggers): note in the review output: "Architect review: passed during synthesis (peer-reviews/{topic}-architect-review.md). Implementation diff inspected for new abstractions: 0 new files / 0 new exports / 0 new import edges."
+
+**Triggered form** (synthesis ran, but new abstractions appeared, OR ad-hoc / spike / bug-fix work):
 
 - **Agent type:** `architect-reviewer`
-- **Input:** Changed file list, full diff, guardrails doc path
+- **Input:** Changed file list, full diff, guardrails doc path, AND the trigger summary (new files / new exports / new import edges) so the agent's review is anchored on the post-synthesis additions specifically.
 - **Mode:** "review" (diff review)
+
+**Why this exists.** The categorical skip introduced in `2b71110` (2026-04-10) was correct for the case it was designed for: synthesis architect already vetted the architecture, so re-running on the same architecture wastes a review pass. But "the same architecture" is a property of the diff, not the workflow. When the implementation phase introduces new abstractions, they have not been architect-vetted, and skipping creates a blind spot. The trigger list above makes "new abstraction" mechanically detectable so the skip applies only when it's safe.
 
 #### Agent B: Decision Auditor (ALL work)
 
@@ -442,6 +454,7 @@ Update `.claude/roles/review-notes.md` with:
 10. **Producing a review without all 7 mandatory output sections.** An incomplete review is not a review.
 11. **Accepting "data exists but isn't wired" as a deferral.** If the data is in the pipeline and the function is in the codebase, connecting them is work — not a dependency. Apply the deferral litmus test.
 12. **Skipping the architect review for spikes.** Spikes are the MOST likely to introduce accidental complexity because they skip spec ceremony. The architect check is mandatory.
+12a. **Skipping architect on spec work without checking the implementation diff for new abstractions.** The synthesis-time architect saw the spec, not the implementation. If the implementation introduced new files, new exports, or new cross-module imports beyond what the spec described (e.g., a helper module extracted "for testability" or a callback bridge added "to wire two views"), those abstractions have not been architect-vetted. Run the trigger checklist in Agent A. The skip rule applies only when zero triggers fire.
 13. **Proceeding past SCIENCE-FLAG without user acknowledgment.** Science flags are hard stops. The user must explicitly accept or reject each one per CLAUDE.md rule 19.
 14. **Accepting audit-recommended refactors at face value.** When the architect review proposes extractions or splits, verify the pain point yourself before including it as an action item. Read the code — a long file with clean sub-components needs no action. A refactoring recommendation that doesn't survive "what specific problem does this solve?" should be downgraded to informational, not listed as a required fix.
 15. **Re-launching peer-review uncapped after CONDITIONAL/FLAWED.** Cap at 2 re-launches (3 total runs). On the 3rd, escalate to the user with both verdicts surfaced — do NOT keep iterating.
