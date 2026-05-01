@@ -1,0 +1,42 @@
+#!/bin/bash
+# Auto-sync skills to all registered projects after every lattice commit.
+# Registered projects are listed in .lattice/projects.txt (one path per line).
+#
+# Phase H (2026-05-01): only sync files this commit actually touched, and
+# skip destinations where the target project has uncommitted edits. This
+# prevents wholesale-overwrite from clobbering parallel pcc sessions.
+
+FRAMEWORK_ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
+PROJECTS_FILE="$FRAMEWORK_ROOT/.lattice/projects.txt"
+
+if [ ! -f "$PROJECTS_FILE" ]; then
+    exit 0
+fi
+
+# Compute lattice files this commit changed under synced prefixes.
+# --diff-filter=ACMR drops Deleted (sync never deletes downstream).
+# Fall back gracefully for the very first commit (no HEAD~).
+if git -C "$FRAMEWORK_ROOT" rev-parse HEAD~ >/dev/null 2>&1; then
+    CHANGED=$(git -C "$FRAMEWORK_ROOT" diff --diff-filter=ACMR --name-only HEAD~ HEAD -- \
+        commands/lattice/ commands/ops/ agents/ docs/skills-includes/ scripts/)
+else
+    # First commit -- list everything tracked under synced prefixes.
+    CHANGED=$(git -C "$FRAMEWORK_ROOT" ls-files -- \
+        commands/lattice/ commands/ops/ agents/ docs/skills-includes/ scripts/)
+fi
+
+if [ -z "$CHANGED" ]; then
+    # Nothing in synced paths changed; no sync work to do.
+    exit 0
+fi
+
+export FRAMEWORK_CHANGED_FILES="$CHANGED"
+
+while IFS= read -r project; do
+    # Skip comments and empty lines
+    [[ "$project" =~ ^#.*$ || -z "$project" ]] && continue
+
+    if [ -d "$project/.claude" ]; then
+        bash "$FRAMEWORK_ROOT/scripts/sync-skills.sh" "$project" 2>/dev/null | sed "s/^/  [sync] /"
+    fi
+done < "$PROJECTS_FILE"
