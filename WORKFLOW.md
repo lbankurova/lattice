@@ -60,6 +60,14 @@ lattice list                               -- list available workflows
 lattice inspect <workflow>                 -- show execution plan
 ```
 
+**Persisted reports.** `lattice coherence`, `lattice status`, and `lattice autopilot` tee their stdout to durable markdown files under `.lattice/` so substantive analysis survives terminal scrollback truncation and is readable from a follow-on Claude Code session:
+
+- `.lattice/coherence-report.md` -- overwritten each `lattice coherence` invocation
+- `.lattice/status-report.md` -- overwritten each `lattice status` invocation
+- `.lattice/autopilot-runs/<ISO-timestamp>.md` -- one file per `lattice autopilot` run (timestamped, never overwritten)
+
+Persistence is best-effort -- a write failure prints `[warn]` to stderr but does not fail the underlying command.
+
 ## Pipeline
 
 ```

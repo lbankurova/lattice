@@ -11,7 +11,7 @@
  */
 
 import { resolve, dirname } from 'node:path';
-import { readdirSync, readFileSync, existsSync } from 'node:fs';
+import { readdirSync, readFileSync, existsSync, writeFileSync, mkdirSync } from 'node:fs';
 import { parseArgs as nodeParseArgs } from 'node:util';
 import yaml from 'js-yaml';
 import { loadWorkflow, resolveWorkflowPath } from './loader.js';
@@ -147,6 +147,50 @@ function parseArgs(): Record<string, string> {
     result[key] = value === true ? 'true' : value === false ? 'false' : String(value);
   }
   return result;
+}
+
+// ── Report persistence ──────────────────────────────────────
+//
+// CLI commands that produce substantive analysis (coherence, status,
+// autopilot) tee their stdout to a markdown file under .lattice/ so the
+// output is durable across terminal sessions and readable from a
+// follow-on Claude Code session. Without this, anything that scrolls past
+// the PowerShell buffer is lost.
+//
+// Conventions:
+//   - .lattice/coherence-report.md      overwritten each `lattice coherence`
+//   - .lattice/status-report.md         overwritten each `lattice status`
+//   - .lattice/autopilot-runs/<ts>.md   one file per `lattice autopilot` run
+function writeReport(cwd: string, relPath: string, content: string): void {
+  try {
+    const fullPath = resolve(cwd, '.lattice', relPath);
+    mkdirSync(dirname(fullPath), { recursive: true });
+    writeFileSync(fullPath, content, 'utf-8');
+  } catch (err) {
+    // Persistence is best-effort -- never fail a command because we
+    // couldn't write the report file.
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[warn] could not write report .lattice/${relPath}: ${msg}`);
+  }
+}
+
+/**
+ * Build a tee-logger that writes each line both to stdout and to an
+ * accumulator. Use the accumulator to assemble the report file at the end.
+ */
+function makeTeeLogger(out: string[]): (line: string) => void {
+  return (line: string) => {
+    console.log(line);
+    out.push(line);
+  };
+}
+
+/**
+ * Filesystem-safe ISO-ish timestamp for filenames. Replaces `:` and `.`
+ * (reserved on Windows) with `-`.
+ */
+function fsTimestamp(): string {
+  return new Date().toISOString().replace(/[:.]/g, '-');
 }
 
 // ── Commands ────────────────────────────────────────────────
@@ -327,6 +371,14 @@ function cmdCoherence(): void {
     process.exit(1);
   }
 
+  // Tee output to .lattice/coherence-report.md so the report survives
+  // PowerShell scrollback truncation and is readable from a follow-on
+  // Claude Code session.
+  const out: string[] = [];
+  const log = makeTeeLogger(out);
+  out.push(`# Coherence report -- ${new Date().toISOString()}`);
+  out.push('');
+
   // Reconcile state against git FIRST — always derive truth before analysis.
   // --skip-reconcile: caller already ran `lattice status` (or equivalent) in
   // this session and state is known fresh; skip the redundant git scan.
@@ -338,8 +390,8 @@ function cmdCoherence(): void {
     const recon = reconcileStates(rawTopics, cwd, true); // write=true, fix stale states
     const corrections = recon.filter(r => r.action === 'corrected');
     if (corrections.length > 0) {
-      console.log(formatReconciliation(recon));
-      console.log('');
+      log(formatReconciliation(recon));
+      log('');
     }
 
     // Re-load after corrections
@@ -347,12 +399,13 @@ function cmdCoherence(): void {
   }
 
   if (topics.length === 0) {
-    console.log('No active topics found.');
+    log('No active topics found.');
+    writeReport(cwd, 'coherence-report.md', out.join('\n') + '\n');
     return;
   }
 
   const report = checkCoherence(topics);
-  console.log(formatReport(report));
+  log(formatReport(report));
 
   // If a specific topic was asked about, show its safety.
   // args[1] may be a --flag (e.g. --skip-reconcile); only treat as topic
@@ -361,19 +414,20 @@ function cmdCoherence(): void {
   const topic = flags['topic'] ?? positional;
   if (topic) {
     const safety = isTopicSafe(topic, report);
-    console.log('');
-    console.log(`TOPIC CHECK: ${topic}`);
-    console.log('-'.repeat(70));
+    log('');
+    log(`TOPIC CHECK: ${topic}`);
+    log('-'.repeat(70));
     if (safety.safe) {
-      console.log('  SAFE to advance. No blocking conflicts.');
+      log('  SAFE to advance. No blocking conflicts.');
     } else {
-      console.log(`  BLOCKED by ${safety.conflicts.length} conflict(s):`);
+      log(`  BLOCKED by ${safety.conflicts.length} conflict(s):`);
       for (const c of safety.conflicts) {
-        console.log(`    [${c.severity}] ${c.type}: ${c.description.slice(0, 100)}`);
+        log(`    [${c.severity}] ${c.type}: ${c.description.slice(0, 100)}`);
       }
     }
   }
 
+  writeReport(cwd, 'coherence-report.md', out.join('\n') + '\n');
   process.exit(report.conflicts.filter(c => c.severity === 'blocker').length > 0 ? 1 : 0);
 }
 
@@ -386,19 +440,26 @@ function cmdStatus(): void {
     process.exit(1);
   }
 
+  // Tee output to .lattice/status-report.md (see writeReport docstring).
+  const out: string[] = [];
+  const log = makeTeeLogger(out);
+  out.push(`# Portfolio status -- ${new Date().toISOString()}`);
+  out.push('');
+
   // Reconcile state against git FIRST
   const rawTopics = loadPortfolioState(stateDir, cwd);
   const recon = reconcileStates(rawTopics, cwd, true);
   const corrections = recon.filter(r => r.action === 'corrected');
   if (corrections.length > 0) {
-    console.log(formatReconciliation(recon));
-    console.log('');
+    log(formatReconciliation(recon));
+    log('');
   }
 
   const topics = loadPortfolioState(stateDir, cwd);
 
   if (topics.length === 0) {
-    console.log('No active topics found.');
+    log('No active topics found.');
+    writeReport(cwd, 'status-report.md', out.join('\n') + '\n');
     return;
   }
 
@@ -412,17 +473,17 @@ function cmdStatus(): void {
 
   const phaseOrder = ['research', 'research-complete', 'blueprint', 'blueprint-complete', 'build', 'spike', 'bugfix', 'building', 'unknown'];
 
-  console.log('PORTFOLIO STATUS');
-  console.log('='.repeat(70));
-  console.log(`Active topics: ${topics.length}`);
-  console.log('');
+  log('PORTFOLIO STATUS');
+  log('='.repeat(70));
+  log(`Active topics: ${topics.length}`);
+  log('');
 
   for (const phase of phaseOrder) {
     const phaseTopics = byPhase[phase];
     if (!phaseTopics) continue;
 
-    console.log(`${phase.toUpperCase()} (${phaseTopics.length})`);
-    console.log('-'.repeat(70));
+    log(`${phase.toUpperCase()} (${phaseTopics.length})`);
+    log('-'.repeat(70));
 
     for (const t of phaseTopics) {
       const activeSFs = t.scienceFlags.filter(sf => sf.scope === 'active').length;
@@ -439,9 +500,9 @@ function cmdStatus(): void {
       if (t.prerequisites.length > 0) flags.push(`prereq:${t.prerequisites.join(',')}`);
       const flagStr = flags.length > 0 ? ` ${flags.join(' ')}` : '';
 
-      console.log(`  ${t.topic.padEnd(45)} ${t.currentStep.padEnd(16)} ${subs}${flagStr}`);
+      log(`  ${t.topic.padEnd(45)} ${t.currentStep.padEnd(16)} ${subs}${flagStr}`);
     }
-    console.log('');
+    log('');
   }
 
   // Run coherence and show summary
@@ -450,14 +511,30 @@ function cmdStatus(): void {
   const warnings = report.conflicts.filter(c => c.severity === 'warning');
 
   if (blockers.length > 0 || warnings.length > 0) {
-    console.log(`COHERENCE: ${blockers.length} blockers, ${warnings.length} warnings`);
-    console.log('Run `lattice coherence` for details.');
+    log(`COHERENCE: ${blockers.length} blockers, ${warnings.length} warnings`);
+    log('Run `lattice coherence` for details.');
   } else {
-    console.log(`COHERENCE: clean`);
+    log(`COHERENCE: clean`);
   }
 
   if (report.safe.length > 0) {
-    console.log(`READY TO ADVANCE: ${report.safe.join(', ')}`);
+    log(`READY TO ADVANCE: ${report.safe.join(', ')}`);
+  }
+
+  writeReport(cwd, 'status-report.md', out.join('\n') + '\n');
+}
+
+/**
+ * CliAdapter that also accumulates messages so cmdAutopilot can persist
+ * the run transcript to .lattice/autopilot-runs/<ts>.md after the loop
+ * finishes. Approval prompts are not transcribed (they're interactive
+ * input/output, not analysis output).
+ */
+class TeeCliAdapter extends CliAdapter {
+  public messages: string[] = [];
+  override async sendMessage(message: string): Promise<void> {
+    this.messages.push(message);
+    await super.sendMessage(message);
   }
 }
 
@@ -471,16 +548,23 @@ async function cmdAutopilot(): Promise<void> {
   const maxLoops = parseInt(flags['max-loops'] ?? '50', 10);
   const filter = flags['filter'] ?? undefined;
 
-  const adapter = new CliAdapter();
+  const adapter = new TeeCliAdapter();
 
-  console.log('Lattice Autopilot v0.1.0');
-  console.log(`CWD: ${cwd}`);
-  console.log(`Lattice: ${latticeRoot}`);
-  console.log(`Mode: ${singlePass ? 'single pass' : 'continuous loop'}`);
-  console.log(`Max advance per loop: ${maxAdvance}`);
-  if (filter) console.log(`Filter: "${filter}"`);
-  if (dryRun) console.log('DRY RUN — no workflows will execute');
-  console.log('');
+  // Build a banner that mirrors what the user sees on screen, so the
+  // persisted transcript is self-contained (not just adapter messages).
+  // Uses makeTeeLogger for consistency with cmdCoherence/cmdStatus.
+  const banner: string[] = [];
+  const bannerLog = makeTeeLogger(banner);
+  bannerLog(`# Autopilot run -- ${new Date().toISOString()}`);
+  bannerLog('');
+  bannerLog('Lattice Autopilot v0.1.0');
+  bannerLog(`CWD: ${cwd}`);
+  bannerLog(`Lattice: ${latticeRoot}`);
+  bannerLog(`Mode: ${singlePass ? 'single pass' : 'continuous loop'}`);
+  bannerLog(`Max advance per loop: ${maxAdvance}`);
+  if (filter) bannerLog(`Filter: "${filter}"`);
+  if (dryRun) bannerLog('DRY RUN -- no workflows will execute');
+  bannerLog('');
 
   const result = await runAutopilot({
     cwd,
@@ -492,6 +576,12 @@ async function cmdAutopilot(): Promise<void> {
     singlePass,
     filter,
   });
+
+  // Persist the full transcript: banner + everything sent through the
+  // adapter. One file per run -- timestamped so concurrent / repeated
+  // invocations don't clobber each other.
+  const transcript = [...banner, ...adapter.messages].join('\n') + '\n';
+  writeReport(cwd, `autopilot-runs/${fsTimestamp()}.md`, transcript);
 
   process.exit(result.topicsFailed.length > 0 ? 1 : 0);
 }
