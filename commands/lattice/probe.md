@@ -89,6 +89,8 @@ Flag any conflicts.
 
 ## Step 5: Report
 
+Two outputs in this step: the human-readable report (below) AND the structured `probe_outcome` write (see "Persist Findings" → "Cycle-state YAML"). Both are mandatory when invoked from a cycle.
+
 ```
 PROBE: {what was analyzed}
 Mode: {targeted / integrity / safety}
@@ -136,6 +138,39 @@ This skill is called:
 ## Persist Findings
 
 Probe findings are cross-system implications. If they only exist in the probe report (which is inline output), they vanish after the session. **Persist non-SAFE findings before reporting.**
+
+### Cycle-state YAML → structured `probe_outcome` field
+
+When invoked from a cycle (research-cycle Step 7, blueprint-cycle Step 3, ad-hoc with `--topic <name>`), write a top-level `probe_outcome` record to `.lattice/cycle-state/<topic>.yaml`. This is the **authoritative machine-readable record** of the probe's findings — the coherence engine and other parsers read this field structurally and do NOT grep prose summaries.
+
+Schema:
+
+```yaml
+probe_outcome:
+  source: <step-id>             # e.g. "research.7", "blueprint.3", "adhoc"
+  timestamp: <ISO-8601>
+  verdict: SAFE | PROPAGATES | BREAKS | SCIENCE_FLAG  # highest severity wins
+  breaks:                       # one entry per BREAKS finding (status=active by default)
+    - subsystem: S08
+      description: "<one-line: what breaks and why>"
+      status: active            # active | resolved | deferred
+      raised_in: <step-id>      # optional
+      resolved_in: <step-id>    # optional, if status != active
+  science_flags:                # one entry per SCIENCE-FLAG finding
+    - id: SF-<short-stable-name>
+      subsystem: S16
+      description: "<one-line: what analytical output changes and why>"
+      status: active
+      raised_in: <step-id>
+      resolved_in: <step-id>    # optional
+```
+
+Rules:
+- **Always write the field** — even on a clean SAFE verdict. Empty arrays are correct (`breaks: []`, `science_flags: []`); absence of the field tells the coherence engine "this YAML is legacy, flags not yet structured."
+- **Latest probe wins.** A subsequent probe overwrites the field. Earlier probes' prose summaries can remain in `checkpoints.<step>.summary.probe_verdict` for human-readable history; only the structured `probe_outcome` is parsed.
+- **Status enum is exhaustive.** Use `resolved` when a flag was raised earlier and has been addressed (fix, decision-memo, structural simplification — record `resolved_in: <step-id>`). Use `deferred` when the flag is explicitly out of scope this cycle (record the rationale in description).
+- **One subsystem per record.** If a finding affects multiple subsystems, emit one record per subsystem so the parser can map flags to consumers correctly.
+- **Prose probe_verdict** (the existing free-text summary) is for humans; do not rely on it for any downstream tooling. Write it alongside the structured form if it helps the next reader, but the parser ignores it.
 
 ### BREAKS and SCIENCE-FLAG → REGISTRY.md + TODO.md
 

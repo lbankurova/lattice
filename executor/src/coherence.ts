@@ -9,6 +9,13 @@
  * 2. Stale blueprint — blueprint validated before a newer finding that affects its subsystems
  * 3. Unresolved cascade — SF or BREAKS in topic A propagates to subsystems used by topic B
  * 4. Prerequisite violation — topic depends on another that hasn't completed
+ *
+ * Flag detection contract: cycle-state YAMLs declare flags via a structured
+ * `probe_outcome` field (verdict + breaks[] + science_flags[] with explicit
+ * status enum). The parser reads the structured field; it does NOT grep prose
+ * summaries for the literal tokens "SCIENCE-FLAG" / "BREAKS". A YAML missing
+ * `probe_outcome` is recorded in LEGACY_TOPICS_WITHOUT_PROBE_OUTCOME and
+ * treated as having no flags (safer than over-counting from prose).
  */
 
 import { readFileSync, readdirSync, existsSync } from 'node:fs';
@@ -17,6 +24,38 @@ import yaml from 'js-yaml';
 // ── Types ───────────────────────────────────────────────────
 
 export type LifecycleState = 'active' | 'paused' | 'archived';
+
+/** Active topics whose YAML lacks a `probe_outcome` field. Populated during
+ *  loadPortfolioState; surfaced to the user so they can backfill. */
+export const LEGACY_TOPICS_WITHOUT_PROBE_OUTCOME = new Set<string>();
+
+export type ProbeVerdict = 'SAFE' | 'PROPAGATES' | 'BREAKS' | 'SCIENCE_FLAG';
+export type FlagStatus = 'active' | 'resolved' | 'deferred';
+
+export interface StructuredBreak {
+  subsystem: string;
+  description: string;
+  status: FlagStatus;
+  raised_in?: string;
+  resolved_in?: string;
+}
+
+export interface StructuredScienceFlag {
+  id: string;
+  subsystem: string;
+  description: string;
+  status: FlagStatus;
+  raised_in?: string;
+  resolved_in?: string;
+}
+
+export interface ProbeOutcome {
+  source: string;
+  timestamp?: string;
+  verdict: ProbeVerdict;
+  breaks: StructuredBreak[];
+  science_flags: StructuredScienceFlag[];
+}
 
 export interface TopicState {
   topic: string;
@@ -115,6 +154,9 @@ const SKIP_LIFECYCLE = new Set<LifecycleState>(['archived']);
 export function loadPortfolioState(cycleStateDir: string, projectRoot?: string): TopicState[] {
   if (!existsSync(cycleStateDir)) return [];
 
+  // Reset legacy tracker — repopulated below for each topic missing probe_outcome.
+  LEGACY_TOPICS_WITHOUT_PROBE_OUTCOME.clear();
+
   const files = readdirSync(cycleStateDir).filter(f => f.endsWith('.yaml'));
   const lockDir = cycleStateDir.replace(/cycle-state\/?$/, 'cycle-lock');
   const topics: TopicState[] = [];
@@ -184,11 +226,28 @@ function extractTopicState(
   // Extract subsystem references from the entire file
   const subsystems = extractSubsystems(rawContent);
 
-  // Extract science flags
-  const scienceFlags = extractScienceFlags(rawContent);
+  // Extract probe_outcome (structured) — single source of truth for flags + verdict
+  const outcome = extractProbeOutcome(data);
+  if (outcome === null) {
+    LEGACY_TOPICS_WITHOUT_PROBE_OUTCOME.add(topicName);
+  }
 
-  // Extract BREAKS
-  const breaks = extractBreaks(rawContent);
+  // Convert structured records → existing TopicState shape so downstream
+  // conflict detection (detectScienceFlagPropagation, detectBreaksCascade)
+  // doesn't need to change.
+  const scienceFlags: ScienceFlag[] = (outcome?.science_flags ?? []).map(sf => ({
+    description: sf.description,
+    subsystems: [sf.subsystem],
+    resolved: sf.status === 'resolved',
+    scope: sf.status,
+  }));
+  const breaks: BreaksEntry[] = (outcome?.breaks ?? [])
+    .filter(b => b.status === 'active')
+    .map(b => ({
+      description: b.description,
+      subsystems: [b.subsystem],
+    }));
+  const probeResult = outcome?.verdict ?? 'unknown';
 
   // Extract PROPAGATES
   const propagates = extractPropagates(rawContent);
@@ -201,9 +260,6 @@ function extractTopicState(
 
   // Extract key decisions
   const keyDecisions = extractKeyDecisions(data);
-
-  // Extract probe result
-  const probeResult = extractProbeResult(rawContent);
 
   // Find latest timestamp
   const lastCheckpoint = findLatestTimestamp(rawContent);
@@ -283,19 +339,11 @@ function enrichFromDocs(topic: TopicState, projectRoot: string): void {
       const interactions = extractSubsystemInteractions(content);
       topic.subsystemInteractions.push(...interactions);
 
-      // 3. Extract science flags from doc text that weren't in state file
-      const docFlags = extractDocScienceFlags(content);
-      for (const flag of docFlags) {
-        // Avoid duplicates — check by subsystem + rough description match
-        const isDupe = topic.scienceFlags.some(existing =>
-          existing.subsystems.some(s => flag.subsystems.includes(s)) &&
-          existing.description.length > 0 &&
-          flag.description.includes(existing.description.slice(0, 30))
-        );
-        if (!isDupe) {
-          topic.scienceFlags.push(flag);
-        }
-      }
+      // 3. (intentionally empty) Doc-text science-flag extraction was removed.
+      // Flags are declared structurally in cycle-state YAML's `probe_outcome`
+      // field; grep'ing prose produced false positives (e.g., "0 SCIENCE-FLAGs"
+      // counted as a flag). Topics without `probe_outcome` are recorded in
+      // LEGACY_TOPICS_WITHOUT_PROBE_OUTCOME so they can be backfilled.
 
       // 4. Extract cascade/propagation references
       const docPropagates = extractDocCascades(content);
@@ -360,96 +408,6 @@ function extractSubsystemInteractions(content: string): SubsystemInteraction[] {
 }
 
 /**
- * Extract science flag descriptions from doc text.
- *
- * Key improvement: classifies each SF as active/deferred/resolved/contextual.
- * Only 'active' SFs block coherence. Deferred-proposal SFs (e.g., HCD-z P2
- * variance borrowing) and resolved SFs are ignored by conflict detection.
- *
- * Also filters out false positives:
- * - Subsystem reference headers ("S07 (Confidence) -- RCV concordance")
- * - Table rows describing proposals with "No" in scope column
- * - Lines that mention SF but conclude "Not SCIENCE-FLAG"
- */
-function extractDocScienceFlags(content: string): ScienceFlag[] {
-  const flags: ScienceFlag[] = [];
-  const lines = content.split('\n');
-
-  for (let i = 0; i < lines.length; i++) {
-    const line = lines[i];
-    const upper = line.toUpperCase();
-
-    // Skip lines that are just counts ("0 SCIENCE-FLAGS")
-    if (/0\s+SCIENCE/i.test(line)) continue;
-
-    // Explicit SCIENCE-FLAG markers
-    if (upper.includes('SCIENCE-FLAG') || upper.includes('SCIENCE FLAG')) {
-      // Skip subsystem reference headers — these describe architecture, not flag a problem
-      // Pattern: "+-- S07 (Name) -- description" or "S07 (Name) — description"
-      if (/^\s*\+?--\s*S\d{2}\s*\(/.test(line)) continue;
-
-      // Skip "Not SCIENCE-FLAG" / "no SCIENCE-FLAG" conclusions
-      if (/NOT\s+SCIENCE.FLAG|no\s+SCIENCE.FLAG|Not\s+SF/i.test(line)) continue;
-
-      const subsystems = extractSubsystems(line);
-      if (subsystems.length === 0) {
-        for (let j = 1; j <= 2 && i + j < lines.length; j++) {
-          subsystems.push(...extractSubsystems(lines[i + j]));
-        }
-      }
-
-      // Get surrounding context for scope classification
-      const context = lines.slice(Math.max(0, i - 5), Math.min(lines.length, i + 5)).join('\n');
-      const scope = classifyDocSFScope(line, context);
-
-      flags.push({
-        description: line.trim().replace(/^[#*\-\s|]+/, '').slice(0, 200),
-        subsystems: [...new Set(subsystems)],
-        resolved: scope === 'resolved',
-        scope,
-      });
-    }
-  }
-
-  // NOTE: Removed the "confidence modifier/dimension" pattern matcher.
-  // It produced false positives on subsystem reference headers like
-  // "+-- S07 (Confidence) -- RCV concordance as confidence dimension".
-  // Real confidence-related SFs are caught by the explicit SCIENCE-FLAG marker above.
-
-  return flags;
-}
-
-/**
- * Classify a doc-extracted SF's scope from surrounding context.
- */
-function classifyDocSFScope(line: string, context: string): ScienceFlagScope {
-  // Resolved
-  if (/RESOLVED|ALREADY GATED|ACCEPTED/i.test(line)) return 'resolved';
-  if (/SCIENCE.FLAG\s+RESOLUTION|RESOLVES.*SCIENCE.FLAG/i.test(line)) return 'resolved';
-
-  // Deferred — the SF is about a proposal not in the current build
-  if (/DEFERRED|SEPARATE CYCLE|NOT IN THIS|FUTURE|NOT IN SCOPE/i.test(line)) return 'deferred';
-  if (/\|\s*No\s*[-—]/i.test(line)) return 'deferred'; // Table row: "| No — separate cycle |"
-
-  // Check context for deferred signals
-  if (/deferred to separate|not in this cycle|separate research/i.test(context)) {
-    // But only if the context is about the SAME proposal as the SF line
-    if (/this cycle|current cycle|P1/i.test(context) === false) {
-      return 'deferred';
-    }
-  }
-
-  // Contextual — mentioned in risk assessment that concludes it's manageable
-  if (/Risk:.*Not SCIENCE|changes confidence labels.*Not SCIENCE/i.test(context)) return 'contextual';
-
-  // If the line is inside a table comparing proposals and the row says "High" risk
-  // but the "This Cycle?" column says "No", it's deferred
-  if (/\|\s*High\s*[-—]\s*SCIENCE/i.test(line) && /\|\s*No\s/i.test(line)) return 'deferred';
-
-  return 'active';
-}
-
-/**
  * Extract cascade/propagation references from doc text.
  * Catches "cascade through SXX", "propagates to SXX", etc.
  */
@@ -478,90 +436,84 @@ function extractSubsystems(text: string): string[] {
   return [...matches].sort();
 }
 
-function extractScienceFlags(text: string): ScienceFlag[] {
-  const flags: ScienceFlag[] = [];
-  const lines = text.split('\n');
-
-  for (const line of lines) {
-    const upper = line.toUpperCase();
-    if (upper.includes('SCIENCE-FLAG') || upper.includes('SCIENCE_FLAG')) {
-      // Skip lines that are just counts ("0 SCIENCE-FLAGS", "science_flags: 0")
-      if (/0\s+SCIENCE|science_flags:\s*0/i.test(line)) continue;
-
-      const subsystems = extractSubsystems(line);
-      const scope = classifySFScope(line, text);
-
-      flags.push({
-        description: line.trim().replace(/^[-"'\s]+/, '').replace(/["']+$/, ''),
-        subsystems,
-        resolved: scope === 'resolved',
-        scope,
-      });
-    }
-  }
-
-  return flags;
-}
-
 /**
- * Classify a science flag's scope from its textual context.
+ * Read the structured `probe_outcome` field from a cycle-state YAML.
+ *
+ * Returns `null` if the field is missing — caller should record the topic in
+ * LEGACY_TOPICS_WITHOUT_PROBE_OUTCOME and treat it as having no flags. We do
+ * NOT fall back to grep'ing prose because that path produced false positives
+ * (e.g., "0 new SCIENCE-FLAGs" parsed as a flag).
+ *
+ * Schema:
+ *   probe_outcome:
+ *     source: blueprint.3
+ *     timestamp: 2026-04-30T21:10:00Z
+ *     verdict: SAFE | PROPAGATES | BREAKS | SCIENCE_FLAG
+ *     breaks:
+ *       - subsystem: S08
+ *         description: "..."
+ *         status: active | resolved | deferred
+ *         raised_in: <step-id>           # optional
+ *         resolved_in: <step-id>         # optional
+ *     science_flags:
+ *       - id: SF-F6a
+ *         subsystem: S16
+ *         description: "..."
+ *         status: active | resolved | deferred
+ *         raised_in: <step-id>
+ *         resolved_in: <step-id>         # optional
  */
-function classifySFScope(line: string, fullText: string): ScienceFlagScope {
-  const upper = line.toUpperCase();
+function extractProbeOutcome(data: Record<string, unknown>): ProbeOutcome | null {
+  const raw = data['probe_outcome'];
+  if (!raw || typeof raw !== 'object') return null;
+  const obj = raw as Record<string, unknown>;
 
-  // Resolved indicators
-  if (/RESOLVED|ALREADY GATED|ACCEPTED|NO SCIENCE.FLAG/i.test(line)) {
-    return 'resolved';
-  }
+  const verdictStr = String(obj['verdict'] ?? '').toUpperCase().replace(/[\s/-]/g, '_');
+  const verdict: ProbeVerdict =
+    verdictStr === 'SCIENCE_FLAG' ? 'SCIENCE_FLAG' :
+    verdictStr === 'BREAKS' ? 'BREAKS' :
+    verdictStr === 'PROPAGATES' ? 'PROPAGATES' :
+    'SAFE';
 
-  // Deferred indicators — the SF is about a proposal not in the current cycle
-  if (/DEFERRED|SEPARATE CYCLE|NOT IN THIS|PHASE [2-9]|FUTURE|NOT IN SCOPE|NO\s*[-—]\s*SEPARATE/i.test(line)) {
-    return 'deferred';
-  }
+  const breaksRaw = Array.isArray(obj['breaks']) ? obj['breaks'] as unknown[] : [];
+  const breaks: StructuredBreak[] = breaksRaw
+    .filter((b): b is Record<string, unknown> => !!b && typeof b === 'object')
+    .map(b => ({
+      subsystem: String(b['subsystem'] ?? ''),
+      description: String(b['description'] ?? ''),
+      status: parseFlagStatus(b['status']),
+      raised_in: b['raised_in'] ? String(b['raised_in']) : undefined,
+      resolved_in: b['resolved_in'] ? String(b['resolved_in']) : undefined,
+    }))
+    .filter(b => b.subsystem.length > 0);
 
-  // Contextual indicators — mentioned in discussion, comparison tables, risk assessments
-  // that conclude it's NOT a science flag
-  if (/NOT\s+SCIENCE.FLAG|NOT\s+SF|RISK:.*NOT/i.test(line)) {
-    return 'contextual';
-  }
+  const sfRaw = Array.isArray(obj['science_flags']) ? obj['science_flags'] as unknown[] : [];
+  const science_flags: StructuredScienceFlag[] = sfRaw
+    .filter((sf): sf is Record<string, unknown> => !!sf && typeof sf === 'object')
+    .map(sf => ({
+      id: String(sf['id'] ?? ''),
+      subsystem: String(sf['subsystem'] ?? ''),
+      description: String(sf['description'] ?? ''),
+      status: parseFlagStatus(sf['status']),
+      raised_in: sf['raised_in'] ? String(sf['raised_in']) : undefined,
+      resolved_in: sf['resolved_in'] ? String(sf['resolved_in']) : undefined,
+    }))
+    .filter(sf => sf.subsystem.length > 0);
 
-  // "Resolves:" pattern — this line is about resolving a prior SF, not raising a new one
-  if (/\bRESOLVES\b.*SCIENCE.FLAG|SCIENCE.FLAG\s+RESOLUTION/i.test(line)) {
-    return 'resolved';
-  }
-
-  // Check surrounding context for deferred indicators
-  const lineIdx = fullText.indexOf(line);
-  if (lineIdx >= 0) {
-    const context = fullText.slice(Math.max(0, lineIdx - 300), lineIdx + line.length + 300);
-    if (/deferred to separate|not in this cycle|separate research.to.build/i.test(context)) {
-      return 'deferred';
-    }
-    // Table row with "No" in the "This Cycle?" column
-    if (/\|\s*No\s*[-—]\s*separate/i.test(context)) {
-      return 'deferred';
-    }
-  }
-
-  return 'active';
+  return {
+    source: String(obj['source'] ?? ''),
+    timestamp: obj['timestamp'] ? String(obj['timestamp']) : undefined,
+    verdict,
+    breaks,
+    science_flags,
+  };
 }
 
-function extractBreaks(text: string): BreaksEntry[] {
-  const entries: BreaksEntry[] = [];
-  const lines = text.split('\n');
-
-  for (const line of lines) {
-    // Match lines that mention BREAKS with actual content (not just "0 BREAKS")
-    if (/BREAKS/i.test(line) && !/0\s+BREAKS/i.test(line) && !/breaks:\s*0/i.test(line)) {
-      const subsystems = extractSubsystems(line);
-      entries.push({
-        description: line.trim().replace(/^[-"'\s]+/, '').replace(/["']+$/, ''),
-        subsystems,
-      });
-    }
-  }
-
-  return entries;
+function parseFlagStatus(raw: unknown): FlagStatus {
+  const s = String(raw ?? '').toLowerCase();
+  if (s === 'resolved') return 'resolved';
+  if (s === 'deferred') return 'deferred';
+  return 'active';
 }
 
 function extractPropagates(text: string): string[] {
@@ -655,24 +607,6 @@ function extractKeyDecisions(data: Record<string, unknown>): string[] {
   }
 
   return decisions;
-}
-
-function extractProbeResult(text: string): string {
-  // Find the probe verdict line
-  const lines = text.split('\n');
-  for (const line of lines) {
-    if (/probe.*result|result.*probe/i.test(line)) {
-      if (/ALL.SAFE/i.test(line)) return 'ALL_SAFE';
-      if (/BREAKS/i.test(line) && !/0\s+BREAKS/i.test(line)) return 'BREAKS';
-      if (/SCIENCE.FLAG/i.test(line) && !/0\s+SCIENCE/i.test(line)) return 'SCIENCE-FLAG';
-    }
-    // Also check probe: field in checkpoints
-    if (/probe:\s*"/.test(line)) {
-      if (/BREAKS/i.test(line) && !/0 BREAKS/i.test(line)) return 'BREAKS';
-      if (/SCIENCE.FLAG/i.test(line) && !/0 SCIENCE/i.test(line)) return 'SCIENCE-FLAG';
-    }
-  }
-  return 'unknown';
 }
 
 function findLatestTimestamp(text: string): string {
@@ -1128,6 +1062,17 @@ export function formatReport(report: CoherenceReport): string {
     lines.push('-'.repeat(70));
     for (const [sub, topics] of contended) {
       lines.push(`  ${sub}: ${topics.join(', ')}`);
+    }
+    lines.push('');
+  }
+
+  // Legacy YAMLs missing structured probe_outcome — flags can't be detected
+  // for these topics until the field is backfilled.
+  if (LEGACY_TOPICS_WITHOUT_PROBE_OUTCOME.size > 0) {
+    lines.push('LEGACY: missing probe_outcome (flags not detected until backfilled)');
+    lines.push('-'.repeat(70));
+    for (const topic of [...LEGACY_TOPICS_WITHOUT_PROBE_OUTCOME].sort()) {
+      lines.push(`  ${topic}`);
     }
     lines.push('');
   }
