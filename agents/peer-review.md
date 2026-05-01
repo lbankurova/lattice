@@ -18,7 +18,7 @@ You will receive:
 Read the full peer-review skill specification at `commands/lattice/peer-review.md` and follow it exactly. That document defines:
 
 - **Tier detection** (Landscape / Deep dive / Implementation plan / Standalone claim / Property test) — adapts review structure
-- **Algorithmic-Tightening Requirements (F3)** — mandatory `python scripts/query-knowledge.py` invocation + mandatory citation when the input is algorithmic code or an algorithmic spec; CONDITIONAL/FLAWED verdicts BLOCK the parent gate
+- **Algorithmic-Tightening Requirements (F3)** — for algorithmic code or specs: mandatory `python scripts/query-knowledge.py` invocation (typed knowledge oracle); mandatory validation reference-card assertion-walk per `docs/validation/references/*.yaml` with `unified_findings.json` trace (validation oracle, GAP-304 lesson — "internal consistency" is not a defense); mandatory citation; CONDITIONAL/FLAWED verdicts BLOCK the parent gate
 - **Standard 7-section review structure** — restate, assumptions audit, alternative hypotheses, failure mode analysis, literature check, verdict, competing hypotheses summary
 - **Structural quality requirements** — minimum 3 distinct findings; every finding cites specific text + evidence; ≥3 of 5 dimensions covered; All-SOUND requires explicit justification section
 - **Web source access protocol** — log blocked URLs to `.lattice/blocked-urls.log` and retry via Playwright MCP

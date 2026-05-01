@@ -136,7 +136,9 @@ The research skill's Step 0 (corpus load) runs first — reads decisions log, ex
 
 Run `/lattice:research` on the topic. Write to `docs/_internal/research/{topic}.md`.
 
-**Gate:** Output must contain an "Already Known" section. If missing, corpus load was skipped — send it back.
+**Gates:**
+- Output must contain an "Already Known" section. If missing, corpus load was skipped — send it back.
+- **For algorithmic topics** — when the research touches mortality classification / NOAEL / LOAEL / adversity classification / target-organ flagging / syndrome detection / severity / recovery / onset, OR proposes an algorithm in a path listed in `.lattice/algorithm-paths.txt` — output must contain an "Oracle Walk" section per Phase 4 of `commands/lattice/research.md`. The section must identify the reference-card assertion(s) the proposed approach must satisfy (or draft new assertions where none exist), trace expected-vs-actual against `backend/generated/<study>/unified_findings.json`, and verdict each algorithmic proposal as `PRODUCES | CANNOT_PRODUCE | AMBIGUOUS`. If missing or if the topic visibly has algorithmic proposals but the section says "Phase 4 skipped", send back to research with: "Add Phase 4 algorithmic oracle walk per `commands/lattice/research.md`." For non-algorithmic topics, the auditable one-line skip per Phase 4 is sufficient.
 
 **If `--landscape`:** Present branch table with coverage scores. **STOP — branch selection is a critical decision point.**
 

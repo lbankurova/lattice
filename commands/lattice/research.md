@@ -175,6 +175,36 @@ The audience hierarchy is always: **scientists doing daily analysis > scientists
 
 This check prevents the second most common blind spot: designing for the loudest user rather than the most frequent one.
 
+## Phase 4: Algorithmic Oracle Walk (conditional)
+
+**This phase runs ONLY when the research topic is algorithmic** — when it touches mortality classification, NOAEL/LOAEL determination, adversity / treatment-related classification, target-organ flagging, syndrome detection (cross-domain or histopath), severity assignment, recovery verdict, or onset determination, OR when it proposes an algorithm whose implementation will land in a path listed in `.lattice/algorithm-paths.txt`.
+
+For each proposed feature in Phase 3 that produces an algorithmic output, walk the proposal against the validation oracle:
+
+1. **Identify the reference-card assertion** that encodes the expected output. Look in `docs/validation/references/*.yaml` (per-study reference cards) and the matcher dispatch in `frontend/tests/generate-validation-docs.test.ts:checkAssertion()`. If multiple study cards apply, walk the canonical study (PointCross for most surfaces; Nimble for control-mortality; a gene-therapy CBER study for the no-control case).
+2. **If no assertion exists**, draft one under "Proposed Reference Assertion". Tag `GROUND_TRUTH` when the expected output derives from a regulatory standard, knowledge-graph fact, or authoritative documentation; tag `REGRESSION_PIN` when it derives only from current engine output. Cite the source.
+3. **Walk the proposed algorithm against the assertion** using `backend/generated/<study>/unified_findings.json` (or the relevant per-matcher JSON). Document expected-vs-actual with a one-paragraph trace citing pairwise/group values, effect sizes, and dose-response shape.
+4. **If the proposed architecture cannot produce the assertion's expected output mechanically**, the proposal is FLAWED — regardless of internal consistency. Document this as a CONDITIONAL or FLAWED proposal-level finding so peer-review and incorporation propagate it.
+
+**Why this phase exists.** GAP-304 produced a self-consistent design that would have emitted `mortality_loael=null` on PointCross — a study where every regulatory toxicologist would call 200 mg/kg treatment-related (HCC × 2 + Hy's-Law BILI). Two peer reviews and two incorporation rounds let it through because the gates checked internal consistency, not whether the design's output reflected the data. Phase 4 catches that class of failure during research itself, before peer-review or build.
+
+**Output:** an "Oracle Walk" section in the research document, structured as:
+
+```
+## Oracle Walk
+
+For each algorithmic proposal in Phase 3:
+
+### {feature-name}
+
+- Reference assertion: {study}.yaml `{matcher_type}` — {one-line description} ({GROUND_TRUTH | REGRESSION_PIN | proposed: ...})
+- Expected output: {what the assertion says}
+- Walk trace: {one-paragraph trace through unified_findings.json showing what the proposed algorithm would emit}
+- Verdict: PRODUCES | CANNOT_PRODUCE | AMBIGUOUS — {one-line rationale}
+```
+
+**Skip condition.** If the topic has no algorithmic proposals (pure UI / docs / process work), record one line in the research output: "Phase 4 skipped — topic has no algorithmic outputs touching mortality / NOAEL / LOAEL / adversity / syndrome / severity / recovery / onset surfaces." This makes the skip auditable.
+
 ## Output
 
 Write the research document to `docs/_internal/research/{topic}.md`. If a file for this topic already exists, read it first and extend/update rather than overwrite.

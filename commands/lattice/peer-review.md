@@ -87,7 +87,18 @@ Cite the returned facts (or the explicit no-fact-found stub) in your review. **A
 
 When the query returns the no-fact-found stub message ("NO FACT FOUND in domain-truth oracle ..."), that itself is evidence — note in your review that the domain-truth oracle has no typed fact for this scope, fall back to LLM judgment with explicit caveat per the stub instructions, and add the gap to the review's "Persist Gaps" section so a fact gets populated.
 
-### B. Mandatory citation for defensibility claims
+### B. Walk the validation reference assertion
+
+When the input touches mortality classification, NOAEL/LOAEL determination, adversity / treatment-related classification, target-organ flagging, syndrome detection (cross-domain or histopath), severity assignment, recovery verdict, or onset determination, the following are MANDATORY in addition to A:
+
+1. **Identify the reference-card assertion** that encodes the expected output for the affected algorithm. Look in `docs/validation/references/*.yaml` (per-study reference cards) and the matcher dispatch in `frontend/tests/generate-validation-docs.test.ts:checkAssertion()`. If multiple study cards apply, walk the canonical study (PointCross for most surfaces; Nimble for control-mortality; a gene-therapy CBER study for the no-control case).
+2. **If no assertion exists**, draft one in this review under a "Proposed Reference Assertion" section. Tag `GROUND_TRUTH` when the expected output derives from a regulatory standard, knowledge-graph fact, or authoritative documentation; tag `REGRESSION_PIN` when the expected output derives only from current engine output. Cite the source.
+3. **Walk the proposed algorithm against the assertion** using `backend/generated/<study>/unified_findings.json` (or the relevant per-matcher JSON). Document expected-vs-actual with a one-paragraph trace citing pairwise/group values, effect sizes, and dose-response shape that drove the result.
+4. **If the proposed architecture cannot produce the assertion's expected output mechanically**, file the finding as `FLAWED` — regardless of internal consistency. The "internal consistency" exception is the GAP-304 lesson: a self-consistent design that would emit `mortality_loael=null` on a study where every regulatory toxicologist would call 200 mg/kg treatment-related is FLAWED at the oracle even when every rationale chain is internally sound.
+
+A peer-review of an algorithmic spec that does not produce an assertion-walk trace for at least one assertion is `INSUFFICIENT` — re-launch.
+
+### C. Mandatory citation for defensibility claims
 
 Any "this is/isn't defensible" claim in your review MUST cite either:
 - A **regulatory standard** (OECD, ICH, FDA, EFSA, EPA — name the document and section), OR
@@ -96,7 +107,7 @@ Any "this is/isn't defensible" claim in your review MUST cite either:
 
 "Generally accepted" / "standard practice" / "tox common sense" is NOT a citation. A defensibility claim without a citation is downgraded to OPINION and does not count as a finding.
 
-### C. Verdict format and blocking semantics
+### D. Verdict format and blocking semantics
 
 `SOUND` and `CONDITIONAL` and `FLAWED` and `INSUFFICIENT` are unchanged (see Section 6 below). For algorithmic peer-review specifically:
 
@@ -109,7 +120,7 @@ Any "this is/isn't defensible" claim in your review MUST cite either:
 
 This is the §5.1 wiring: F3 becomes a hard gate at algorithmic-paths commits and at incoming/ algorithmic specs.
 
-### D. Persist verdict via attestation
+### E. Persist verdict via attestation
 
 After completing an algorithmic peer-review, the parent gate (review.md Step 1 or architect.md Step 0.5) records the verdict using the SIMPLIFY-1 unified attestation format:
 
