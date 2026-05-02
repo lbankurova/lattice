@@ -217,9 +217,37 @@ This mode is for Round 2 reviews. Standard peer review uses well-cited, establis
 
 In novel mode, replace the Literature Check heading with **Novel Source Discovery** and structure as:
 
-| Source | Year | Citations | Why Relevant | Challenges/Extends |
-|--------|------|-----------|-------------|-------------------|
-| [ref] | [yr] | [n] | [what it contributes] | [what established view it challenges or extends] |
+| Source | Year | Citations | Why Relevant | Challenges/Extends | Verification |
+|--------|------|-----------|-------------|-------------------|--------------|
+| [ref] | [yr] | [n] | [what it contributes] | [what established view it challenges or extends] | [VERIFIED via {method} → {what matched} \| BLOCKED via {method}, logged to .lattice/blocked-urls.log → PROVISIONAL \| NOT-FOUND — REMOVED] |
+
+#### Verify-Before-Citing Gate (`--novel` only — MANDATORY)
+
+Novel-mode citations bypass the citation density of standard literature; they are recent, niche, or underindexed, which is precisely the failure surface for hallucinated references. Before any source enters the Novel Source Discovery table above, run **at least one** of these verification calls and record the outcome in the row's `Verification` cell:
+
+1. **DOI resolution** — `WebFetch` on `https://doi.org/{doi}`. Confirm the resolved page's title, authors, journal, and year match the claimed citation. A DOI that resolves to a different paper, returns 404, or returns "DOI not found" is a NOT-FOUND.
+2. **PubMed lookup** — `WebFetch` on `https://pubmed.ncbi.nlm.nih.gov/?term={authors+year}` or `https://pubmed.ncbi.nlm.nih.gov/{pmid}/`. Confirm a hit exists with matching title/authors/year. "No items found" or zero results is a NOT-FOUND.
+3. **Journal homepage / publisher TOC** — `WebFetch` on the journal article page URL. Confirm the article exists at the claimed volume/issue/page.
+
+Verification outcomes:
+
+| Outcome | Action |
+|---------|--------|
+| **VERIFIED** | Paper exists with matching title + authors + journal + year. Cell records the verification method and what matched (e.g., "VERIFIED via DOI 10.1007/s00204-022-03278-2 → Sewell 2022 'A re-evaluation of dose-level selection in repeat-dose studies' Arch Toxicol 96:1921-1934"). Source may be cited freely. |
+| **BLOCKED** | Verification call returned 403/429/captcha. Log to `.lattice/blocked-urls.log` per the Web Source Access Protocol AND retry via Playwright MCP browser. If browser retry also fails, mark `PROVISIONAL — verification blocked` in the cell, persist a research gap to `REGISTRY.md` for build-phase re-verification, and the source CANNOT be cited as a primary anchor in the verdict — only as a "would strengthen if verified" note. |
+| **NOT-FOUND** | DOI does not resolve, PubMed returns no hits, or the resolved paper is the wrong paper-type / wrong year / wrong authors. **DO NOT cite this source.** Remove it from the table entirely OR replace with a verified alternative. If the underlying claim depended on this source, the claim itself must be retracted from the review. |
+
+Additional content-claim verification (best-effort, not blocking):
+
+When a novel source is being cited because of a SPECIFIC content claim ("Bailey 2023 reports practice is NOT universally min(M,F)" / "ECHA R.7a 2022 says 'select the more sensitive sex'"), add a content-verification note: "abstract/text confirms claim" / "not yet verified — confirm in build phase". A novel source whose existence is VERIFIED but whose content claim is unverified is acceptable; flag the gap.
+
+Hard rules (enforced by structural quality gate at the bottom of this skill):
+
+- A row in the Novel Source Discovery table without a populated `Verification` cell is a defect → the orchestrator MUST re-launch the review.
+- A source marked `PROVISIONAL` cannot appear in the verdict's "anchor base" or "five independent sources" rationale — only verified sources count toward anchor density.
+- A source marked `NOT-FOUND` that the reviewer wants to KEEP for honesty (to flag the failed search) must be moved out of the table into a `### Searched-but-Not-Found` subsection so it cannot be mistaken for a citation.
+
+This gate exists because `--novel` mode actively hunts recent / niche / underindexed sources — precisely the failure surface for hallucinated citations. Hallucinations of this class pass surface-plausibility checks (correct journal name, plausible author last names, defensible-sounding titles) and slip past intuitive review; only mechanical verification (DOI resolves or doesn't, PubMed returns a hit or doesn't) catches them reliably. The gate's design assumptions: a single verification call per novel source is cheap, surface-plausibility is not evidence, and structural enforcement (the Verification column) beats honor-system review. (See `.lattice/decisions.log` and pcc `TODO.md` for historical incidents that motivated the gate.)
 
 ### 6. Verdict
 

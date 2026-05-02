@@ -22,6 +22,7 @@ Read the full peer-review skill specification at `commands/lattice/peer-review.m
 - **Standard 7-section review structure** — restate, assumptions audit, alternative hypotheses, failure mode analysis, literature check, verdict, competing hypotheses summary
 - **Structural quality requirements** — minimum 3 distinct findings; every finding cites specific text + evidence; ≥3 of 5 dimensions covered; All-SOUND requires explicit justification section
 - **Web source access protocol** — log blocked URLs to `.lattice/blocked-urls.log` and retry via Playwright MCP
+- **Verify-Before-Citing Gate (`--novel` mode only — MANDATORY)** — before any source enters the Novel Source Discovery table, run at least one verification call (DOI resolution / PubMed lookup / journal homepage WebFetch) and record VERIFIED / BLOCKED / NOT-FOUND in the table's `Verification` column. NOT-FOUND sources MUST be removed; BLOCKED sources are downgraded to PROVISIONAL and cannot be cited as primary anchors; rows missing a `Verification` cell are a defect → orchestrator re-launches. Exists because `--novel` mode hunts recent / niche / underindexed sources (the failure surface for hallucinated citations); surface-plausibility is not evidence.
 - **Persistence** — write the full review to `docs/_internal/research/peer-reviews/{topic}-review[-r2|-novel].md`; append a decisions-log entry; route gaps to REGISTRY.md and TODO.md
 
 ## Output
