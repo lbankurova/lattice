@@ -198,6 +198,21 @@ Search for relevant scientific literature. Does the method align with:
 
 Cite specific sources. "Generally accepted" is not a citation.
 
+**Citation hygiene (MANDATORY in standard mode, GAP-25.15.3):**
+
+Every author-year citation in this section must include EITHER an adjacent DOI/PMID (parenthetical or inline) OR an explicit `(no DOI available)` annotation. Examples:
+
+- ✅ `Sewell 2022 (DOI 10.1007/s00204-022-03278-2) reports ...`
+- ✅ `Cohen 1988 (no DOI available — textbook)` ...
+- ✅ `Williams 1971 (PMID 5165455) is the canonical ...`
+- ❌ `Sewell 2022 reports ...` (bare author-year — would fail the standard-mode strict audit)
+
+Why: standard-mode citations have historically had a 16:1 author-year-to-verifiable ratio (per GAP-25.15.2's corpus audit), and the GAP-25.15.2 spot-check found 1/10 confirmed hallucination + 1/10 content-misframe in standard-mode reviews. Forcing a DOI/PMID at citation time makes citations mechanically auditable later (via `scripts/audit-peer-review-citations.py --standard-mode-strict`) AND makes hallucination expensive at write time (a fake DOI fails resolution; an honest "no DOI" annotation is structurally distinct).
+
+This is a softer gate than the `--novel` Verify-Before-Citing Gate (no per-citation verification call required) — it only enforces that future audit is POSSIBLE, not that verification has happened yet. The full Verify-Before-Citing Gate is reserved for `--novel` mode where citation density is low (recent / niche / underindexed sources).
+
+Pre-2026-05-02 reviews are exempt (the audit script's `--standard-mode-strict` flag respects a corpus baseline). New standard-mode reviews must conform.
+
 **Novel source mode (`--novel`):**
 
 This mode is for Round 2 reviews. Standard peer review uses well-cited, established sources. Novel mode deliberately hunts for what Round 1 missed — recent, niche, contrarian, or underindexed work.
@@ -247,6 +262,7 @@ Hard rules (enforced by structural quality gate at the bottom of this skill):
 - A source marked `PROVISIONAL` cannot appear in the verdict's "anchor base" or "five independent sources" rationale — only verified sources count toward anchor density.
 - A source marked `NOT-FOUND` that the reviewer wants to KEEP for honesty (to flag the failed search) must be moved out of the table into a `### Searched-but-Not-Found` subsection so it cannot be mistaken for a citation.
 - A source marked `VERIFIED` without a corresponding literature note at `docs/_internal/research/literature/<author>-<year>-<short-slug>.md` (with this peer-review file in `inbound_refs:`) is a defect → the orchestrator MUST re-launch with instruction to create the note. The literature note is the durable verification artifact; without it, future re-audits depend on re-running the network call (which may fail / return different results / be blocked).
+- For a VERIFIED source whose PDF would be downloaded per the literature-registry policy (paywalled SAGE / Elsevier / Wiley / at-risk preprint / blog post / conference talk), if BOTH WebFetch AND Playwright MCP browser retry fail to retrieve the PDF, the orchestrator MUST STOP and explicitly ASK THE USER to acquire the paper manually. The ask must include: full paper title, authors, year, journal + volume/issue/pages, DOI, the article landing-page URL, and the target save path under `research/literature/`. Do NOT silently leave `local_pdf: null` and proceed — that hides the acquisition gap and the literature note loses its durability promise. The literature note's `## Open` section must record the hand-off with a date, so a follow-up sweep can detect any user-ask that went unfulfilled.
 
 This gate exists because `--novel` mode actively hunts recent / niche / underindexed sources — precisely the failure surface for hallucinated citations. Hallucinations of this class pass surface-plausibility checks (correct journal name, plausible author last names, defensible-sounding titles) and slip past intuitive review; only mechanical verification (DOI resolves or doesn't, PubMed returns a hit or doesn't) catches them reliably. The gate's design assumptions: a single verification call per novel source is cheap, surface-plausibility is not evidence, and structural enforcement (the Verification column) beats honor-system review. (See `.lattice/decisions.log` and pcc `TODO.md` for historical incidents that motivated the gate.)
 

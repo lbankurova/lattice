@@ -150,6 +150,43 @@ def file_mode(text: str) -> str:
     return "novel" if NOVEL_HEADER_RE.search(text) else "standard"
 
 
+# GAP-25.15.3: standard-mode strict-mode helpers.
+# A standard-mode AY citation conforms if the same line contains a DOI/PMID
+# OR an explicit "(no DOI" annotation (case-insensitive prefix is enough; lets
+# reviewers write "(no DOI available)" / "(no DOI -- textbook)" / etc.).
+NO_DOI_ANNOTATION_RE = re.compile(r"\(no\s+doi", re.IGNORECASE)
+
+
+def strict_violations(text: str) -> list[tuple[int, str]]:
+    """For standard-mode-strict mode: return (line_number, line_text) for every
+    line that has an AY citation but lacks an adjacent DOI/PMID/'(no DOI' annotation.
+    """
+    out = []
+    for lineno, line in enumerate(text.splitlines(), start=1):
+        # Skip code blocks / table separators / very short lines
+        if line.startswith(("```", "|---", "    ")) and "10." not in line:
+            continue
+        # Find AY citations on this line, skipping blocklist
+        ays = []
+        for m in AY_RE.finditer(line):
+            first_word = m.group(1).split()[0]
+            if first_word in AY_BLOCKLIST:
+                continue
+            ays.append(f"{m.group(1).strip()} {m.group(2)}")
+        if not ays:
+            continue
+        # Check if line is conforming
+        has_doi = bool(DOI_RE.search(line))
+        has_pmid = bool(PMID_RE.search(line))
+        has_no_doi = bool(NO_DOI_ANNOTATION_RE.search(line))
+        if has_doi or has_pmid or has_no_doi:
+            continue
+        # All AYs on this line are violations
+        ay_str = ", ".join(ays)
+        out.append((lineno, f"{ay_str}  -- in line: {line.strip()[:120]}"))
+    return out
+
+
 def audit_dir(root: Path) -> str:
     """Walk root, build the report string."""
     if not root.exists() or not root.is_dir():
@@ -222,16 +259,134 @@ def audit_dir(root: Path) -> str:
     return "\n".join(header) + "\n\n".join(sections) + "\n"
 
 
-def main() -> int:
-    if len(sys.argv) > 2:
-        print("usage: audit-peer-review-citations.py [<peer-reviews-dir>]", file=sys.stderr)
+def run_strict_audit(root: Path, baseline_path: Path | None) -> int:
+    """GAP-25.15.3: standard-mode-strict mode.
+    Walk standard-mode files, flag every line with an AY citation that lacks
+    an adjacent DOI/PMID/'(no DOI' annotation. Respects an optional baseline
+    file (one path per line, relative to root) of pre-existing files exempt
+    from strict checking. Returns 0 if no new violations, 1 otherwise.
+    """
+    if not root.exists() or not root.is_dir():
+        print(f"ERROR: not a directory: {root}", file=sys.stderr)
         return 2
 
-    if len(sys.argv) == 2:
-        root = Path(sys.argv[1])
+    baseline = set()
+    if baseline_path and baseline_path.is_file():
+        for raw in baseline_path.read_text(encoding="utf-8").splitlines():
+            line = raw.strip()
+            if line and not line.startswith("#"):
+                baseline.add(line)
+
+    files = sorted(root.rglob("*.md"))
+    if not files:
+        print(f"No .md files under {root}", file=sys.stderr)
+        return 0
+
+    overall_violations = 0
+    flagged_files = 0
+    for f in files:
+        text = f.read_text(encoding="utf-8", errors="replace")
+        if file_mode(text) != "standard":
+            continue
+        rel = str(f.relative_to(root)) if f.is_relative_to(root) else str(f)
+        rel_norm = rel.replace("\\", "/")
+        if rel_norm in baseline:
+            continue
+        viols = strict_violations(text)
+        if not viols:
+            continue
+        flagged_files += 1
+        overall_violations += len(viols)
+        print(f"FAIL: {rel_norm} ({len(viols)} violation(s))", file=sys.stderr)
+        for lineno, msg in viols:
+            print(f"  L{lineno}: {msg}", file=sys.stderr)
+        print("", file=sys.stderr)
+
+    if overall_violations == 0:
+        print(
+            f"PASS: standard-mode-strict audit clean ({len(files)} files scanned, "
+            f"{len(baseline)} baseline-exempt).",
+            file=sys.stderr,
+        )
+        return 0
+
+    print(
+        f"FAIL: {overall_violations} violation(s) across {flagged_files} standard-mode file(s).",
+        file=sys.stderr,
+    )
+    print("", file=sys.stderr)
+    print(
+        "Per the GAP-25.15.3 standard-mode citation hygiene rule "
+        "(commands/lattice/peer-review.md Section 5):",
+        file=sys.stderr,
+    )
+    print(
+        "  - Every author-year citation must include either an adjacent DOI/PMID",
+        file=sys.stderr,
+    )
+    print(
+        "    OR an explicit '(no DOI available)' annotation on the same line.",
+        file=sys.stderr,
+    )
+    print(
+        "  - To exempt a file as pre-existing tech debt, add its relative path",
+        file=sys.stderr,
+    )
+    print(
+        f"    to a baseline file (default: `{baseline_path}` if --baseline given,",
+        file=sys.stderr,
+    )
+    print(
+        "    otherwise no baseline applied).",
+        file=sys.stderr,
+    )
+    return 1
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    strict_mode = False
+    baseline_path = None
+
+    # Parse flags
+    positional = []
+    i = 0
+    while i < len(args):
+        a = args[i]
+        if a == "--standard-mode-strict":
+            strict_mode = True
+        elif a == "--baseline":
+            i += 1
+            if i >= len(args):
+                print("ERROR: --baseline requires a path argument", file=sys.stderr)
+                return 2
+            baseline_path = Path(args[i])
+        elif a.startswith("--baseline="):
+            baseline_path = Path(a.split("=", 1)[1])
+        elif a.startswith("--"):
+            print(f"ERROR: unknown flag {a}", file=sys.stderr)
+            return 2
+        else:
+            positional.append(a)
+        i += 1
+
+    if len(positional) > 1:
+        print(
+            "usage: audit-peer-review-citations.py [--standard-mode-strict] "
+            "[--baseline=PATH] [<peer-reviews-dir>]",
+            file=sys.stderr,
+        )
+        return 2
+
+    if positional:
+        root = Path(positional[0])
     else:
         root = Path("docs/_internal/research/peer-reviews")
 
+    if strict_mode:
+        return run_strict_audit(root, baseline_path)
+
+    # Default: extraction-only report
     report = audit_dir(root)
     print(report)
 

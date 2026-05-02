@@ -119,9 +119,81 @@ def audit_file(path: Path) -> list[str]:
             )
             continue
 
+        # GAP-25.15.4: VERIFIED rows must have a corresponding literature note.
+        if "VERIFIED" in verif:
+            # Try the Verification cell first (canonical "VERIFIED via X -> Author Year ..." form),
+            # then fall back to the Source cell + Year cell combo if no AY pattern in verif.
+            ay_text = verif
+            if not SOURCE_AY_RE.search(ay_text) and len(cells) >= 4:
+                # cells[1] = Source, cells[2] = Year, cells[3] = Citations, ...
+                ay_text = f"{cells[1]} {cells[2]}"
+            note_check = check_literature_note(ay_text, path)
+            if note_check:
+                defects.append(f"row {rows}: {note_check}")
+                continue
+
     # Header exists but zero data rows: acceptable (reviewer may have found
     # no novel sources to cite). Do not flag.
     return defects
+
+
+# Author-Year extraction from a Source-cell text.
+# Matches "Smith 2024", "Smith & Jones 2024", "Smith et al 2024", "Smith et al. 2024".
+# First token must start with a capital letter; year is 4 digits in 19xx/20xx range.
+SOURCE_AY_RE = re.compile(
+    r"\b([A-Z][a-zA-Z]{1,})(?:\s*&\s*[A-Z][a-zA-Z]{1,})?(?:\s+et\s+al\.?)?\s+(19[5-9]\d|20[0-3]\d)\b"
+)
+
+
+def check_literature_note(source_text: str, review_path: Path) -> str | None:
+    """For a VERIFIED row's Source cell, check that a matching literature note
+    exists at docs/_internal/research/literature/<author-lc>-<year>-*.md.
+    Returns None if found, defect string if not.
+
+    Heuristic match: extract first author + year from the Source cell, then
+    glob for `<author-lowercase>-<year>-*.md` in the literature dir.
+    """
+    m = SOURCE_AY_RE.search(source_text)
+    if not m:
+        # Couldn't extract author+year from the cell -- defer to the reviewer
+        # rather than emit a false-positive defect. Common: cell uses a DOI
+        # only without a parseable author-year prefix.
+        return None
+    author = m.group(1).lower()
+    year = m.group(2)
+
+    # Find the literature dir relative to the review's repo root. Walk up
+    # from the review_path until we find a `docs/_internal/research/` dir.
+    # Fallback: assume CWD-relative path.
+    lit_dir = None
+    for ancestor in [review_path.parent] + list(review_path.parents):
+        candidate = ancestor / "literature"
+        if candidate.is_dir():
+            lit_dir = candidate
+            break
+    if lit_dir is None:
+        # Fallback: try CWD-relative
+        candidate = Path("docs/_internal/research/literature")
+        if candidate.is_dir():
+            lit_dir = candidate
+    if lit_dir is None:
+        return (
+            f"VERIFIED source '{author.capitalize()} {year}' cannot be "
+            f"checked against literature/ -- no docs/_internal/research/"
+            f"literature directory found relative to {review_path}"
+        )
+
+    # Glob for matching note
+    matches = list(lit_dir.glob(f"{author}-{year}-*.md"))
+    if not matches:
+        return (
+            f"VERIFIED source '{author.capitalize()} {year}' has no "
+            f"corresponding literature note at "
+            f"{lit_dir}/{author}-{year}-*.md (per GAP-25.15.4: every "
+            f"VERIFIED novel-source row must have a literature-note stub "
+            f"as its durable verification artifact)"
+        )
+    return None
 
 
 def main() -> int:
