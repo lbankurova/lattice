@@ -51,6 +51,21 @@ Output: text report to stdout, also persisted to
 `.lattice/corpus-citation-audit.txt` when `.lattice/` exists. Phase B-E
 agents (WebFetch acquisition, peer-review R1/R2) consume the report.
 
+Conventions (do not break without updating this script):
+
+- KG facts must cite literature notes via `research/literature/<slug>.md`
+  paths in `derives_from:` YAML lists. Bare DOI/PMID strings in
+  `derives_from:` are NOT detected. AY strings cited in `caveats:` prose
+  blocks are not promoted to `derives_from_kg` priority -- they remain at
+  `knowledge/` bucket priority (R2 review 2026-05-02 finding (a)).
+- The `audits/` bucket IS load-bearing -- decision-driving anchors live
+  there (e.g., behavioral-grading anchors in compound-profile-audit.md).
+  Removing it from the load-bearing predicate would silently demote
+  these (R1 review 2026-05-02 finding (a)).
+- Validation reference cards (`docs/validation/references/*.yaml`) are
+  out of scope -- audit walks `.md` only. Volume is low (1 cite across
+  11 cards as of 2026-05-02). Defer YAML-aware extension to follow-up.
+
 Per pcc TODO.md corpus-citation-audit (post-GAP-25.15 family).
 """
 from __future__ import annotations
@@ -102,6 +117,25 @@ AY_BLOCKLIST = {
     "Resolved", "Submitted", "Accepted", "Published", "Approved",
     "Created", "Closed", "Opened", "Completed", "Logged", "Filed",
     "Updated", "Deferred", "Started", "Shipped", "Landed",
+    "Decided", "Generated", "Committed", "Merged",
+    # ALL-CAPS process tokens (caught by R1+R2 corpus audit 2026-05-02 --
+    # Python's str matching is case-sensitive, so ALL-CAPS variants need
+    # their own entries even when title-case is already blocklisted)
+    "CUT", "SHIPPED", "RESOLVED", "AMENDMENT", "SIMPLIFY",
+    "LANDED", "DEFERRED", "OPENED", "CLOSED", "MERGED", "COMMITTED",
+    "DECIDED", "GENERATED", "PUBLISHED", "APPROVED", "ACCEPTED",
+    # 3-letter month abbreviations
+    "Jan", "Feb", "Mar", "Apr", "Jun", "Jul",
+    "Aug", "Sep", "Sept", "Oct", "Nov", "Dec",
+    # Journal-name fragments mistaken for surnames in inline citations
+    "Tox", "Rev", "Pharmacol", "Immunol", "Immunology", "Bioinform",
+    "HTS", "DILI", "PMC", "River",
+    # Domain-specific tool/process names
+    "Playwright",
+    # Consortium / society acronyms (R1+R2 finding (e); these emit as
+    # AY-form when the consortium name precedes a year, e.g. "ViCoG 2025"
+    # -- excluded by default; case-by-case re-inclusion at acquisition time)
+    "SITC", "ViCoG", "CONTAM",
     # Document-type words mistaken for surnames
     "Journal", "Guidance", "Opinion", "Consortium", "Report",
     "Position", "Statement", "Letter", "Paper", "Article",
@@ -195,6 +229,7 @@ class Paper:
             "knowledge" in b
             or "architecture" in b
             or "incoming" in b
+            or "audits" in b
             or self.derives_from_kg
             or self.primary_anchor
         )
@@ -210,6 +245,8 @@ class Paper:
             out.append("cited in architecture/")
         if "incoming" in b:
             out.append("cited in active incoming/ spec")
+        if "audits" in b:
+            out.append("cited in audits/")
         if self.primary_anchor:
             out.append("primary anchor in peer-review")
         return out
@@ -679,11 +716,16 @@ def audit_corpus(docs_root: Path) -> str:
             prio = 2
         elif "incoming" in p.buckets:
             prio = 3
-        elif p.primary_anchor:
+        elif "audits" in p.buckets:
             prio = 4
-        else:
+        elif p.primary_anchor:
             prio = 5
-        return (prio, p.ay or p.doi or p.key)
+        else:
+            prio = 6
+        # Secondary sort by criteria-count (more reasons = higher acquisition
+        # urgency within the same prio tier; R2 finding (c)). Negate for
+        # descending order. Tertiary sort alphabetical for stability.
+        return (prio, -len(p.load_bearing_reasons()), p.ay or p.doi or p.key)
 
     acq_candidates = sorted(
         [p for p in load_bearing if not p.note_path or not p.note_local_pdf],
@@ -755,20 +797,74 @@ def audit_corpus(docs_root: Path) -> str:
             lines.append(f"| {n.rel_path} | {n.status} | {refs} |")
     lines.append("")
 
-    # Orphan PDFs
+    # Zero-cost resolutions: orphan PDF that matches an acquisition candidate's
+    # AY key by filename stem (R2 novel angle 4 + R1 finding (b)). Highest-ROI
+    # output of the audit -- PDF already exists locally, only the literature
+    # note + local_pdf: wiring is missing. No download cost.
+    pdf_filename_re = re.compile(r"^([A-Za-z]+?)[-_]?(\d{4})", re.IGNORECASE)
+    zero_cost_matches: list[tuple[Path, Paper]] = []
+    for pdf in pdf_orphans:
+        m = pdf_filename_re.match(pdf.stem)
+        if not m:
+            continue
+        pdf_ay_key = f"ay:{m.group(1).lower()}-{m.group(2)}"
+        # Find any acquisition candidate (load-bearing, no PDF) whose key matches
+        for p in acq_candidates:
+            if p.note_local_pdf:
+                continue
+            if pdf_ay_key == p.key or any(pdf_ay_key == canon(k) for k in [p.key]):
+                zero_cost_matches.append((pdf, p))
+                break
+            # Also check the paper's AY field against the PDF's first-author + year
+            if p.ay:
+                p_first = p.ay.split()[0].lower()
+                p_first_clean = re.sub(r"[^a-z]", "", p_first)
+                if p_first_clean == m.group(1).lower():
+                    # Year match too
+                    p_year_match = re.search(r"\b(19[6-9]\d|20[0-3]\d)\b", p.ay)
+                    if p_year_match and p_year_match.group(1) == m.group(2):
+                        zero_cost_matches.append((pdf, p))
+                        break
+
+    lines.append("## Zero-cost resolutions (orphan PDF + acquisition candidate)")
+    lines.append("")
+    lines.append(
+        "Orphan PDFs whose filename stem (`<author><year>` loose match) aligns"
+        " with a load-bearing acquisition candidate. PDF already exists locally"
+        " -- only the literature note + `local_pdf:` wiring is missing."
+        " Highest-ROI close in the audit (no download required)."
+    )
+    lines.append("")
+    if not zero_cost_matches:
+        lines.append("(none)")
+    else:
+        lines.append("| orphan PDF | matched paper | gap |")
+        lines.append("|---|---|---|")
+        for pdf, paper in zero_cost_matches:
+            rel_pdf = str(pdf.relative_to(docs_root)).replace("\\", "/")
+            disp = paper.ay or paper.doi or paper.key
+            gap = "no note" if not paper.note_path else "no PDF"
+            lines.append(f"| docs/{rel_pdf} | {disp} | {gap} |")
+    lines.append("")
+
+    # Orphan PDFs (full list, including the zero-cost matches above for cross-ref)
     lines.append("## Orphan PDFs")
     lines.append("")
     lines.append(
         "PDFs in `research/` with no literature note's `local_pdf:` pointing to them."
         " Either (a) wire to a new note, (b) wire to an existing note, or (c) delete."
+        " Entries also appearing in the zero-cost-resolutions section above are"
+        " marked `[zero-cost]`."
     )
     lines.append("")
     if not pdf_orphans:
         lines.append("(none)")
     else:
+        zero_cost_pdfs = {pdf for pdf, _ in zero_cost_matches}
         for pdf in pdf_orphans:
             rel_pdf = str(pdf.relative_to(docs_root)).replace("\\", "/")
-            lines.append(f"- docs/{rel_pdf}")
+            marker = "  [zero-cost]" if pdf in zero_cost_pdfs else ""
+            lines.append(f"- docs/{rel_pdf}{marker}")
     lines.append("")
 
     # Per-bucket detail (concise: per-bucket unique paper list, not per-line dump)
