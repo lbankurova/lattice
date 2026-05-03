@@ -120,9 +120,12 @@ workflow:
       context: inherit
       depends_on: [commit-intent-check]
       gate_check:
-        # ops/check output ends with PASS or FAIL on the summary line.
-        # Fail closed: anything that doesn't explicitly say PASS stops.
-        all_pass: "output.contains('PASS')"
+        # ops/check writes a single structured verdict line as the final
+        # non-empty line: `OPS_CHECK_VERDICT: <PASS|FAIL>`. We match that
+        # literal substring -- not bare "PASS" -- so a partial-fail report
+        # like "Build: PASS / Python: FAIL" cannot slip through. Fail closed:
+        # absence of the line OR `OPS_CHECK_VERDICT: FAIL` both block.
+        all_pass: "output.contains('OPS_CHECK_VERDICT: PASS')"
         on_fail: stop
       checkpoint:
         state_key: mechfix.3

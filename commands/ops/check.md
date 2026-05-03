@@ -67,11 +67,23 @@ Python:   PASS / FAIL
 Imports:  PASS / FAIL
 Engine:   No engine files changed / ENGINE FILES MODIFIED — run /regen-validation
 Visual:   PASS / FAIL / SKIPPED — [reason]
+
+OPS_CHECK_VERDICT: PASS
 ```
 
-If everything passes, say: **"All clear. Continue working or run /lattice:review when ready to commit."**
+The final line `OPS_CHECK_VERDICT: <PASS|FAIL>` is the single source of truth for automated callers (mechanical-fix-cycle gate, autopilot circuit breaker, future integrations). Rules:
 
-If anything fails, show the error and suggest a fix.
+- Emit `OPS_CHECK_VERDICT: PASS` ONLY when:
+  - Build, Python, and Imports all = `PASS`, AND
+  - Visual = `PASS` or `SKIPPED` (a skipped visual check does not fail the run)
+- Emit `OPS_CHECK_VERDICT: FAIL` when any of the above fails. List the failed rows on subsequent lines under the verdict so the autopilot escalation log captures the diagnostic.
+- The Engine row is informational only — engine modification is a flag, not a fail. It does NOT affect the verdict.
+
+This line MUST appear on its own as the final non-empty line of the report. Do not combine it with other text. Automated gates match the literal substring `OPS_CHECK_VERDICT: PASS`; anything else (including "OPS_CHECK_VERDICT: FAIL", the absence of the line entirely, or a misspelling) is treated as a fail. Fail closed.
+
+If everything passes, after the verdict line say: **"All clear. Continue working or run /lattice:review when ready to commit."**
+
+If anything fails, show the error and suggest a fix BEFORE the verdict line.
 
 ## When to use
 
