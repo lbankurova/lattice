@@ -1,0 +1,192 @@
+workflow:
+  name: mechanical-fix-cycle
+  version: 1
+  description: >
+    Mechanical fix cycle -- direct edit + commit-intent + ops-check + commit.
+    For TODO items tagged `kind: mechanical`: enum/contract drift, doc
+    refresh, lint cleanup, narrow rename, and similar deterministic edits
+    that don't need research/blueprint/peer-review ceremony. Gates are on
+    correctness (test pass, intent match, vague-spec escalation), NOT
+    effort (no LOC cap).
+
+  inputs:
+    topic:
+      type: string
+      required: true
+      # The TODO id, e.g. "GAP-271", "BFIELD-21". The implement-todo skill
+      # reads docs/_internal/TODO.md (or project equivalent) and locates
+      # the section by id.
+
+  state:
+    file: ".lattice/cycle-state/mechfix-{{inputs.topic}}.yaml"
+    resume_from: current_step
+    revision_check: true
+    initial:
+      phase: mechfix
+      current_step: mechfix.0
+
+  lock:
+    type: topic
+    key: "mechfix-{{inputs.topic}}"
+    holder: mechanical-fix-cycle
+
+  # ── Nodes ──────────────────────────────────────────────────
+
+  nodes:
+
+    # ── Layer 0: Lock ────────────────────────────────────────
+
+    acquire-lock:
+      type: bash
+      command: bash scripts/acquire-topic-lock.sh "mechfix-{{inputs.topic}}" "mechanical-fix-cycle"
+      on_failure: stop
+
+    # ── Layer 1: Implement ───────────────────────────────────
+    #
+    # The implement-todo skill:
+    #   1. Reads TODO.md, finds the section for {{inputs.topic}}.
+    #   2. Parses the body for the change description.
+    #   3. Executes the change with Edit/Bash/Read tools.
+    #   4. If the spec is too vague to determine a deterministic edit,
+    #      writes to ESCALATION.md and exits cleanly.
+    #   5. Declares commit intent via scripts/declare-commit-intent.sh.
+    #
+    # No LOC cap, no scope gate. Effort is not the gate -- correctness is.
+
+    implement-todo:
+      type: skill
+      skill: lattice/implement-todo
+      context: inherit
+      depends_on: [acquire-lock]
+      inputs:
+        todo_id: "{{inputs.topic}}"
+      gate_check:
+        # If the skill output starts with ESCALATED:, the workflow stops
+        # cleanly and the autopilot moves on (per the user's "never halt
+        # the queue on a single item" principle, plus the stash-on-exit
+        # cleanup in autopilot.ts).
+        not_escalated: "!output.contains('ESCALATED:')"
+        on_fail: stop
+      checkpoint:
+        state_key: mechfix.1
+        captures: [files_changed, change_summary]
+      log: true
+
+    # ── Layer 2: Commit-intent check ─────────────────────────
+    #
+    # Verify the staged set matches the intent declared by implement-todo.
+    # This is the PROJECT'S pre-commit Step -0.5 logic, but pulled forward
+    # so a mismatch fails the workflow cleanly here rather than during
+    # `git commit` (which would leave a partially-staged tree).
+    #
+    # The check is project-specific: pcc has scripts/declare-commit-intent.sh
+    # that writes .lattice/commit-intent.txt; the validator below diffs
+    # `git diff --cached --name-only` against that file.
+
+    commit-intent-check:
+      type: bash
+      depends_on: [implement-todo]
+      command: |
+        if [ ! -f .lattice/commit-intent.txt ]; then
+          echo "FAIL: no .lattice/commit-intent.txt -- implement-todo did not declare intent"
+          exit 1
+        fi
+        declared=$(grep -v '^#' .lattice/commit-intent.txt | grep -v '^Topic:' | grep -v '^Holder:' | grep -v '^Created:' | grep -v '^$' | sort -u)
+        staged=$(git diff --cached --name-only | sort -u)
+        if [ "$declared" != "$staged" ]; then
+          echo "FAIL: staged set != declared intent"
+          echo "--- declared ---"
+          echo "$declared"
+          echo "--- staged ---"
+          echo "$staged"
+          exit 1
+        fi
+        echo "PASS: staged set matches declared intent"
+      on_failure: stop
+      checkpoint:
+        state_key: mechfix.2
+
+    # ── Layer 3: Ops-check (build + tests) ───────────────────
+    #
+    # Runs the project's lightweight regression check. The ops/check skill
+    # decides what to run based on which files changed (frontend build,
+    # python syntax, smoke imports, optional visual smoke test). Failure
+    # here fails the workflow -- the autopilot then stashes the dirty tree
+    # and moves to the next candidate.
+
+    ops-check:
+      type: skill
+      skill: ops/check
+      context: inherit
+      depends_on: [commit-intent-check]
+      gate_check:
+        # ops/check output ends with PASS or FAIL on the summary line.
+        # Fail closed: anything that doesn't explicitly say PASS stops.
+        all_pass: "output.contains('PASS')"
+        on_fail: stop
+      checkpoint:
+        state_key: mechfix.3
+        captures: [check_summary]
+      log: true
+
+    # ── Layer 4: Commit ──────────────────────────────────────
+    #
+    # Commit pattern mirrors build-cycle / bug-fix-cycle: acquire commit
+    # lock, stage what was already declared, write a structured message,
+    # release lock. Topic + Phase trailers per autopilot.md commit
+    # protocol.
+
+    commit:
+      type: skill
+      skill: null
+      context: inherit
+      depends_on: [ops-check]
+      prompt_append: |
+        Commit the mechanical fix for {{inputs.topic}}.
+
+        1. Acquire commit lock:
+           ```bash
+           bash scripts/acquire-lock.sh "mechfix-{{inputs.topic}}" --poll
+           bash scripts/merge-shared-state.sh
+           ```
+
+        2. The staged set is already correct (commit-intent-check passed).
+           Do NOT `git add` more files -- if more belong, escalate via
+           ESCALATION.md and abort.
+
+        3. Commit with message:
+           ```
+           fix({{inputs.topic}}): {one-line summary of the change}
+
+           {2-3 line description of what was changed and why}
+
+           Topic: {{inputs.topic}}
+           Phase: mechanical
+           ```
+
+           Use a HEREDOC for the message body (preserves newlines).
+
+        4. Release lock:
+           ```bash
+           bash scripts/release-lock.sh
+           ```
+
+        On any error path before commit succeeds, release the lock and
+        exit non-zero.
+      checkpoint:
+        state_key: mechfix.4
+        captures: [commit_hash]
+
+    # ── Layer 5: Complete ────────────────────────────────────
+
+    complete:
+      type: bash
+      depends_on: [commit]
+      command: bash scripts/release-topic-lock.sh "mechfix-{{inputs.topic}}"
+      checkpoint:
+        state_key: complete
+        phase: complete
+
+    release-lock:
+      type: bash
+      command: bash scripts/release-topic-lock.sh "mechfix-{{inputs.topic}}"

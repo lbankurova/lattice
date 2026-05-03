@@ -36,6 +36,7 @@
 
 import { resolve } from 'node:path';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
+import { execSync } from 'node:child_process';
 import yaml from 'js-yaml';
 import type { PlatformAdapter, WorkflowRun } from './types.js';
 import { loadPortfolioState, checkCoherence, isTopicSafe, formatReport } from './coherence.js';
@@ -91,14 +92,91 @@ export interface AutopilotResult {
   todosAdvanced: string[];
   /** TODO.md items where the cycle workflow failed. */
   todosFailed: string[];
-  /** TODO.md items skipped because the executor cannot route them
-   *  (kind: mechanical — needs Claude-skill direct edit). Reported so the
-   *  caller can surface them rather than silently dropping. */
-  todosSkippedMechanical: string[];
   pendingDecisions: HumanDecision[];
   coherenceReport: CoherenceReport;
   /** Conflicts that were auto-resolved (no human needed) */
   autoResolved: string[];
+  /** Stash labels created by the per-item tree cleanup (Phase 1).
+   *  Each entry is the message passed to `git stash push -m <label>` so the
+   *  user can `git stash list` and recover the abandoned tree if needed. */
+  stashedTrees: string[];
+  /** True when the candidate loop bailed early because N consecutive items
+   *  failed with the same root-cause prefix (Phase 3 circuit breaker). */
+  circuitBreakerTripped: boolean;
+}
+
+// ── Per-item tree cleanup (Phase 1) ─────────────────────────
+
+/**
+ * Maximum number of consecutive same-root-cause failures before the
+ * candidate loop bails out (CLAUDE.md rule 7 -- circuit breaker on
+ * repeated failures). Reset on any success.
+ */
+const CIRCUIT_BREAKER_THRESHOLD = 5;
+
+/**
+ * Extract a stable root-cause prefix from an error message or workflow
+ * failure reason. Used by the circuit breaker to compare consecutive
+ * failures. Strategy: take the first non-empty line, strip leading
+ * timestamps / paths / ids that change run-to-run, truncate to 120 chars.
+ *
+ * Heuristic only -- the goal is "two failures with the same SHAPE share a
+ * prefix." Two failures with different shapes (one TypeError, one
+ * commit-intent mismatch) get different prefixes and don't accumulate.
+ */
+function rootCausePrefix(message: string | undefined): string {
+  if (!message) return '<empty>';
+  const firstLine = message.split('\n').find(l => l.trim().length > 0) ?? '';
+  return firstLine
+    .replace(/\b\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d+)?Z?\b/g, '<ts>')
+    .replace(/[A-Za-z]:[\\/][^\s'"`]+/g, '<path>')
+    .replace(/[/][^\s'"`]+\.(ts|js|md|yaml|json|py)/g, '<path>')
+    .trim()
+    .slice(0, 120);
+}
+
+/**
+ * If the working tree is dirty (per `git status --porcelain`), stash it
+ * with a label that ties the abandoned work back to the candidate that
+ * produced it. Returns the stash label on success, null when the tree was
+ * already clean or the stash failed.
+ *
+ * The stash buys two things: (1) the next candidate gets a clean slate so
+ * its commit-intent + ops-check assertions aren't polluted; (2) the
+ * abandoned work is recoverable via `git stash list` rather than lost to
+ * `git reset --hard`. Failure to stash is non-fatal -- we log and move on
+ * rather than halt the queue (per the user's "never halt on a single item"
+ * principle).
+ */
+function stashIfDirty(
+  cwd: string,
+  status: 'completed' | 'paused' | 'failed' | 'error',
+  source: string,
+  id: string,
+): string | null {
+  try {
+    const out = execSync('git status --porcelain', {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 10_000,
+    });
+    if (out.trim().length === 0) return null;
+
+    const ts = new Date().toISOString().replace(/[:.]/g, '-');
+    const safeId = id.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60);
+    const label = `autopilot-${status}-${source}-${safeId}-${ts}`;
+    execSync(`git stash push -u -m "${label}"`, {
+      cwd,
+      encoding: 'utf-8',
+      timeout: 30_000,
+    });
+    return label;
+  } catch {
+    // Non-fatal -- if git fails (no repo, locked index, etc.), just
+    // continue. The next candidate will see the dirty tree, which is
+    // the same situation that existed before this helper.
+    return null;
+  }
 }
 
 // ── Phase-to-workflow mapping ───────────────────────────────
@@ -172,9 +250,10 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
     topicsFailed: [],
     todosAdvanced: [],
     todosFailed: [],
-    todosSkippedMechanical: [],
     pendingDecisions: [],
     autoResolved: [],
+    stashedTrees: [],
+    circuitBreakerTripped: false,
     coherenceReport: {
       timestamp: new Date().toISOString(),
       activeTopics: 0,
@@ -266,11 +345,12 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
     // protocol -- cycle gates (peer review R1+R2, architect, science
     // preservation) are load-bearing and already partially paid.
     //
-    // TODO queue (TODO.md `autopilot: ready`): items tagged with a routable
-    // `kind:` (research / spike / bugfix). Mechanical items are skipped --
-    // they need Claude-skill direct edits, not a cycle workflow. Sorted by
-    // score descending. Items whose id collides with an active topic are
-    // skipped (the topic-queue path already covers them).
+    // TODO queue (TODO.md `autopilot: ready`): items tagged with any kind
+    // (research / spike / bugfix / mechanical). Each kind maps to a real
+    // workflow now -- mechanicals run through mechanical-fix-cycle, not
+    // skipped. Sorted by score descending. Items whose id collides with
+    // an active topic are skipped (the topic-queue path already covers
+    // them).
     const advanceable: AdvanceCandidate[] = [];
     const paused: string[] = [];
 
@@ -306,7 +386,6 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
       const activeIds = new Set(topics.map(t => t.topic));
       const todoItems = loadTodoQueue(cwd);
       const todoCandidates: AdvanceCandidate[] = [];
-      let mechanicalCount = 0;
       for (const item of todoItems) {
         if (opts.filter && !item.id.includes(opts.filter)) continue;
         // Skip if already represented in the topic queue (cycle-state file
@@ -314,12 +393,6 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
         // owned by the topic queue going forward.
         if (activeIds.has(item.id)) continue;
         const action = getTodoAdvanceAction(item);
-        if (!action) {
-          // kind: mechanical — executor cannot route. Surface for the caller.
-          mechanicalCount++;
-          result.todosSkippedMechanical.push(item.id);
-          continue;
-        }
         todoCandidates.push({
           source: 'todo',
           id: item.id,
@@ -332,8 +405,7 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
       todoCandidates.sort((a, b) => b.score - a.score);
       advanceable.push(...todoCandidates);
       await adapter.sendMessage(
-        `TODO queue: ${todoCandidates.length} routable item(s)` +
-        (mechanicalCount > 0 ? `; ${mechanicalCount} mechanical (skill-only, skipped)` : '')
+        `TODO queue: ${todoCandidates.length} routable item(s)`
       );
     }
 
@@ -409,6 +481,15 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
     let attemptsThisLoop = 0;
     let skippedDueToStateChange = 0;
 
+    // Circuit-breaker tracking (Phase 3 / CLAUDE.md rule 7). Track the most
+    // recent root-cause prefix and a running count. Reset on any success.
+    // When the count reaches CIRCUIT_BREAKER_THRESHOLD, bail out of the
+    // candidate loop with a clear message -- the rest of the queue is
+    // skipped for this iteration to avoid burning the budget on the same
+    // failure shape repeating.
+    let lastFailurePrefix: string | null = null;
+    let consecutiveFailures = 0;
+
     for (const cand of advanceable) {
       if (advancedThisLoop >= maxAdvancePerLoop) break;
 
@@ -434,6 +515,13 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
       attemptsThisLoop++;
 
       await adapter.sendMessage(`\n--- Advancing: ${cand.id} [${cand.source}] via ${cand.action.workflow} ---`);
+
+      // Per-iteration outcome tracking. We need the status + a failure
+      // message AFTER the try/catch so the stash + circuit-breaker logic
+      // can run on every exit path (completed / paused / failed / error)
+      // exactly once.
+      let outcome: 'completed' | 'paused' | 'failed' | 'error' = 'error';
+      let failureMessage: string | undefined;
 
       try {
         const wfPath = resolveWorkflowPath(cand.action.workflow, latticeRoot);
@@ -462,23 +550,72 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
           madeProgress = true;
           autoResolveAttempted = false; // Reset — new conflicts may be resolvable
           await adapter.sendMessage(`  ${cand.id}: COMPLETED (${advancedThisLoop}/${maxAdvancePerLoop})`);
+          outcome = 'completed';
         } else if (run.status === 'paused') {
           // Hit a human-required gate inside the workflow — surface
           // decisions but don't burn the advance budget; try the next
           // candidate.
           await adapter.sendMessage(`  ${cand.id}: PAUSED (needs human decision; trying next candidate)`);
           collectWorkflowDecisions(cand.id, run, result);
+          outcome = 'paused';
         } else {
           // Failure does not consume a slot — refill from next candidate.
           if (cand.source === 'topic') result.topicsFailed.push(cand.id);
           else result.todosFailed.push(cand.id);
           await adapter.sendMessage(`  ${cand.id}: FAILED (${run.status}; trying next candidate)`);
+          outcome = 'failed';
+          // Best-effort failure message: pull the error from the first
+          // failed node in the run (engine.ts records node.error on
+          // failure). Falls back to the run status string.
+          const failedNode = Object.values(run.nodeResults).find(r => r.status === 'failed');
+          failureMessage = failedNode?.error ?? `workflow status: ${run.status}`;
         }
       } catch (err) {
         if (cand.source === 'topic') result.topicsFailed.push(cand.id);
         else result.todosFailed.push(cand.id);
         cacheDirty = true; // a partial workflow run may have written state
-        await adapter.sendMessage(`  ${cand.id}: ERROR -- ${err instanceof Error ? err.message : err} (trying next candidate)`);
+        const msg = err instanceof Error ? err.message : String(err);
+        await adapter.sendMessage(`  ${cand.id}: ERROR -- ${msg} (trying next candidate)`);
+        outcome = 'error';
+        failureMessage = msg;
+      }
+
+      // Per-item tree cleanup (Phase 1). Stash whatever the workflow left
+      // behind so the next candidate starts from a clean slate. Applies
+      // universally -- research / blueprint / build / spike / bug-fix /
+      // mechanical-fix all benefit. The stash label encodes outcome +
+      // source + id + ISO timestamp so `git stash list` is human-scannable.
+      const stashLabel = stashIfDirty(cwd, outcome, cand.source, cand.id);
+      if (stashLabel) {
+        result.stashedTrees.push(stashLabel);
+        await adapter.sendMessage(`  ${cand.id}: stashed dirty tree -- ${stashLabel}`);
+      }
+
+      // Circuit-breaker bookkeeping (Phase 3). Reset on success/pause;
+      // accumulate on failure/error when the root-cause prefix matches
+      // the previous failure. A different prefix resets the counter (a
+      // genuinely new failure shape doesn't share blame with the prior
+      // one). When the threshold is hit, log + bail.
+      if (outcome === 'completed' || outcome === 'paused') {
+        lastFailurePrefix = null;
+        consecutiveFailures = 0;
+      } else {
+        const prefix = rootCausePrefix(failureMessage);
+        if (prefix === lastFailurePrefix) {
+          consecutiveFailures++;
+        } else {
+          lastFailurePrefix = prefix;
+          consecutiveFailures = 1;
+        }
+        if (consecutiveFailures >= CIRCUIT_BREAKER_THRESHOLD) {
+          await adapter.sendMessage(
+            `\n[CIRCUIT BREAKER] ${consecutiveFailures} consecutive same-cause failures, bailing for safety.`
+          );
+          await adapter.sendMessage(`  Root cause prefix: ${prefix}`);
+          await adapter.sendMessage(`  See ESCALATION.md / decisions.log for details. Re-run autopilot after addressing the root cause.`);
+          result.circuitBreakerTripped = true;
+          break;
+        }
       }
     }
 
@@ -520,8 +657,11 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
   await adapter.sendMessage(`Topics failed: ${result.topicsFailed.length} (${result.topicsFailed.join(', ') || 'none'})`);
   await adapter.sendMessage(`TODOs advanced: ${result.todosAdvanced.length} (${result.todosAdvanced.join(', ') || 'none'})`);
   await adapter.sendMessage(`TODOs failed: ${result.todosFailed.length} (${result.todosFailed.join(', ') || 'none'})`);
-  if (result.todosSkippedMechanical.length > 0) {
-    await adapter.sendMessage(`TODOs skill-only (mechanical, not run): ${result.todosSkippedMechanical.length}`);
+  if (result.stashedTrees.length > 0) {
+    await adapter.sendMessage(`Stashed trees: ${result.stashedTrees.length} (recover via 'git stash list')`);
+  }
+  if (result.circuitBreakerTripped) {
+    await adapter.sendMessage(`Circuit breaker: TRIPPED (${CIRCUIT_BREAKER_THRESHOLD} consecutive same-cause failures)`);
   }
   await adapter.sendMessage(`Auto-resolved: ${result.autoResolved.length}`);
   await adapter.sendMessage(`Pending decisions: ${result.pendingDecisions.length}`);

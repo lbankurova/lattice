@@ -4,12 +4,14 @@
  * Parses a project's TODO.md (typically docs/_internal/TODO.md), extracts
  * sections tagged `autopilot: ready` with optional `score:` and `kind:`
  * fields, and produces items the autopilot can route through existing cycle
- * workflows (research-cycle / spike-cycle / bug-fix-cycle).
+ * workflows (research-cycle / spike-cycle / bug-fix-cycle / mechanical-fix-cycle).
  *
- * Mechanical items (no `kind:` field, or `kind: mechanical`) are NOT handled
- * by the executor — they require free-form direct edits feasible only from
- * a Claude-skill session. They are returned with kind = 'mechanical' so the
- * caller can surface them as "skill-only" rather than dropping them silently.
+ * Mechanical items (no `kind:` field, or `kind: mechanical`) route to
+ * mechanical-fix-cycle, which uses the lattice/implement-todo skill to apply
+ * free-form Edit/Bash/Read changes inside the cycle's commit-intent + ops-check
+ * gates. Earlier behavior returned null for mechanical -- the autopilot then
+ * skipped them. That's been removed; mechanicals now drain through a proper
+ * workflow on the same lifecycle as routable kinds.
  */
 
 import { existsSync, readFileSync } from 'node:fs';
@@ -98,12 +100,15 @@ export function loadTodoQueue(cwd: string): TodoItem[] {
 }
 
 /**
- * Map a TODO item to the cycle workflow that should advance it. Returns null
- * for kinds the executor cannot handle (mechanical — Claude-skill territory).
+ * Map a TODO item to the cycle workflow that should advance it. Every kind
+ * routes to a real workflow -- there are no "skill-only" mechanicals any
+ * more. Mechanical items run through mechanical-fix-cycle, which uses
+ * lattice/implement-todo for the free-form edit + commit-intent +
+ * ops-check + commit gate sequence.
  */
 export function getTodoAdvanceAction(
   item: TodoItem,
-): { workflow: string; description: string } | null {
+): { workflow: string; description: string } {
   switch (item.kind) {
     case 'research':
       return {
@@ -121,7 +126,10 @@ export function getTodoAdvanceAction(
         description: `TODO ${item.id}: bug-fix-cycle`,
       };
     case 'mechanical':
-      return null;
+      return {
+        workflow: 'mechanical-fix-cycle',
+        description: `TODO ${item.id}: mechanical-fix-cycle`,
+      };
   }
 }
 
