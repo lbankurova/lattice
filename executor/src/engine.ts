@@ -119,7 +119,7 @@ export async function executeWorkflow(
   const completedKeys = getCompletedCheckpoints(wf, inputs, cwd);
 
   // Build context
-  const ctx = buildInitialContext(inputs, stateData);
+  const ctx = buildInitialContext(inputs, stateData, latticeRoot);
 
   // Build execution layers
   const layers = buildExecutionLayers(wf);

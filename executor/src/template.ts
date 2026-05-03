@@ -148,13 +148,16 @@ function escapeRegex(s: string): string {
 export function buildInitialContext(
   inputs: Record<string, string | number | boolean>,
   stateData: Record<string, string>,
+  latticeRoot?: string,
 ): TemplateContext {
+  const env: Record<string, string> = {
+    TIMESTAMP: new Date().toISOString(),
+  };
+  if (latticeRoot) env['LATTICE_ROOT'] = latticeRoot;
   return {
     inputs,
     nodes: {},
     state: stateData,
-    env: {
-      TIMESTAMP: new Date().toISOString(),
-    },
+    env,
   };
 }

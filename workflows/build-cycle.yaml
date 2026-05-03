@@ -71,7 +71,7 @@ workflow:
     e2e-classify:
       type: bash
       depends_on: [implement]
-      command: node executor/dist/cli.js e2e classify --base main
+      command: node "{{env.LATTICE_ROOT}}/executor/dist/cli.js" e2e classify --base main
       capture: stdout
       on_failure: continue
 
@@ -87,7 +87,7 @@ workflow:
     e2e-run:
       type: bash
       depends_on: [e2e-gate]
-      command: node executor/dist/cli.js e2e run --base main
+      command: node "{{env.LATTICE_ROOT}}/executor/dist/cli.js" e2e run --base main
       timeout: 600000
       on_failure: stop
       checkpoint:
