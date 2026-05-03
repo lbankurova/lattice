@@ -17,6 +17,7 @@ You will receive:
 
 Read the full peer-review skill specification at `commands/lattice/peer-review.md` and follow it exactly. That document defines:
 
+- **Section 0 — Load-Bearing Claims Extraction (R1 standard mode only; Phase 2 canary as of 2026-05-02)** — extract every load-bearing claim from the artifact (claim text + required `scope` + `upstream_dependency`); for each, emit a `falsification` block with verdict ∈ {refuted, bounded-negative, uncertain}. Bounded-negative output is mechanically auditable (Phase 3 audit script); reviewer must not produce perfunctory `coverage: sufficient` for every claim — that defeats the framing. Skipped on R2 (`--novel`) reviews in Phase 2; Phase 3 will adapt for missed-source claims. Design rationale + binary merit-test gate in `docs/decisions/falsification-framing.md`.
 - **Tier detection** (Landscape / Deep dive / Implementation plan / Standalone claim / Property test) — adapts review structure
 - **Algorithmic-Tightening Requirements (F3)** — for algorithmic code or specs: mandatory `python scripts/query-knowledge.py` invocation (typed knowledge oracle); mandatory validation reference-card assertion-walk per `docs/validation/references/*.yaml` with `unified_findings.json` trace (validation oracle, GAP-304 lesson — "internal consistency" is not a defense); mandatory citation; CONDITIONAL/FLAWED verdicts BLOCK the parent gate
 - **Standard 7-section review structure** — restate, assumptions audit, alternative hypotheses, failure mode analysis, literature check, verdict, competing hypotheses summary

@@ -20,6 +20,8 @@ Before reviewing, detect what kind of document this is:
 
 **Adapt the review structure to the tier:**
 
+> **Phase 2 canary (2026-05-02):** All R1 standard-mode reviews run **Section 0 (Load-Bearing Claims Extraction)** first, regardless of tier. The tier-specific structure below (Sections 1-7 or its tier-replacement) runs after Section 0. R2 (`--novel`) reviews skip Section 0 in Phase 2 — Phase 3 will adapt the framing for missed-source claims. See Section 0 in the Review Structure for the full schema and `docs/decisions/falsification-framing.md` for design rationale + merit-test gate.
+
 ### If Landscape:
 
 Replace the standard review structure (Sections 1-7) with a **Landscape Review**:
@@ -167,6 +169,117 @@ A document with zero issues is not a sign of quality — it's a sign of shallow 
 - **No access to project context.** If the user provides a file, read ONLY that file. Do not read CLAUDE.md, do not search the codebase, do not look at related implementation files. You are an external reviewer.
 
 ## Review Structure
+
+> Section 0 fires for **R1 standard-mode** reviews regardless of tier. Tier-specific structure (Sections 1-7 or its tier-replacement) runs after Section 0. R2 (`--novel`) reviews skip Section 0 in Phase 2 — Phase 3 will adapt for missed-source claims.
+
+### 0. Load-Bearing Claims Extraction
+
+Before evaluating the artifact on its merits, extract every **load-bearing claim** the artifact rests on. A load-bearing claim is one where downstream decisions, design choices, or conclusions depend on it being true — if the claim is wrong, something downstream breaks.
+
+**The reviewer extracts these from the artifact, not the author.** This forces reading for *what the artifact rests on*, not *what it claims*.
+
+Surface this at the **top of the review output**, before any verdict, as two YAML blocks.
+
+#### `load_bearing_claims` block
+
+```yaml
+load_bearing_claims:
+  - id: LBC-1
+    claim: "Approach X is appropriate for biologics in non-rodent studies"
+    scope:
+      modality: ["biologic"]
+      species: ["dog", "monkey"]
+      study_type: ["repeat-dose", "single-dose"]
+    upstream_dependency: "Spec § 3.2 cites this to justify the dose-margin formula"
+  - id: LBC-2
+    claim: "No prior literature addresses this gap"
+    scope:
+      domain: "preclinical-to-clinical translational concordance"
+      time_range: "any"
+      databases: ["any"]
+    upstream_dependency: "Research synthesis § 2.1 anchors the novelty-of-contribution argument"
+```
+
+Slot rules:
+- `scope` is **required**. A claim with no scope cannot be falsified — the author or reviewer must add it before review proceeds.
+- `upstream_dependency` makes the cost of a bad claim visible — what breaks downstream if this is wrong?
+- An empty `load_bearing_claims` list is valid IFF the artifact makes no load-bearing claims (rare for review-stage artifacts; common for purely mechanical outputs). The reviewer must justify the empty list explicitly, not return it implicitly.
+
+#### `falsification` block
+
+For each `LBC-N`, produce one entry with **verdict ∈ {refuted, bounded-negative, uncertain}**.
+
+**`refuted`** — concrete counterexample with citation:
+
+```yaml
+falsification:
+  - claim_id: LBC-1
+    verdict: refuted
+    counterexample:
+      citation: "FACT-018 in knowledge-graph.md (Hewitt 1989, n=12 dog ALT baselines)"
+      argument: "FACT-018 establishes a dog-specific ALT baseline that contradicts the assumed cross-species threshold; the spec applies the small-molecule LR+ to a biologic study, but Liu & Fan SOC-level LR+ for biologic dog hepatobiliary is 1.5, not 3.5."
+    downstream_action: "Spec § 3.2 must restrict to small-molecule modality OR cite a biologic-specific source"
+```
+
+**`bounded-negative`** — explicit search-bounds trace + bound-vs-claim coverage audit:
+
+```yaml
+falsification:
+  - claim_id: LBC-2
+    verdict: bounded-negative
+    search_bounds:
+      databases: ["PubMed", "knowledge-graph fact_kinds: [translational_concordance, hcd_baseline]", "docs/_internal/research/literature/"]
+      time_range: "2010-2026"
+      languages: ["English"]
+      query_terms: ["preclinical translational concordance", "animal-to-human SOC LR+", "Olson 2000 follow-up"]
+      excluded: ["pre-2010 literature", "non-English sources", "regulatory-process literature (FDA review process, ICH guidelines)"]
+    no_counterexample_found: true
+    bound_audit:
+      claim_scope_field: "time_range: any"
+      bound_scope_field: "time_range: 2010-2026"
+      coverage: insufficient   # sufficient | insufficient
+      gap: "Pre-2010 literature includes Olson 2000 (canonical 71% concordance), Tamaki 2013, Clark 2015 — all directly relevant. Bound does not cover claim scope."
+    downstream_action: "Reviewer must extend search to pre-2010 OR claim scope must narrow to 'no post-2010 prior work'"
+```
+
+**`uncertain`** — neither refute nor defensible bound is constructible:
+
+```yaml
+falsification:
+  - claim_id: LBC-3
+    verdict: uncertain
+    reason: "Claim scope includes [non-rodent biologic translational margins] but neither knowledge-graph nor literature corpus has a fact in this scope. Cannot construct counterexample (no contradicting fact); cannot construct defensible bounded-negative (no positive evidence either)."
+    downstream_action: "Claim must be flagged as `confidence: insufficient` per knowledge-graph confidence-tier rules; cannot ground downstream decisions."
+```
+
+Schema rules:
+- `verdict: refuted` **requires** a `counterexample` block with `citation` and `argument`.
+- `verdict: bounded-negative` **requires** `search_bounds` AND `bound_audit` showing `coverage` (sufficient | insufficient) between claim scope and bound scope.
+- `verdict: uncertain` is the **honest output** when neither refute nor defensible bound is constructible — auto-routes downstream to `confidence: insufficient`.
+- Phase 2 has no audit script — manual reviewer discipline only. Phase 3 adds `scripts/check-falsification-bounds.py` to mechanically downgrade `bounded-negative` with `coverage: sufficient` to `uncertain` when claim-scope axes exceed bound-scope axes.
+
+#### Why this exists
+
+A reviewer asked "is X correct?" can lazily say "looks reasonable" and pass. A reviewer asked "give me a counterexample OR bound your negative search" cannot pass cheaply — bounded-negative output is mechanically auditable: did the bounds actually cover the claim's scope? If the claim is "this approach works for biologics" and the bound says "searched small-molecule literature only," verdict auto-downgrades to insufficient-evidence.
+
+Drift on subjective load-bearing judgments (no ground truth) is the failure surface this section gates against. Fresh-agent review, cycle gates, validation ratchets, and the typed knowledge graph each catch other drift modes; none catch lazy approval on subjective verdicts. See `docs/decisions/falsification-framing.md` for the full design and the rejected-alternatives table.
+
+#### Interaction with F3 (algorithmic-tightening)
+
+Section 0 is **reviewer-side claims extraction across the whole artifact**. F3 (above) is **artifact-side algorithmic checks against `query-knowledge.py` + validation reference cards**. They compose: an algorithmic spec runs Section 0 (extract load-bearing claims, falsify each) **and** F3 (mandatory query-knowledge invocation, mandatory assertion-walk). F3 verdicts are unchanged (SOUND / CONDITIONAL / FLAWED / INSUFFICIENT); Section 0 verdicts are per-claim (refuted / bounded-negative / uncertain). The two outputs sit side by side in the review.
+
+#### NEVER STOP at the easy bound
+
+If your first bounded-negative for an LBC produces `coverage: sufficient` on first pass with no scope narrowing, you have probably not searched hard enough. Re-read the claim. Construct the *adversarial* search: what literature, fact-kind, or codebase module would refute this if it existed? Search there. The merit test for Phase 3 is whether bounded-negative discipline surfaces something approval-mode would have missed — a perfunctory `bounded-negative coverage: sufficient` for every claim is the failure mode this section is designed to catch.
+
+#### Phase 2 canary scope and merit test
+
+This section is a canary on `peer-review` only (Phase 2). After 3 R1 reviews under this framing, a binary, pre-committed merit test decides:
+
+- **SHIP Phase 3** (full rollout to architect-reviewer + decision-auditor + research --landscape/--deep + peer-review --novel + audit script) if ≥1 of 3 R1 reviews surfaces a load-bearing claim where bounded-negative discipline (a) refuted with counterexample, (b) forced scope narrowing, or (c) flagged `uncertain` on insufficient evidence — i.e., something approval-mode framing would have missed.
+- **KILL the framing** if all 3 R1 reviews produce defensible bounded-negative output on first attempt with no scope narrowing — existing review discipline was already adequate, and adding ceremony without payoff violates rule 13 (no unprompted deferrals / scope creep).
+
+The test is binary and pre-committed. It is not "did the falsification feel rigorous" — it is "did it surface something that approval-mode would have missed."
 
 ### 1. Restate the Claim
 In your own words, what is being claimed? This catches misunderstandings early.
