@@ -23,6 +23,8 @@ The executor (`executor/src/`) runs workflow YAML DAGs. It is separate from the 
 
 **Coherence pre-check:** Before advancing a topic, the engine loads all active cycle states, runs the coherence engine, and blocks if the topic has unresolved conflicts (subsystem overlap, stale blueprints, cascading breaks). Blockers require human approval to proceed.
 
+**Bash-step CWD:** bash nodes run with `cwd` set to the *consuming project* (e.g., `pcc`), not the lattice install. To invoke the executor or other lattice-relative files from a workflow command, use the `{{env.LATTICE_ROOT}}` template variable rather than a relative path -- e.g., `node "{{env.LATTICE_ROOT}}/executor/dist/cli.js" e2e run --base main`. Project-side scripts in `scripts/*.sh` are an exception: those are mirrored into each consuming project, so a relative `bash scripts/foo.sh` resolves correctly. Full template-variable list: `workflows/schema.md`.
+
 ## Autopilot
 
 `lattice autopilot` (CLI) or `/lattice:autopilot` (in-session) runs the full portfolio autonomously.

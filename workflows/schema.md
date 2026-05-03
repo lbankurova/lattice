@@ -146,6 +146,7 @@ Templates use `{{}}` syntax with dot-notation access:
 | `{{state.current_step}}` | Current value from state file |
 | `{{state.phase}}` | Current phase from state file |
 | `{{env.TIMESTAMP}}` | ISO timestamp at execution time |
+| `{{env.LATTICE_ROOT}}` | Absolute path to the lattice install root (auto-discovered or from `LATTICE_ROOT` env var). Use to invoke executor CLI from a workflow without depending on project CWD: `node "{{env.LATTICE_ROOT}}/executor/dist/cli.js" ...` |
 
 ## Condition Expressions
 

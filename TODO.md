@@ -42,6 +42,12 @@
 - Scaffold template so new Lattice projects inherit the checklist.
 - Originating precedent: pcc `study-design-override-surfaces` spec (9 of 14 features flagged featuritis).
 
+### ~~FIX-01: e2e cli.js path resolution via LATTICE_ROOT~~ 60102f3
+- **Bug:** `build-cycle.yaml` and `bug-fix-cycle.yaml` invoked `node executor/dist/cli.js e2e {classify,run}` as a relative path. Bash steps run with CWD = consuming project, so the command resolved to `<project>/executor/dist/cli.js` (which doesn't exist) instead of the lattice install. `e2e-run` is `on_failure: stop`, so any build-cycle that routed past the e2e gate failed with `MODULE_NOT_FOUND`.
+- **Fix:** Plumbed `latticeRoot` through `buildInitialContext` into `env.LATTICE_ROOT` (the env namespace existed but only carried `TIMESTAMP`). Both workflows now reference `"{{env.LATTICE_ROOT}}/executor/dist/cli.js"`.
+- **Caught by:** pcc autopilot run 2026-05-03T17:34Z — `control-side-loo-calibration-simulation` failed at `e2e-run` with "Cannot find module 'C:\pg\pcc\executor\dist\cli.js'".
+- **Side effect:** new `{{env.LATTICE_ROOT}}` template variable is now available to any workflow node (documented in `workflows/schema.md`).
+
 _(no open ENH items at this time — see `docs/decisions/todo-pruned-2026-04-28.md` for items moved out of active backlog.)_
 
 ---
@@ -176,6 +182,22 @@ _(no open ENH items at this time — see `docs/decisions/todo-pruned-2026-04-28.
   - **Integration surface.** MCP server (clean) vs. `.claude/settings.json` hook (lighter weight) vs. external Node service (most flexible).
 - **Where:** TBD — likely a Node service `executor/src/slack.ts` with optional `lattice slack` CLI command, or an MCP server in `executor/mcp/` consumed by Claude Code via settings.
 - **Source:** user request, 2026-04-28 audit conversation. Not speculative — reflects actual operational pain.
+
+### LIT-13: OpenTox 2.0 — tiered rigor, 4-layer QA, evidence-package framing
+- **Tier:** 4 — situational. Three distinct ideas, each gated on its own trigger. Park until one fires; framework is validating, not instructive.
+- **Source:** Hardy & Abdelwahab (2026), *OpenTox 2.0: A Perspective on the Principles for Predictive Toxicology and Risk Assessment*, working draft. Domain is regulatory toxicology; abstraction is identical to Lattice's (governed evidence workflows, agent orchestration with guardrails, traceability from raw input to decision). The paper's S5 manifesto + S2 deployment-readiness table (S2.1) + Table A1 QA layers map onto Lattice the way the design-system literature pass mapped onto sendex.
+- **What — three candidate lifts:**
+  1. **Tiered rigor as explicit gate set.** S5 §A.0.3 names Tier 1 (prototype) / Tier 2 (operational) / Tier 3 (high-stakes/regulatory) with checklists scaling per tier. Lattice's spike-vs-spec lifecycle implies tiers but doesn't gate — a spike can ship to production without ever hitting the spec-cycle gate set. Idea: specs declare target tier in YAML frontmatter; `/lattice:architect` enforces tier-appropriate gates (e.g., Tier 3 requires external validation evidence + full provenance; Tier 1 skips both). Trigger to elevate: a Tier-1-style spike accidentally promotes to a Tier-3-equivalent surface (regulator-facing or load-bearing analytical) without the rigor scaling. Watch BUG-SWEEP for "shipped without gate" retrospectives.
+  2. **4-layer QA decomposition for `/lattice:review`.** S3 splits QA into Data / Model / Operational / System layers, each with explicit checkpoints. Lattice's review-gate JSON is currently flatter (build / lint / docs / MANIFEST / commit). Restructure idea: review-gate produces a 4-layer report; each layer gates independently; failures route to the right specialist agent. Trigger: a review-gate pass that misses a class of bug a layer-decomposed checklist would have caught (e.g., shipped contract-triangle drift that survived because the flat checklist conflated declaration/enforcement/consumption into one bullet).
+  3. **Evidence package as first-class artifact.** §3.3 + §4.6 frame "evidence package" — structured bundle linking output → sources → datasets → model versions → ontology → run record — as the unit regulators evaluate. Lattice already produces the substrate (decisions.log + commit-intent + rule-attestations + Topic trailers + cycle-state YAML), but never collapses it into one named artifact. Idea: `/lattice:review` emits an `evidence-package.json` per cycle aggregating these. Trigger: a downstream consumer (audit tooling, multi-project rollup, external review) wants to ingest cycle outputs without crawling six different files.
+- **Why park, not spec:** all three are additive to an already heavy framework. The paper validates Lattice's existing direction more than it instructs. Speccing without a forcing function violates rule 13 (no unprompted deferrals — but also no unprompted *additions*). The merit-driven path is to wait for the failure mode each idea would catch.
+- **Cross-refs to existing Lattice mechanics that already implement adjacent ideas:**
+  - Decision-auditor + architect-reviewer + peer-review agents = §4.8 "specialized agent decomposition" (Djidrovski O-QT).
+  - Rule 19 (atomic facts in typed knowledge graph) + `audit-knowledge-graph.py` = §S2.2 ontology/KG integrity, with stronger contradiction-detection than the paper proposes.
+  - Commit-intent protocol + rule-attestations dispatcher = §3.3 evidence-chain provenance, more rigorous than the paper's diagram.
+  - Domain-truth oracle fallback ("no fact found... falling back to LLM with explicit caveat") = S5 §A.11 hallucination abstain/escalate pattern.
+- **Source:** OpenTox 2.0 working draft (260407OpenTox2.0.pdf), reading 2026-05-01.
+- **Status:** Open. Parking-lot. Re-evaluate when any of the three named triggers fires.
 
 ### ~~LIT-DS-GAP: Design-system axis literature pass~~ — RESOLVED 2026-04-26
 - **Status:** Resolved by four literature notes ([`frost-atomic-design.md`](docs/literature/frost-atomic-design.md), [`ibm-carbon-design-system.md`](docs/literature/ibm-carbon-design-system.md), [`appleton-pattern-languages.md`](docs/literature/appleton-pattern-languages.md), [`datagrok-platform-docs.md`](docs/literature/datagrok-platform-docs.md)) plus the **Design-system backlog** section below. The 4 sources cover: design-system primer (Frost), large-scale shipped instance (Carbon), opinionated tools-for-thought framing (Appleton), and the actual plugin-migration target (Datagrok). The README scope line was extended to formally include design-system reading.
