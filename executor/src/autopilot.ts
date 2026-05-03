@@ -291,16 +291,15 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
     }
 
     // 4. Show what we're about to do
-    const batch = advanceable.slice(0, maxAdvancePerLoop);
-
-    await adapter.sendMessage(`\nAdvancing ${batch.length} topic(s):`);
-    for (const { topic, action } of batch) {
+    const previewBatch = advanceable.slice(0, maxAdvancePerLoop);
+    await adapter.sendMessage(`\nAdvancing up to ${maxAdvancePerLoop} topic(s) from ${advanceable.length} safe candidate(s); refilling slot on failure/pause:`);
+    for (const { topic, action } of previewBatch) {
       await adapter.sendMessage(`  ${topic.topic} (${topic.phase}) -> ${action.workflow}: ${action.description}`);
     }
 
     if (dryRun) {
       await adapter.sendMessage('\n[DRY RUN] Would advance the above topics.');
-      for (const { topic } of batch) {
+      for (const { topic } of previewBatch) {
         result.topicsAdvanced.push(topic.topic);
       }
       // Still collect decisions for blocked topics
@@ -308,20 +307,27 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
       break;
     }
 
-    // 5. Execute topics sequentially (parallel in Phase 2+)
+    // 5. Execute candidates with count-by-success: advance up to
+    //    maxAdvancePerLoop topics *successfully*. When a candidate fails
+    //    or pauses, refill the slot from the next safe candidate rather
+    //    than burning the budget on attempts. maxAdvancePerLoop caps
+    //    forward progress, not attempts — without this, a few failing
+    //    topics at the head of the queue cause autopilot to give up
+    //    entirely while healthy topics later in the list go untried.
     //
-    // Per-item safety re-evaluation: the batch was selected from the
-    // upfront coherence report (line 191), but each completed/paused/failed
-    // item may have changed portfolio state (state files, decisions.log,
-    // research docs). Before items 2+, re-run coherence and skip any
-    // topic that became unsafe mid-batch. The first item's upfront
-    // determination is still fresh.
+    //    Per-item safety re-evaluation: each completed/paused/failed
+    //    item may have changed portfolio state (state files,
+    //    decisions.log, research docs). Before any candidate beyond the
+    //    first attempt, re-run coherence and skip any topic that became
+    //    unsafe mid-batch.
+    let advancedThisLoop = 0;
+    let attemptsThisLoop = 0;
     let skippedDueToStateChange = 0;
-    for (let i = 0; i < batch.length; i++) {
-      const { topic, action } = batch[i];
 
-      if (i > 0) {
-        // Re-evaluates safety against the fresh post-workflow state.
+    for (const { topic, action } of advanceable) {
+      if (advancedThisLoop >= maxAdvancePerLoop) break;
+
+      if (attemptsThisLoop > 0) {
         // loadTopicsCached returns the cached enriched topics unless a
         // prior workflow / auto-resolve marked the cache dirty.
         const freshTopics = loadTopicsCached();
@@ -336,6 +342,7 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
           continue;
         }
       }
+      attemptsThisLoop++;
 
       await adapter.sendMessage(`\n--- Advancing: ${topic.topic} via ${action.workflow} ---`);
 
@@ -361,26 +368,33 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
 
         if (run.status === 'completed') {
           result.topicsAdvanced.push(topic.topic);
+          advancedThisLoop++;
           madeProgress = true;
           autoResolveAttempted = false; // Reset — new conflicts may be resolvable
-          await adapter.sendMessage(`  ${topic.topic}: COMPLETED`);
+          await adapter.sendMessage(`  ${topic.topic}: COMPLETED (${advancedThisLoop}/${maxAdvancePerLoop})`);
         } else if (run.status === 'paused') {
-          // Hit a human-required gate inside the workflow
-          await adapter.sendMessage(`  ${topic.topic}: PAUSED (needs human decision)`);
+          // Hit a human-required gate inside the workflow — surface
+          // decisions but don't burn the advance budget; try the next
+          // candidate.
+          await adapter.sendMessage(`  ${topic.topic}: PAUSED (needs human decision; trying next candidate)`);
           collectWorkflowDecisions(topic.topic, run, result);
         } else {
+          // Failure does not consume a slot — refill from next candidate.
           result.topicsFailed.push(topic.topic);
-          await adapter.sendMessage(`  ${topic.topic}: FAILED (${run.status})`);
+          await adapter.sendMessage(`  ${topic.topic}: FAILED (${run.status}; trying next candidate)`);
         }
       } catch (err) {
         result.topicsFailed.push(topic.topic);
         cacheDirty = true; // a partial workflow run may have written state
-        await adapter.sendMessage(`  ${topic.topic}: ERROR — ${err instanceof Error ? err.message : err}`);
+        await adapter.sendMessage(`  ${topic.topic}: ERROR -- ${err instanceof Error ? err.message : err} (trying next candidate)`);
       }
     }
 
     if (skippedDueToStateChange > 0) {
       await adapter.sendMessage(`\nSkipped (became unsafe mid-batch): ${skippedDueToStateChange}`);
+    }
+    if (advancedThisLoop === 0 && attemptsThisLoop > 0) {
+      await adapter.sendMessage(`\nAll ${attemptsThisLoop} attempted topic(s) failed or paused. Collecting escalations.`);
     }
 
     // 6. Collect decisions from blocked topics. Re-uses the cached enriched
