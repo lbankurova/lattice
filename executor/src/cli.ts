@@ -102,7 +102,7 @@ function parseArgs(): Record<string, string> {
   // We pre-register every flag we know about plus give cmdRun a permissive
   // fallback by setting strict:false and scanning args ourselves first.
   const knownStringFlags = new Set<string>([
-    'lattice-root', 'mode', 'topic', 'max', 'max-loops', 'filter', 'base', 'last',
+    'lattice-root', 'mode', 'topic', 'max', 'max-loops', 'filter', 'base', 'last', 'source',
   ]);
 
   // Pre-scan args to discover any --foo flag the caller passed that isn't
@@ -547,6 +547,12 @@ async function cmdAutopilot(): Promise<void> {
   const maxAdvance = parseInt(flags['max'] ?? '3', 10);
   const maxLoops = parseInt(flags['max-loops'] ?? '50', 10);
   const filter = flags['filter'] ?? undefined;
+  const sourceRaw = flags['source'] ?? 'both';
+  if (!['topics', 'todo', 'both'].includes(sourceRaw)) {
+    console.error(`Invalid --source value "${sourceRaw}". Allowed: topics, todo, both.`);
+    process.exit(2);
+  }
+  const source = sourceRaw as 'topics' | 'todo' | 'both';
 
   const adapter = new TeeCliAdapter();
 
@@ -563,6 +569,7 @@ async function cmdAutopilot(): Promise<void> {
   bannerLog(`Mode: ${singlePass ? 'single pass' : 'continuous loop'}`);
   bannerLog(`Max advance per loop: ${maxAdvance}`);
   if (filter) bannerLog(`Filter: "${filter}"`);
+  if (source !== 'both') bannerLog(`Source: ${source}`);
   if (dryRun) bannerLog('DRY RUN -- no workflows will execute');
   bannerLog('');
 
@@ -575,6 +582,7 @@ async function cmdAutopilot(): Promise<void> {
     dryRun,
     singlePass,
     filter,
+    source,
   });
 
   // Persist the full transcript: banner + everything sent through the

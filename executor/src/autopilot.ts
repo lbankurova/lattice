@@ -44,6 +44,8 @@ import { loadWorkflow, resolveWorkflowPath } from './loader.js';
 import { executeWorkflow } from './engine.js';
 import { reconcileStates, formatReconciliation } from './reconcile.js';
 import { tryAutoResolve } from './auto-resolve.js';
+import { loadTodoQueue, getTodoAdvanceAction } from './todo-queue.js';
+import type { TodoItem } from './todo-queue.js';
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -62,6 +64,10 @@ export interface AutopilotOptions {
   filter?: string;
   /** Single pass — run once and exit (vs continuous loop) */
   singlePass: boolean;
+  /** Source selection: 'topics' = cycle-state YAMLs only,
+   *  'todo' = TODO.md `autopilot: ready` items only,
+   *  'both' (default) = topics first, then TODO items by score. */
+  source?: 'topics' | 'todo' | 'both';
   /** Hard cap on outer-loop iterations (LIT-10). Default 50.
    * Continuous mode normally exits via steady-state (no progress). The cap
    * catches infinite-loop bugs in auto-resolve / phase routing where steady
@@ -81,6 +87,14 @@ export interface AutopilotResult {
   loopsCompleted: number;
   topicsAdvanced: string[];
   topicsFailed: string[];
+  /** TODO.md items advanced through cycle workflows (Bug B / FIX-02). */
+  todosAdvanced: string[];
+  /** TODO.md items where the cycle workflow failed. */
+  todosFailed: string[];
+  /** TODO.md items skipped because the executor cannot route them
+   *  (kind: mechanical — needs Claude-skill direct edit). Reported so the
+   *  caller can surface them rather than silently dropping. */
+  todosSkippedMechanical: string[];
   pendingDecisions: HumanDecision[];
   coherenceReport: CoherenceReport;
   /** Conflicts that were auto-resolved (no human needed) */
@@ -93,6 +107,16 @@ interface AdvanceAction {
   workflow: string;
   description: string;
 }
+
+/**
+ * Unified candidate type — topics from cycle-state and TODO items from
+ * TODO.md route through the same execute loop. `source` discriminates so
+ * the loop can apply per-source policy (e.g., topic safety re-eval skips
+ * for TODO since cycles do their own coherence).
+ */
+type AdvanceCandidate =
+  | { source: 'topic'; id: string; topic: TopicState; action: AdvanceAction; phaseLabel: string; score: number }
+  | { source: 'todo'; id: string; item: TodoItem; action: AdvanceAction; phaseLabel: string; score: number };
 
 function getAdvanceAction(topic: TopicState): AdvanceAction | null {
   switch (topic.phase) {
@@ -146,6 +170,9 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
     loopsCompleted: 0,
     topicsAdvanced: [],
     topicsFailed: [],
+    todosAdvanced: [],
+    todosFailed: [],
+    todosSkippedMechanical: [],
     pendingDecisions: [],
     autoResolved: [],
     coherenceReport: {
@@ -158,6 +185,8 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
       subsystemHeatmap: {},
     },
   };
+
+  const sourceSel: 'topics' | 'todo' | 'both' = opts.source ?? 'both';
 
   let madeProgress = true;
   let autoResolveAttempted = false; // Prevent infinite auto-resolve loops
@@ -230,27 +259,82 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
 
     await adapter.sendMessage(`\nActive: ${report.activeTopics} | Safe: ${report.safe.length} | Blocked: ${report.blocked.length} | Conflicts: ${report.conflicts.filter(c => c.severity === 'blocker').length}`);
 
-    // 3. Identify advanceable topics (filtered if --filter provided)
-    const advanceable: { topic: TopicState; action: AdvanceAction }[] = [];
+    // 3. Identify advanceable candidates from both sources (per --source flag).
+    //
+    // Topic queue (cycle-state YAMLs): coherence-safe topics with a known
+    // phase-to-workflow mapping. Always ranked ahead of TODO items per
+    // protocol -- cycle gates (peer review R1+R2, architect, science
+    // preservation) are load-bearing and already partially paid.
+    //
+    // TODO queue (TODO.md `autopilot: ready`): items tagged with a routable
+    // `kind:` (research / spike / bugfix). Mechanical items are skipped --
+    // they need Claude-skill direct edits, not a cycle workflow. Sorted by
+    // score descending. Items whose id collides with an active topic are
+    // skipped (the topic-queue path already covers them).
+    const advanceable: AdvanceCandidate[] = [];
     const paused: string[] = [];
 
-    for (const topicState of topics) {
-      // Apply filter if provided
-      if (opts.filter && !topicState.topic.includes(opts.filter)) continue;
+    if (sourceSel !== 'todo') {
+      for (const topicState of topics) {
+        // Apply filter if provided
+        if (opts.filter && !topicState.topic.includes(opts.filter)) continue;
 
-      // Skip paused topics — they need explicit user decision to resume
-      if (topicState.lifecycleState === 'paused') {
-        paused.push(topicState.topic);
-        continue;
+        // Skip paused topics — they need explicit user decision to resume
+        if (topicState.lifecycleState === 'paused') {
+          paused.push(topicState.topic);
+          continue;
+        }
+
+        const safety = isTopicSafe(topicState.topic, report);
+        if (!safety.safe) continue;
+
+        const action = getAdvanceAction(topicState);
+        if (!action) continue;
+
+        advanceable.push({
+          source: 'topic',
+          id: topicState.topic,
+          topic: topicState,
+          action,
+          phaseLabel: topicState.phase,
+          score: 0,
+        });
       }
+    }
 
-      const safety = isTopicSafe(topicState.topic, report);
-      if (!safety.safe) continue;
-
-      const action = getAdvanceAction(topicState);
-      if (!action) continue;
-
-      advanceable.push({ topic: topicState, action });
+    if (sourceSel !== 'topics') {
+      const activeIds = new Set(topics.map(t => t.topic));
+      const todoItems = loadTodoQueue(cwd);
+      const todoCandidates: AdvanceCandidate[] = [];
+      let mechanicalCount = 0;
+      for (const item of todoItems) {
+        if (opts.filter && !item.id.includes(opts.filter)) continue;
+        // Skip if already represented in the topic queue (cycle-state file
+        // exists). Once a TODO item bootstraps a cycle, its lifecycle is
+        // owned by the topic queue going forward.
+        if (activeIds.has(item.id)) continue;
+        const action = getTodoAdvanceAction(item);
+        if (!action) {
+          // kind: mechanical — executor cannot route. Surface for the caller.
+          mechanicalCount++;
+          result.todosSkippedMechanical.push(item.id);
+          continue;
+        }
+        todoCandidates.push({
+          source: 'todo',
+          id: item.id,
+          item,
+          action,
+          phaseLabel: `kind:${item.kind}`,
+          score: item.score,
+        });
+      }
+      todoCandidates.sort((a, b) => b.score - a.score);
+      advanceable.push(...todoCandidates);
+      await adapter.sendMessage(
+        `TODO queue: ${todoCandidates.length} routable item(s)` +
+        (mechanicalCount > 0 ? `; ${mechanicalCount} mechanical (skill-only, skipped)` : '')
+      );
     }
 
     if (paused.length > 0) {
@@ -263,7 +347,7 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
 
       if (blockerConflicts.length > 0 && !dryRun && !autoResolveAttempted) {
         autoResolveAttempted = true; // Only try once per autopilot run
-        await adapter.sendMessage('\nNo topics can be advanced. Attempting auto-resolve...');
+        await adapter.sendMessage('\nNo items can be advanced. Attempting auto-resolve...');
 
         const resolveResults = await tryAutoResolve(blockerConflicts, topics, cwd, adapter);
         const resolved = resolveResults.filter(r => r.verdict === 'RESOLVED');
@@ -282,7 +366,7 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
 
         await adapter.sendMessage('\nAuto-resolve could not unblock any topics. Collecting human decisions.');
       } else {
-        await adapter.sendMessage('\nNo topics can be advanced. Autopilot pausing.');
+        await adapter.sendMessage('\nNo items can be advanced. Autopilot pausing.');
       }
 
       // Collect pending decisions from blocked topics
@@ -292,15 +376,16 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
 
     // 4. Show what we're about to do
     const previewBatch = advanceable.slice(0, maxAdvancePerLoop);
-    await adapter.sendMessage(`\nAdvancing up to ${maxAdvancePerLoop} topic(s) from ${advanceable.length} safe candidate(s); refilling slot on failure/pause:`);
-    for (const { topic, action } of previewBatch) {
-      await adapter.sendMessage(`  ${topic.topic} (${topic.phase}) -> ${action.workflow}: ${action.description}`);
+    await adapter.sendMessage(`\nAdvancing up to ${maxAdvancePerLoop} item(s) from ${advanceable.length} safe candidate(s); refilling slot on failure/pause:`);
+    for (const cand of previewBatch) {
+      await adapter.sendMessage(`  ${cand.id} [${cand.source}] (${cand.phaseLabel}) -> ${cand.action.workflow}: ${cand.action.description}`);
     }
 
     if (dryRun) {
-      await adapter.sendMessage('\n[DRY RUN] Would advance the above topics.');
-      for (const { topic } of previewBatch) {
-        result.topicsAdvanced.push(topic.topic);
+      await adapter.sendMessage('\n[DRY RUN] Would advance the above items.');
+      for (const cand of previewBatch) {
+        if (cand.source === 'topic') result.topicsAdvanced.push(cand.id);
+        else result.todosAdvanced.push(cand.id);
       }
       // Still collect decisions for blocked topics
       collectPendingDecisions(topics, report, result);
@@ -324,34 +409,38 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
     let attemptsThisLoop = 0;
     let skippedDueToStateChange = 0;
 
-    for (const { topic, action } of advanceable) {
+    for (const cand of advanceable) {
       if (advancedThisLoop >= maxAdvancePerLoop) break;
 
-      if (attemptsThisLoop > 0) {
+      // Safety re-eval applies to topic candidates only. TODO items have
+      // no upfront coherence record -- each cycle workflow runs its own
+      // coherence check at start. Skipping here avoids a false-negative
+      // safety result on a fresh TODO id that doesn't appear in `topics`.
+      if (attemptsThisLoop > 0 && cand.source === 'topic') {
         // loadTopicsCached returns the cached enriched topics unless a
         // prior workflow / auto-resolve marked the cache dirty.
         const freshTopics = loadTopicsCached();
         const freshReport = checkCoherence(freshTopics);
-        const safety = isTopicSafe(topic.topic, freshReport);
+        const safety = isTopicSafe(cand.id, freshReport);
         if (!safety.safe) {
           skippedDueToStateChange++;
           const reason = safety.conflicts.length > 0
             ? `${safety.conflicts[0].type}: ${safety.conflicts[0].description.slice(0, 80)}`
             : 'new blocker after prior batch item';
-          await adapter.sendMessage(`  ${topic.topic}: SKIPPED (became unsafe mid-batch -- ${reason})`);
+          await adapter.sendMessage(`  ${cand.id}: SKIPPED (became unsafe mid-batch -- ${reason})`);
           continue;
         }
       }
       attemptsThisLoop++;
 
-      await adapter.sendMessage(`\n--- Advancing: ${topic.topic} via ${action.workflow} ---`);
+      await adapter.sendMessage(`\n--- Advancing: ${cand.id} [${cand.source}] via ${cand.action.workflow} ---`);
 
       try {
-        const wfPath = resolveWorkflowPath(action.workflow, latticeRoot);
+        const wfPath = resolveWorkflowPath(cand.action.workflow, latticeRoot);
         const wf = loadWorkflow(wfPath);
 
         const inputs: Record<string, string | number | boolean> = {
-          topic: topic.topic,
+          topic: cand.id,
         };
 
         const run = await executeWorkflow(wf, inputs, {
@@ -367,26 +456,29 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
         cacheDirty = true;
 
         if (run.status === 'completed') {
-          result.topicsAdvanced.push(topic.topic);
+          if (cand.source === 'topic') result.topicsAdvanced.push(cand.id);
+          else result.todosAdvanced.push(cand.id);
           advancedThisLoop++;
           madeProgress = true;
           autoResolveAttempted = false; // Reset — new conflicts may be resolvable
-          await adapter.sendMessage(`  ${topic.topic}: COMPLETED (${advancedThisLoop}/${maxAdvancePerLoop})`);
+          await adapter.sendMessage(`  ${cand.id}: COMPLETED (${advancedThisLoop}/${maxAdvancePerLoop})`);
         } else if (run.status === 'paused') {
           // Hit a human-required gate inside the workflow — surface
           // decisions but don't burn the advance budget; try the next
           // candidate.
-          await adapter.sendMessage(`  ${topic.topic}: PAUSED (needs human decision; trying next candidate)`);
-          collectWorkflowDecisions(topic.topic, run, result);
+          await adapter.sendMessage(`  ${cand.id}: PAUSED (needs human decision; trying next candidate)`);
+          collectWorkflowDecisions(cand.id, run, result);
         } else {
           // Failure does not consume a slot — refill from next candidate.
-          result.topicsFailed.push(topic.topic);
-          await adapter.sendMessage(`  ${topic.topic}: FAILED (${run.status}; trying next candidate)`);
+          if (cand.source === 'topic') result.topicsFailed.push(cand.id);
+          else result.todosFailed.push(cand.id);
+          await adapter.sendMessage(`  ${cand.id}: FAILED (${run.status}; trying next candidate)`);
         }
       } catch (err) {
-        result.topicsFailed.push(topic.topic);
+        if (cand.source === 'topic') result.topicsFailed.push(cand.id);
+        else result.todosFailed.push(cand.id);
         cacheDirty = true; // a partial workflow run may have written state
-        await adapter.sendMessage(`  ${topic.topic}: ERROR -- ${err instanceof Error ? err.message : err} (trying next candidate)`);
+        await adapter.sendMessage(`  ${cand.id}: ERROR -- ${err instanceof Error ? err.message : err} (trying next candidate)`);
       }
     }
 
@@ -394,7 +486,7 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
       await adapter.sendMessage(`\nSkipped (became unsafe mid-batch): ${skippedDueToStateChange}`);
     }
     if (advancedThisLoop === 0 && attemptsThisLoop > 0) {
-      await adapter.sendMessage(`\nAll ${attemptsThisLoop} attempted topic(s) failed or paused. Collecting escalations.`);
+      await adapter.sendMessage(`\nAll ${attemptsThisLoop} attempted item(s) failed or paused. Collecting escalations.`);
     }
 
     // 6. Collect decisions from blocked topics. Re-uses the cached enriched
@@ -424,8 +516,13 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
   await adapter.sendMessage('AUTOPILOT SUMMARY');
   await adapter.sendMessage('='.repeat(70));
   await adapter.sendMessage(`Loops: ${result.loopsCompleted}`);
-  await adapter.sendMessage(`Advanced: ${result.topicsAdvanced.length} (${result.topicsAdvanced.join(', ') || 'none'})`);
-  await adapter.sendMessage(`Failed: ${result.topicsFailed.length} (${result.topicsFailed.join(', ') || 'none'})`);
+  await adapter.sendMessage(`Topics advanced: ${result.topicsAdvanced.length} (${result.topicsAdvanced.join(', ') || 'none'})`);
+  await adapter.sendMessage(`Topics failed: ${result.topicsFailed.length} (${result.topicsFailed.join(', ') || 'none'})`);
+  await adapter.sendMessage(`TODOs advanced: ${result.todosAdvanced.length} (${result.todosAdvanced.join(', ') || 'none'})`);
+  await adapter.sendMessage(`TODOs failed: ${result.todosFailed.length} (${result.todosFailed.join(', ') || 'none'})`);
+  if (result.todosSkippedMechanical.length > 0) {
+    await adapter.sendMessage(`TODOs skill-only (mechanical, not run): ${result.todosSkippedMechanical.length}`);
+  }
   await adapter.sendMessage(`Auto-resolved: ${result.autoResolved.length}`);
   await adapter.sendMessage(`Pending decisions: ${result.pendingDecisions.length}`);
   await adapter.sendMessage(`Blocked topics: ${result.coherenceReport.blocked.length}`);
