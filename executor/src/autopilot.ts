@@ -136,45 +136,90 @@ function rootCausePrefix(message: string | undefined): string {
 }
 
 /**
- * If the working tree is dirty (per `git status --porcelain`), stash it
- * with a label that ties the abandoned work back to the candidate that
- * produced it. Returns the stash label on success, null when the tree was
- * already clean or the stash failed.
+ * Snapshot the current dirty-tree path set via `git status --porcelain -z -uall`.
  *
- * The stash buys two things: (1) the next candidate gets a clean slate so
- * its commit-intent + ops-check assertions aren't polluted; (2) the
- * abandoned work is recoverable via `git stash list` rather than lost to
- * `git reset --hard`. Failure to stash is non-fatal -- we log and move on
- * rather than halt the queue (per the user's "never halt on a single item"
- * principle).
+ * Used by the per-item cleanup to compute the workflow's OWN dirty-tree
+ * delta. Paths present in the pre-workflow snapshot are foreign state
+ * (parallel session, manual edits, residue from prior items) and must not
+ * be stashed -- that's the data-loss bug from 2026-05-04 where ~2300 LOC
+ * of a parallel agent's work was swept into a stash labelled with
+ * autopilot's failing topic, with no ownership check.
  */
-function stashIfDirty(
+function captureDirtyPaths(cwd: string): Set<string> {
+  try {
+    const out = execSync('git status --porcelain -z -uall', {
+      cwd, encoding: 'utf-8', timeout: 10_000,
+    });
+    if (!out) return new Set();
+    const files = new Set<string>();
+    for (const part of out.split('\x00')) {
+      // Porcelain -z entries: "XY filename" (XY = 2-char status, then space).
+      // Renames split as "XY new\0old", but for ownership tracking we only
+      // care about path identity -- treating both halves as dirty is safe
+      // (both would be excluded if either was pre-dirty).
+      if (part.length > 3) files.add(part.slice(3));
+    }
+    return files;
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * After a workflow run, stash ONLY paths the workflow itself made dirty,
+ * leaving foreign state (anything in `excludePaths`) untouched.
+ *
+ * `excludePaths` is the dirty-tree snapshot captured BEFORE the workflow
+ * ran -- these paths represent state owned by another session or by the
+ * user's manual edits. Autopilot must not stash them: that's the
+ * data-loss bug from 2026-05-04 (autopilot.ts pre-fix `stashIfDirty` ran
+ * `git stash push -u` over the entire dirty tree, capturing a parallel
+ * agent's ~2300 LOC and labelling it with autopilot's currently-failing
+ * topic name -- the work then became unrecoverable through normal
+ * `git stash list` / `git stash apply` flow because successive overlapping
+ * stash cycles dropped intermediate refs into dangling git objects).
+ *
+ * Return values are distinct so the caller can log each case:
+ *   - stash label string : workflow-owned changes were stashed
+ *   - 'no-changes'        : tree clean before AND after the workflow
+ *   - 'foreign-only'      : tree dirty but every dirty path is foreign;
+ *                           autopilot leaves it alone
+ *   - null                : stash command failed (non-fatal)
+ *
+ * The caller logs each outcome distinctly so `git stash list` and
+ * decisions.log are interpretable.
+ */
+function stashWorkflowOutput(
   cwd: string,
+  excludePaths: Set<string>,
   status: 'completed' | 'paused' | 'failed' | 'error',
   source: string,
   id: string,
-): string | null {
-  try {
-    const out = execSync('git status --porcelain', {
-      cwd,
-      encoding: 'utf-8',
-      timeout: 10_000,
-    });
-    if (out.trim().length === 0) return null;
+): string | 'no-changes' | 'foreign-only' | null {
+  const currentDirty = captureDirtyPaths(cwd);
+  if (currentDirty.size === 0) return 'no-changes';
 
+  const workflowOwned = [...currentDirty].filter(f => !excludePaths.has(f));
+  if (workflowOwned.length === 0) return 'foreign-only';
+
+  try {
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const safeId = id.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60);
     const label = `autopilot-${status}-${source}-${safeId}-${ts}`;
-    execSync(`git stash push -u -m "${label}"`, {
-      cwd,
-      encoding: 'utf-8',
-      timeout: 30_000,
+    // Path-scoped stash: -u includes untracked files within the listed
+    // pathspecs only. CRITICAL difference from the pre-fix unscoped
+    // `git stash push -u` -- never sweep paths that were dirty before
+    // the workflow ran.
+    const quotedPaths = workflowOwned.map(p => `"${p.replace(/"/g, '\\"')}"`).join(' ');
+    execSync(`git stash push -u -m "${label}" -- ${quotedPaths}`, {
+      cwd, encoding: 'utf-8', timeout: 30_000,
     });
     return label;
   } catch {
-    // Non-fatal -- if git fails (no repo, locked index, etc.), just
-    // continue. The next candidate will see the dirty tree, which is
-    // the same situation that existed before this helper.
+    // Non-fatal: leave the workflow's dirty tree behind rather than fall
+    // back to unscoped stash (which would re-introduce the data-loss
+    // bug). The next item's pre-commit / commit-intent check will catch
+    // the leftover dirty state and surface it explicitly.
     return null;
   }
 }
@@ -516,6 +561,19 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
 
       await adapter.sendMessage(`\n--- Advancing: ${cand.id} [${cand.source}] via ${cand.action.workflow} ---`);
 
+      // Pre-workflow dirty-tree snapshot. Anything dirty NOW belongs to
+      // someone else -- a parallel session, the user's manual edits, or
+      // residue from a prior item that legitimately couldn't be stashed.
+      // The post-workflow stash is path-scoped to (post - pre), so these
+      // foreign paths never get swept. Captured per-item rather than
+      // once at autopilot start so each item sees the up-to-date set.
+      const preWorkflowDirty = captureDirtyPaths(cwd);
+      if (preWorkflowDirty.size > 0) {
+        await adapter.sendMessage(
+          `  ${cand.id}: pre-workflow tree has ${preWorkflowDirty.size} dirty path(s) -- those will be left untouched.`,
+        );
+      }
+
       // Per-iteration outcome tracking. We need the status + a failure
       // message AFTER the try/catch so the stash + circuit-breaker logic
       // can run on every exit path (completed / paused / failed / error)
@@ -580,15 +638,26 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
         failureMessage = msg;
       }
 
-      // Per-item tree cleanup (Phase 1). Stash whatever the workflow left
-      // behind so the next candidate starts from a clean slate. Applies
-      // universally -- research / blueprint / build / spike / bug-fix /
-      // mechanical-fix all benefit. The stash label encodes outcome +
-      // source + id + ISO timestamp so `git stash list` is human-scannable.
-      const stashLabel = stashIfDirty(cwd, outcome, cand.source, cand.id);
-      if (stashLabel) {
-        result.stashedTrees.push(stashLabel);
-        await adapter.sendMessage(`  ${cand.id}: stashed dirty tree -- ${stashLabel}`);
+      // Per-item tree cleanup (Phase 1, hardened 2026-05-04 after data-loss
+      // incident). Stash ONLY paths the workflow itself made dirty, leaving
+      // foreign state untouched. excludePaths is the pre-workflow snapshot
+      // captured above; anything in it is owned by another session and is
+      // never swept. The stash label encodes outcome + source + id + ISO
+      // timestamp so `git stash list` is human-scannable.
+      const stashOutcome = stashWorkflowOutput(
+        cwd, preWorkflowDirty, outcome, cand.source, cand.id,
+      );
+      if (typeof stashOutcome === 'string' && stashOutcome !== 'no-changes' && stashOutcome !== 'foreign-only') {
+        result.stashedTrees.push(stashOutcome);
+        await adapter.sendMessage(`  ${cand.id}: stashed workflow output -- ${stashOutcome}`);
+      } else if (stashOutcome === 'foreign-only') {
+        await adapter.sendMessage(
+          `  ${cand.id}: only foreign dirty paths present -- autopilot is not sweeping them.`,
+        );
+      } else if (stashOutcome === null) {
+        await adapter.sendMessage(
+          `  ${cand.id}: stash failed (non-fatal). Workflow's dirty tree left in place; the next item will surface the conflict.`,
+        );
       }
 
       // Circuit-breaker bookkeeping (Phase 3). Reset on success/pause;
