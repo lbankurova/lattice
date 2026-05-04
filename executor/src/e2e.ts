@@ -87,6 +87,27 @@ export interface E2EResult {
 const DEFAULT_TIMEOUTS = { per_suite: 120_000, total: 600_000 };
 
 /**
+ * Snapshot the current dirty-tree path set. Mirrors autopilot.ts's
+ * `captureDirtyPaths`. Used by the foreign-state guard in
+ * `runBranchComparison`.
+ */
+function captureDirtyPaths(cwd: string): Set<string> {
+  try {
+    const out = execSync('git status --porcelain -z -uall', {
+      cwd, encoding: 'utf-8', timeout: 10_000,
+    });
+    if (!out) return new Set();
+    const files = new Set<string>();
+    for (const part of out.split('\x00')) {
+      if (part.length > 3) files.add(part.slice(3));
+    }
+    return files;
+  } catch {
+    return new Set();
+  }
+}
+
+/**
  * Detect the repository's default branch via `git symbolic-ref refs/remotes/origin/HEAD`.
  * Falls back to scanning local branches for `master` or `main` (in that order, since
  * GitHub flipped its default mid-2020 — older repos still default to `master`).
@@ -586,9 +607,35 @@ export function runBranchComparison(
     let baseResults: SuiteRunResult[];
     let featureResults: SuiteRunResult[];
 
+    // Foreign-state guard (HIGH-2 fix, 2026-05-04 audit). e2e mutates the
+    // working tree (stash, checkout base, run suites, restore). Pre-fix
+    // versions ran an unscoped `git stash push` that captured ANY dirty
+    // path -- including a parallel session's uncommitted work -- and on
+    // stash-pop conflict left it in a stash the operator had to recover
+    // manually. Now: refuse to run when the working tree contains paths
+    // not in the diff scope this e2e is testing. The framework's other
+    // safety guarantees (lock ownership, autopilot foreign-state respect)
+    // assume each session can recognize and refuse to mutate state it
+    // doesn't own; e2e was the missing instance.
+    const dirtyPaths = captureDirtyPaths(cwd);
+    const expectedScope = new Set(changedFiles);
+    const foreign = [...dirtyPaths].filter(p => !expectedScope.has(p));
+    if (foreign.length > 0 && (mode === 'branch' || mode === 'uncommitted')) {
+      const sample = foreign.slice(0, 5).join(', ');
+      const more = foreign.length > 5 ? ` (and ${foreign.length - 5} more)` : '';
+      result.error =
+        `e2e refused to run: working tree has ${foreign.length} dirty path(s) outside the diff scope. ` +
+        `These look foreign (parallel session, manual edits, or unrelated WIP). ` +
+        `Commit, stash, or discard them before running e2e. Foreign paths: ${sample}${more}`;
+      result.verdict = 'error';
+      result.durationMs = Date.now() - start;
+      return result;
+    }
+
     switch (mode) {
       case 'branch': {
-        // Stash any dirty work, checkout base, run, checkout feature, run
+        // Stash any dirty work (now known to be in-scope), checkout base,
+        // run, checkout feature, run.
         const dirty = git('status --porcelain', cwd).trim();
         if (dirty) {
           git('stash push -m "lattice-e2e-gate"', cwd);
@@ -609,7 +656,7 @@ export function runBranchComparison(
       }
 
       case 'uncommitted': {
-        // Stash changes → run (clean HEAD) → pop → run (with changes)
+        // Stash in-scope changes → run (clean HEAD) → pop → run (with changes)
         git('stash push -m "lattice-e2e-gate"', cwd);
         stashed = true;
 

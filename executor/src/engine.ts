@@ -711,8 +711,23 @@ function writeCostToState(
 const WIP_UNCOMMITTED_THRESHOLD = 15;
 
 /**
- * Create a WIP commit if the uncommitted file count exceeds the threshold.
- * These get squashed in the final review commit.
+ * Warn (no auto-commit) when the uncommitted file count exceeds the
+ * threshold.
+ *
+ * CRITICAL-4 fix from the 2026-05-04 audit. Before this commit, the
+ * function ran `git add -A` + `git commit` whenever 15+ files were dirty.
+ * Same defect class as the seed bug -- foreign state (parallel session,
+ * manual edits) got swept into a commit labeled with the workflow's
+ * topic. Recovery required `git reset --soft HEAD^` and re-staging,
+ * hard if subsequent commits had landed.
+ *
+ * The non-destructive replacement: emit an advisory line. The agent
+ * orchestrating the workflow (or the operator) decides when to commit
+ * via the project's commit-intent protocol -- which already enforces
+ * staged-set declaration before staging (CLAUDE.md rule 23).
+ *
+ * The function name is kept (`maybeWipCommit`) so call sites don't
+ * need to change in this commit; rename can come in a follow-up.
  */
 async function maybeWipCommit(
   cwd: string,
@@ -723,22 +738,19 @@ async function maybeWipCommit(
   if (!topicName) return;
 
   try {
-    const status = execSync('git status --porcelain', { cwd, encoding: 'utf-8', timeout: 10000 });
+    const status = execSync('git status --porcelain', { cwd, encoding: 'utf-8', timeout: 10_000 });
     const changedFiles = status.split('\n').filter(line => line.trim().length > 0);
 
     if (changedFiles.length < WIP_UNCOMMITTED_THRESHOLD) return;
 
     await adapter.sendMessage(
-      `  [wip] ${changedFiles.length} uncommitted files (threshold: ${WIP_UNCOMMITTED_THRESHOLD}) -- creating checkpoint commit`
+      `  [wip] ADVISORY: ${changedFiles.length} uncommitted files (threshold: ${WIP_UNCOMMITTED_THRESHOLD}) at checkpoint ${stateKey}.`,
     );
-
-    execSync('git add -A', { cwd, timeout: 10000 });
-    const msg = `wip: ${topicName} checkpoint ${stateKey}\n\nTopic: ${topicName}`;
-    execSync(`git commit -m "${msg}"`, { cwd, encoding: 'utf-8', timeout: 30000 });
-
-    await adapter.sendMessage(`  [wip] Checkpoint commit created`);
+    await adapter.sendMessage(
+      `  [wip] No auto-commit (CRITICAL-4 fix 2026-05-04). Run /lattice:review when ready, or commit manually with declared intent.`,
+    );
   } catch {
-    // Non-fatal -- if git fails, just continue without the WIP commit
+    // Non-fatal -- if git fails, just continue
   }
 }
 
