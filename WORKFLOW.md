@@ -52,6 +52,7 @@ lattice status                             -- portfolio overview + coherence + c
 lattice coherence [topic]                  -- full conflict analysis
 lattice autopilot [--dry-run] [--loop]     -- advance safe topics autonomously
 lattice cost [topic]                       -- per-topic cost report
+lattice context [--last N]                 -- per-call context-rot telemetry from .lattice/context-telemetry.jsonl
 lattice e2e run [--base main]              -- branch-comparison E2E testing gate
 lattice e2e classify [--base main]         -- testability classification
 lattice run <workflow> --topic <topic>     -- execute a specific workflow DAG
@@ -177,6 +178,29 @@ Persistence is best-effort -- a write failure prints `[warn]` to stderr but does
 |       |                                                                   |
 |       v                                                                   |
 |  commit                                                                   |
+|                                                                           |
++---------------------------------------------------------------------------+
+
+
++---------------------------------------------------------------------------+
+|  MECHANICAL FIX LOOP (parallel track -- TODO items tagged                 |
+|  `kind: mechanical` + `autopilot: ready`. Driven by autopilot's TODO       |
+|  queue or invoked directly via /lattice:implement-todo.)                   |
+|                                                                           |
+|  workflows/mechanical-fix-cycle.yaml (6 nodes)                            |
+|                                                                           |
+|  1. acquire-topic-lock   <-- prevents concurrent work on same TODO id     |
+|  2. /lattice:implement-todo                                               |
+|       |  Read TODO.md, locate section by id (e.g. "GAP-271")              |
+|       |  Edit deterministically OR write ESCALATED: reason if vague       |
+|       |  Declare commit intent via scripts/declare-commit-intent.sh       |
+|  3. commit-intent-check  <-- staged set must match declared intent        |
+|  4. /ops:check           <-- regression check                             |
+|  5. /lattice:review write-gate trivial OR full review per change scope    |
+|  6. commit                                                                |
+|                                                                           |
+|  Gates are correctness (test pass, intent match, vague-spec escalation),  |
+|  NOT effort. No LOC cap. Skips research/blueprint/peer-review ceremony.   |
 |                                                                           |
 +---------------------------------------------------------------------------+
 
@@ -324,7 +348,14 @@ prerequisites: [...]           # other topics this depends on
 | `/lattice:spike` | Exploratory implementation (no spec) | Feature | Code |
 | `/lattice:spec-from-code` | Reverse-engineer spec from spike | Implementation | `incoming/{feature}.md` |
 | `/lattice:review` | Quality gate + commit | Changed files | Commit (if passes) |
+| `/lattice:implement-todo` | Apply a single TODO.md mechanical fix end-to-end | TODO id (e.g. `GAP-271`) | Edits + commit-intent declaration |
+| `/lattice:extract-learnings` | Spec-archive knowledge extraction (rule 6) | Archived spec path | Updates to `knowledge/` + `architecture/` |
+| `/lattice:lint-knowledge` | Lint typed knowledge corpus | (reads `knowledge/`) | Findings appended to TODO.md |
+| `/lattice:lit-triage` | Triage orphan PDFs in `research/literature/` | Orphan PDF set | Verdicts in `PDF-TRIAGE.md` |
 | `/lattice:ux-designer` | Design audit | View or component | Audit report |
+| `/lattice:ux-audit-walk` | Stage 1 UX audit — Playwright walk | Persona × workflow | Candidate audit README (hypotheses) |
+| `/lattice:ux-audit-validate` | Stage 2 UX audit — code cross-check | Audit path | Filtered findings (KEPT/REFRAMED/DROPPED) |
+| `/lattice:ux-audit-file` | Stage 3 UX audit — file findings | Validated audit | TODO.md GAP entries |
 | `/lattice:daily-update` | Slack update from commits | (reads git log) | Formatted message |
 | `/lattice:pause-work` | Session handoff | Current state | `.continue-here.md` |
 | `/lattice:resume-work` | Restore session | `.continue-here.md` | Restored context |
@@ -333,3 +364,4 @@ prerequisites: [...]           # other topics this depends on
 | `/ops:bug` | Log a bug | Description | Entry in BUG-SWEEP.md |
 | `/ops:bug-stress` | Post-fix pattern search + oracle growth | Changed files | Stress report + tests |
 | `/ops:explore-data` | Query generated study data | Question about data | Data answer |
+| `/ops:sweep` | Garbage collection — validate TODO.md / ROADMAP.md / MANIFEST.md / decisions.log; checks `blocked-urls.log` for never-accessed URLs (research-gap signal) | (reads project state) | Cleaned state + escalation list |

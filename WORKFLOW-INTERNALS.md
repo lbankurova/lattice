@@ -29,13 +29,23 @@ The executor (`executor/src/`) runs workflow YAML DAGs. It is separate from the 
 
 `lattice autopilot` (CLI) or `/lattice:autopilot` (in-session) runs the full portfolio autonomously.
 
+**Two sources of work.** Autopilot pulls from two queues and merges them into a single priority-ordered list:
+
+1. **Topic queue** — `.lattice/cycle-state/*.yaml`. Research/blueprint/build/spike phases. Classified by `/lattice:prioritize` as `[autopilot]` safe.
+2. **TODO queue** — items in `docs/_internal/TODO.md` tagged `autopilot: ready` with a `score:` field (0–27). Mechanical work that doesn't need design decisions: data gaps, ETL, contract-triangle cleanup, no-behavior-change refactors, known-fix bugs. Other `autopilot:` values (`waiting-data`, `deferred-dg`, `needs-user`) skip; untagged items get added to the escalation list for tagging.
+
+The `--source todo` and `--source topics` flags restrict to one queue; default merges both. Topics in `*-complete` phases outrank TODO items of the same tier (research/blueprint ceremony already paid). Within TODO, sort by score descending. (See `commands/lattice/autopilot.md` for full queue construction.)
+
 **What it does:**
 1. Reconcile all cycle states against git history (auto-correct drift)
-2. Run coherence check across all active topics
-3. Attempt auto-resolve for resolvable conflicts (subsystem-overlap, stale-blueprint, SF-propagation)
-4. Identify safe topics (no blockers, no conflicts)
-5. Advance each safe topic through its next sub-cycle
-6. Collect all STOP conditions into a human decision batch
+2. Read the TODO queue (in parallel with Step 1)
+3. Run coherence check across all active topics
+4. Attempt auto-resolve for resolvable conflicts (subsystem-overlap, stale-blueprint, SF-propagation)
+5. Build the unified queue (safe topics + ready TODO items, ranked)
+6. Advance each item via its appropriate route — topic phase routes to the matching sub-cycle, TODO routes by `kind` (mechanical → `mechanical-fix-cycle`, research → `research-cycle`, etc.)
+7. Collect all STOP conditions into a human decision batch
+
+**Drain semantics (faf0f2b).** A failure or escalation on one item does NOT halt the queue. Per-item failures are captured (workflow stash on exit, `ESCALATION.md` row), the topic lock is released, and autopilot advances to the next item. The outer loop terminates only on `--max` cap, `--max-loops` cap, no-progress steady state, or budget exceeded. This makes autopilot idempotent over a partial-failure batch — re-invoke and it resumes draining.
 
 **Autonomous decisions (no human):**
 - Classification (full/spike/bugfix)
@@ -63,6 +73,23 @@ The executor (`executor/src/`) runs workflow YAML DAGs. It is separate from the 
 `--discover` and `--consolidate` are independent; running both in one invocation runs `--discover` pre-loop and `--consolidate` post-Step-4. The Step 5 summary lists discovery work in `Advanced:` and synthesis suggestions in `Recommendations`.
 
 Every auto-decision is logged. The user can audit after the fact and re-enter at any step.
+
+## Mechanical-fix Cycle
+
+`workflows/mechanical-fix-cycle.yaml` is the route autopilot takes for TODO items tagged `kind: mechanical` — enum/contract drift, doc refresh, lint cleanup, narrow rename, and similar deterministic edits that don't need research/blueprint/peer-review ceremony. Six nodes:
+
+| Layer | Node | What |
+|-------|------|------|
+| 0 | `acquire-lock` | `acquire-topic-lock.sh "mechfix-{topic}"` — prevents concurrent work on the same TODO id |
+| 1 | `implement-todo` | Skill: `lattice/implement-todo`. Reads `docs/_internal/TODO.md`, locates the section by id (e.g. `GAP-271`), parses the change description, executes via Edit/Bash/Read. If the spec is too vague to determine a deterministic edit, writes `ESCALATED: <reason>` to `ESCALATION.md` and exits cleanly. Declares commit intent via `scripts/declare-commit-intent.sh`. |
+| 2 | `commit-intent-check` | Verifies the staged set matches the declared intent before commit (PROJECT pre-commit Step -0.5 logic, pulled forward so a mismatch fails cleanly here rather than during `git commit`). |
+| 3 | `ops-check` | Skill: `ops/check`. Build + validation regression. |
+| 4 | `review-gate` | Either `write-review-gate.sh` trivial path (typo / mechanical edit) or full `/lattice:review` per change scope. |
+| 5 | `commit` | Standard commit + push, lock released, state file `mechfix-{topic}.yaml` archived. |
+
+**Effort is not the gate; correctness is.** No LOC cap. The skill writes `ESCALATED:` (not a failure) when the TODO is too underspecified to act on; autopilot reads that as "skip this item, drain the rest" and surfaces the row in `ESCALATION.md` for the user to clarify. (faf0f2b drain-without-halting semantics.)
+
+The skill `/lattice:implement-todo` can also be invoked outside autopilot — pass a TODO id and it executes the same node sequence interactively.
 
 ## Coherence & Reconciliation
 

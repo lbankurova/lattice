@@ -25,10 +25,10 @@ lattice/
   WORKFLOW.md                   # Pipeline diagram, phase transitions, skill list
   WORKFLOW-INTERNALS.md         # Executor, autopilot, coherence, peer-review protocol
   ENFORCEMENT.md                # Review gate, ratchet, hooks, structural gates
-  commands/lattice/             # 26 skills (AI agent prompts, .md)
+  commands/lattice/             # 28 skills (AI agent prompts, .md)
   commands/ops/                 #  6 ops commands
   agents/                       #  4 independent reviewer agents
-  workflows/                    #  7 YAML DAG definitions
+  workflows/                    #  8 YAML DAG definitions
   workflows/_includes/          #  Shared sub-workflow fragments (e.g. science-flag-resolution.yaml)
   executor/src/                 # 14 TypeScript modules (DAG engine)
   scripts/                      # 16+ shell + Python scripts (locking, sync, validation, audits, design-gate)
@@ -71,6 +71,7 @@ Development cycles defined as executable YAML DAGs. Node types: `bash`, `skill`,
 | `build-cycle.yaml` | Build — implement, E2E gate, review, commit | 6 |
 | `spike-cycle.yaml` | Spike — explore, generate spec, review | 8 |
 | `bug-fix-cycle.yaml` | Bug fix — classify, investigate, fix, stress, E2E gate, review | 19 |
+| `mechanical-fix-cycle.yaml` | Mechanical TODO — `implement-todo` + commit-intent + `ops:check` + commit. No research/blueprint/peer-review ceremony. | 6 |
 | `autopilot.yaml` | Autopilot loop orchestration | — |
 
 **Schema:** `workflows/schema.md` — node properties, template expressions, execution rules.
@@ -115,6 +116,9 @@ lattice cost [topic]                  Per-topic cost report
 | Skill | Purpose |
 |-------|---------|
 | `/lattice:distill` | Corpus-level reasoning — thesis construction, domain adaptation, doc coherence audit, grounded Q&A. **Knowledge Promotion step (LIT-05):** novel cross-subsystem connections surfaced during the run get prompted for promotion to `docs/_internal/knowledge/`; declined candidates persist via a `Distill-Insight:` trailer in `decisions.log` so future corpus loads can reference them |
+| `/lattice:extract-learnings` | At spec-archive, extract durable knowledge from the implemented spec into `knowledge/` + `architecture/`. Enforces CLAUDE.md rule 6 — fires per spec-archive event, not per cycle-close |
+| `/lattice:lint-knowledge` | Lint the knowledge corpus — generic ID/citation linter plus all typed-schema audits (knowledge-graph, contract-triangles, etc.). Persists findings to TODO.md |
+| `/lattice:lit-triage` | Triage orphan PDFs in `research/literature/` — extract text via PyMuPDF, assess relevance against load-bearing knowledge surfaces, append verdict to `PDF-TRIAGE.md`. Promotes to literature notes only on human confirmation |
 
 ### Cycles (orchestrators)
 | Skill | Purpose |
@@ -141,7 +145,11 @@ lattice cost [topic]                  Per-topic cost report
 | `/lattice:spike` | Exploratory implementation with pre-write discipline (no spec ceremony) |
 | `/lattice:spec-from-code` | Reverse-engineer spec from successful spike |
 | `/lattice:review` | Quality gate — architect review + decision audit + deferral litmus test + four-dimension trace |
+| `/lattice:implement-todo` | Apply a single TODO.md mechanical fix end-to-end — read, locate, edit, declare commit intent. The skill `mechanical-fix-cycle.yaml` invokes. Effort is not a gate; correctness is |
 | `/lattice:ux-designer` | Datagrok design system compliance audit |
+| `/lattice:ux-audit-walk` | Stage 1 of UX-audit pipeline. Playwright walk of a persona × workflow that produces a candidate audit README. Output is hypotheses, not findings |
+| `/lattice:ux-audit-validate` | Stage 2 of UX-audit pipeline. Filters walk-time GAP candidates against rule files + code via the 5-step Grep checklist + pre-approved conventions. Required before any candidate becomes a TODO entry |
+| `/lattice:ux-audit-file` | Stage 3 of UX-audit pipeline. Promotes validated findings into TODO.md GAP entries with the correct recommendation form, then closes out the audit's INDEX status |
 
 ### Ops
 | Skill | Purpose |
@@ -252,6 +260,8 @@ Built into `/lattice:distill`:
 | `append-attestation.sh` / `test-attestation-format.sh` | SIMPLIFY-1 unified `attestations[]` format for `review-gate.json` — peer-review verdicts, architect verdicts, spec-lint waivers all funnel through one format that `write-review-gate.sh` validates |
 | `design-session.sh` / `design-mode-gate.sh` | Design-mode preamble gate. `design-session.sh begin <trigger>` writes `.lattice/design-mode.lock`; `preamble-done <evidence>` validates the four `/lattice:design` Step 1 blocks were authored; `design-mode-gate.sh` is a PreToolUse Write\|Edit hook that BLOCKS in-scope UI edits when the lock is `pending`. Mechanical enforcement of the prompt-level gate (port-mode redesign was the failure mode). |
 | `discovery-scan.py` | Discovery-scan template — runs corpus-wide pattern checks |
+| `audit-corpus-citations.py` / `audit-peer-review-citations.py` / `audit-novel-source-discovery.py` | LIT-DS literature trail audits — corpus-wide cite extractor + load-bearing classifier, retroactive peer-review citation extractor, novel-source discovery audit. Wired into `/lattice:peer-review` verify-before-citing gate |
+| `extract-pdf-text.py` | PyMuPDF text-extract wrapper used by `/lattice:lit-triage` |
 | `merge-shared-state.sh` | Refresh shared files (TODO.md, ROADMAP.md, etc.) from HEAD during concurrent sessions |
 | `context-meter.sh` | Measure conversation context usage |
 
