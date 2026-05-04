@@ -16,7 +16,8 @@
  *   - unresolved-cascade (BREAKS): system integrity concern
  */
 
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { atomicWriteFileSync } from './state-io.js';
 import { spawnSync } from 'node:child_process';
 import yaml from 'js-yaml';
 import type { PlatformAdapter } from './types.js';
@@ -415,7 +416,7 @@ function applyResolution(result: AutoResolveResult, cwd: string): void {
         break;
     }
 
-    writeFileSync(statePath, yaml.dump(data, { lineWidth: -1 }), 'utf-8');
+    atomicWriteFileSync(statePath, yaml.dump(data, { lineWidth: -1 }));
   }
 }
 

@@ -14,7 +14,8 @@
  */
 
 import { execSync } from 'node:child_process';
-import { readFileSync, writeFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { atomicWriteFileSync } from './state-io.js';
 import type { TopicState } from './coherence.js';
 
 export interface ReconciliationResult {
@@ -266,7 +267,7 @@ function updateStateFile(filePath: string, newPhase: string): void {
       }
     }
 
-    writeFileSync(filePath, updated, 'utf-8');
+    atomicWriteFileSync(filePath, updated);
   } catch {
     // File unwritable
   }

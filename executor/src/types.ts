@@ -172,6 +172,14 @@ export interface WorkflowRun {
   activeRoutes: Set<string>;
   /** Aggregated cost across all nodes in this run */
   totalCost: WorkflowCost;
+  /**
+   * Expected state-file revision (CRITICAL-6 fix, 2026-05-04 audit). Set
+   * at workflow start to the current `revision` value in the state file
+   * and updated after every checkpoint write. `writeCheckpoint` throws
+   * when this value disagrees with what's on disk -- a concurrent writer
+   * has clobbered the state file.
+   */
+  expectedRevision?: number;
 }
 
 export interface WorkflowCost {

@@ -6,7 +6,8 @@
  * Integrates with .lattice/cycle-state/ files.
  */
 
-import { readFileSync, writeFileSync, existsSync, appendFileSync, utimesSync } from 'node:fs';
+import { readFileSync, existsSync, appendFileSync, utimesSync } from 'node:fs';
+import { atomicWriteFileSync } from './state-io.js';
 import { execSync } from 'node:child_process';
 import yaml from 'js-yaml';
 import type {
@@ -124,7 +125,15 @@ export async function executeWorkflow(
   // Build execution layers
   const layers = buildExecutionLayers(wf);
 
-  // Initialize run
+  // Initialize run.
+  //
+  // `expectedRevision` is the state-file revision read at workflow start.
+  // Each writeCheckpoint compares the file's current revision against this
+  // value; on mismatch (concurrent writer detected), the write throws.
+  // This is the CRITICAL-6 fix from the 2026-05-04 audit -- the contract
+  // `revision_check: true` declared in every cycle YAML and documented in
+  // CLAUDE.md/ENFORCEMENT.md was never enforced before.
+  const initialRevision = parseInt(stateData['revision'] ?? '0', 10) || 0;
   const run: WorkflowRun = {
     workflowName: wf.name,
     inputs,
@@ -133,6 +142,7 @@ export async function executeWorkflow(
     nodeResults: {},
     activeRoutes: new Set(),
     totalCost: { totalUSD: 0, totalInputTokens: 0, totalOutputTokens: 0, byNode: {} },
+    expectedRevision: initialRevision,
   };
 
   // Load budget config (optional)
@@ -275,7 +285,7 @@ export async function executeWorkflow(
         if (result.status === 'completed') {
           const node = wf.nodes[result.nodeId];
           if (node.checkpoint) {
-            writeCheckpoint(wf, inputs, cwd, node.checkpoint.state_key, node.checkpoint.phase, result);
+            writeCheckpoint(wf, inputs, cwd, node.checkpoint.state_key, node.checkpoint.phase, result, run);
             // WIP commit if too many uncommitted files accumulate
             await maybeWipCommit(cwd, topicName, node.checkpoint.state_key, adapter);
           }
@@ -344,7 +354,7 @@ export async function executeWorkflow(
       await adapter.sendMessage(`  [${targetId}] ${icon}${routeResult.error ? ` -- ${routeResult.error}` : ''}`);
 
       if (routeResult.status === 'completed' && targetNode.checkpoint) {
-        writeCheckpoint(wf, inputs, cwd, targetNode.checkpoint.state_key, targetNode.checkpoint.phase, routeResult);
+        writeCheckpoint(wf, inputs, cwd, targetNode.checkpoint.state_key, targetNode.checkpoint.phase, routeResult, run);
       }
     }
   }
@@ -571,6 +581,7 @@ function writeCheckpoint(
   stateKey: string,
   phase: string | undefined,
   result: NodeResult,
+  run?: WorkflowRun,
 ): void {
   const path = resolveStatePath(wf, inputs, cwd);
   if (!path) return;
@@ -584,13 +595,34 @@ function writeCheckpoint(
     }
   }
 
+  // Revision check (CRITICAL-6 fix from the 2026-05-04 audit). Pre-fix the
+  // engine incremented the `revision` counter but never compared it against
+  // an expected value, so two parallel writers could overwrite each other's
+  // updates silently. The CLAUDE.md / WORKFLOW-INTERNALS / ENFORCEMENT docs
+  // promised "STOP on revision mismatch" -- this is where the promise lands
+  // in code. Triggered when `wf.state.revision_check === true` (declared in
+  // every shipped cycle YAML).
+  if (wf.state?.revision_check && run?.expectedRevision !== undefined) {
+    const currentRev = typeof data['revision'] === 'number' ? data['revision'] : 0;
+    if (currentRev !== run.expectedRevision) {
+      throw new Error(
+        `Revision mismatch on ${path}: expected ${run.expectedRevision}, found ${currentRev}. ` +
+        `A concurrent writer modified this state file between our last write and now. ` +
+        `Aborting to avoid clobbering the other agent's update. ` +
+        `Inspect '.lattice/decisions.log' for the conflicting holder.`,
+      );
+    }
+  }
+
   // Update state
   data['current_step'] = stateKey;
   if (phase) data['phase'] = phase;
 
-  // Revision check
+  // Bump revision
   const revision = typeof data['revision'] === 'number' ? data['revision'] : 0;
-  data['revision'] = (revision as number) + 1;
+  const newRev = (revision as number) + 1;
+  data['revision'] = newRev;
+  if (run) run.expectedRevision = newRev;
 
   // Write checkpoint entry
   if (!data['checkpoints']) data['checkpoints'] = {};
@@ -600,7 +632,7 @@ function writeCheckpoint(
     status: result.status,
   };
 
-  writeFileSync(path, yaml.dump(data, { lineWidth: -1 }), 'utf-8');
+  atomicWriteFileSync(path, yaml.dump(data, { lineWidth: -1 }));
 
   // Heartbeat: refresh the topic-lock meta mtime so long-running workflows
   // don't trip acquire-topic-lock.sh's stale threshold and lose their lock
@@ -703,7 +735,7 @@ function writeCostToState(
     nodes: mergedNodes,
   };
 
-  writeFileSync(path, yaml.dump(data, { lineWidth: -1 }), 'utf-8');
+  atomicWriteFileSync(path, yaml.dump(data, { lineWidth: -1 }));
 }
 
 // ── WIP checkpoint commits ─────────────────────────────────
