@@ -224,16 +224,40 @@ function matchGlobSimple(pattern: string, filePath: string): boolean {
  * 3. last-commit — clean tree on base branch, compare HEAD vs HEAD~1
  */
 export function detectComparisonMode(baseBranch: string, cwd: string): ComparisonMode {
-  // Check if HEAD is ahead of base
+  // Check if HEAD is ahead of base.
+  //
+  // MEDIUM-5 fix from the 2026-05-04 audit: distinguish "rev-list returned 0
+  // commits ahead" (HEAD == base) from "rev-list errored" (transient git
+  // lock, missing ref, etc.). Pre-fix, both cases fell through to
+  // 'uncommitted' silently -- but a transient git error is NOT semantically
+  // equivalent to "no commits ahead" and would trigger uncommitted-mode
+  // stash + run on a tree the caller didn't intend to test.
+  //
+  // We surface the failure as a thrown error rather than silent fallthrough.
+  // The caller (runBranchComparison) catches and writes 'error' verdict.
+  let ahead: number;
   try {
-    const ahead = execSync(`git rev-list --count ${baseBranch}..HEAD`, {
-      cwd, encoding: 'utf-8', timeout: 5_000,
+    const out = execSync(`git rev-list --count ${baseBranch}..HEAD`, {
+      cwd, encoding: 'utf-8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'],
     }).trim();
-    if (parseInt(ahead, 10) > 0) return 'branch';
-  } catch {
-    // If base branch doesn't exist or other error, fall through
+    ahead = parseInt(out, 10);
+    if (Number.isNaN(ahead)) {
+      throw new Error(`detectComparisonMode: rev-list returned non-numeric output: ${JSON.stringify(out)}`);
+    }
+  } catch (err) {
+    // Distinguish "no such ref" from a transient failure. ENOENT-shaped
+    // failures from git are diagnosable; surface them as e2e errors so the
+    // caller doesn't silently fall through to uncommitted mode.
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(
+      `detectComparisonMode: 'git rev-list --count ${baseBranch}..HEAD' failed -- ${msg}. ` +
+      `Cannot determine whether HEAD is ahead of '${baseBranch}'. Verify the base branch exists ` +
+      `(e.g., 'git fetch origin') or pin 'base_branch' explicitly in .lattice/e2e.yaml.`,
+    );
   }
-
+  if (ahead > 0) return 'branch';
+  // ahead === 0 case (HEAD == base): legitimate fall-through to next mode.
+  // Original try/catch wrapper preserved below for the porcelain check.
   // Check for uncommitted changes (staged + unstaged + untracked)
   try {
     const dirty = execSync('git status --porcelain', {

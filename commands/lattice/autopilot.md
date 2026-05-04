@@ -31,7 +31,7 @@ Both queues apply the same safety criteria. Either produces escalations to `ESCA
 Run the CLI reconciliation. This is ground truth.
 
 ```bash
-lattice status
+lattice status --reconcile
 ```
 
 Review output. If corrections were made, note them.
@@ -63,7 +63,7 @@ Each `ready` item should also carry a `score:` field (integer 0-27 from the pill
 lattice coherence --skip-reconcile
 ```
 
-**`--skip-reconcile` is mandatory here.** Step 0 (`lattice status`) already reconciled and wrote corrections. Running `lattice coherence` without the flag would re-scan git for no incremental benefit.
+**`--skip-reconcile` is mandatory here.** Step 0 (`lattice status --reconcile`) already reconciled and wrote corrections. Running `lattice coherence` without the flag would re-scan git for no incremental benefit.
 
 Read the output. Identify:
 - **Safe topics** — can advance
@@ -142,7 +142,7 @@ lattice coherence --skip-reconcile
 Wait — Step 3 commits have now changed git state. Re-reconcile:
 
 ```bash
-lattice status
+lattice status --reconcile
 lattice coherence --skip-reconcile
 ```
 
@@ -208,7 +208,7 @@ These halt the current item and get written to ESCALATION.md, but autopilot cont
 
 ## Anti-patterns
 
-1. **Running `lattice coherence` without `--skip-reconcile` when `lattice status` just ran in the same session.** Redundant git scan. The CLI now supports the flag.
+1. **Running `lattice coherence` without `--skip-reconcile` when `lattice status --reconcile` just ran in the same session.** Redundant git scan. The CLI now supports the flag.
 2. **Escalating every SCIENCE-FLAG as "needs SME".** See above. The gate terminates when the decision is made with citations, not when an SME signs off — because in a Claude-authored codebase, there is no SME in the feedback loop.
 3. **Advancing a TODO item tagged `waiting-data`.** The data is the blocker; Claude can't synthesize it from first principles. These go to the Data Acquisition bucket in `/lattice:prioritize`, not to autopilot.
 4. **Advancing an untagged TODO item.** If there's no `autopilot:` tag, you don't know if it's safe. Escalate for tagging.

@@ -145,6 +145,28 @@ def sync_consumer(path: Path, manifest: dict[str, str], template: str, check: bo
     if check:
         print(f"OUT-OF-SYNC: {path.name}", file=sys.stderr)
         return False
+    # Clobber check (MEDIUM-1 fix, 2026-05-04 audit). Mirror sync-skills.sh's
+    # discipline: if the target file has uncommitted edits in HEAD, skip the
+    # write and log the skip. The user is mid-edit; clobbering would lose
+    # their work.
+    try:
+        import subprocess
+        diff_rc = subprocess.run(
+            ["git", "diff", "--quiet", "HEAD", "--", str(path)],
+            cwd=str(ROOT), capture_output=True, check=False,
+        ).returncode
+        if diff_rc != 0:
+            skip_log = ROOT / ".lattice" / "sync-skip.log"
+            skip_log.parent.mkdir(parents=True, exist_ok=True)
+            from datetime import datetime, timezone
+            ts = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            with skip_log.open("a", encoding="utf-8") as fh:
+                fh.write(f"{ts}\tsync-workflow-includes.py\tSKIP\t{path.name}\treason=dirty-vs-HEAD\n")
+            print(f"SKIPPED (uncommitted edits): {path.name}", file=sys.stderr)
+            return False
+    except (FileNotFoundError, OSError):
+        # Not a git repo, or git unavailable -- proceed (no protection possible).
+        pass
     path.write_text(new_content, encoding="utf-8")
     print(f"synced: {path.name}")
     return False

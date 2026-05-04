@@ -82,19 +82,27 @@ for file in "${SHARED_FILES[@]}"; do
     # merge-file modifies the first argument in place
     cp "$file.head" "$file.merged"
     if git merge-file "$file.merged" "$file.base" "$file.local" 2>/dev/null; then
-        # Clean merge — no conflicts
+        # Clean merge - no conflicts
         echo "  MERGED CLEANLY"
-        cp "$file.merged" "$file"
+        # Atomic install via mv (MEDIUM-3 fix, 2026-05-04 audit). The pre-fix
+        # code used cp + then rm of temp files; an interrupt between cp and
+        # rm leaked temp files. mv is atomic on the same filesystem.
+        mv "$file.merged" "$file"
     else
-        # Conflict markers present — for shared state files, keep both
+        # Conflict markers present - for shared state files, keep both
         # (conflict markers in REGISTRY.md/TODO.md are better than lost data)
-        echo "  MERGE CONFLICT — keeping both versions (check for conflict markers)"
-        cp "$file.merged" "$file"
+        echo "  MERGE CONFLICT - keeping both versions (check for conflict markers)"
+        mv "$file.merged" "$file"
     fi
 
-    rm -f "$file.local" "$file.head" "$file.base" "$file.merged"
+    rm -f "$file.local" "$file.head" "$file.base"  # .merged already mv'd
     refresh_count=$((refresh_count + 1))
 done
+
+# Cleanup trap (MEDIUM-3 fix). On any unexpected exit, remove leftover
+# .local/.head/.base/.merged temp files so they don't accumulate. Set late
+# so the loop's normal cleanup runs first; this is the safety net.
+trap 'for f in "${SHARED_FILES[@]}"; do rm -f "$f.local" "$f.head" "$f.base" "$f.merged" 2>/dev/null; done' EXIT
 
 echo ""
 echo "SHARED STATE MERGE: $refresh_count files merged, $skip_count unchanged"

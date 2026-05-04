@@ -391,6 +391,11 @@ function cmdCoherence(): void {
   const cwd = process.cwd();
   const stateDir = resolve(cwd, '.lattice/cycle-state');
   const skipReconcile = 'skip-reconcile' in flags;
+  // MEDIUM-8 fix from the 2026-05-04 audit: `lattice coherence` looked
+  // read-only but called reconcileStates(write=true) unconditionally, which
+  // silently overwrote cycle-state files based on git-log heuristics. Now
+  // default to read-only; pass `--reconcile` to opt into mutation.
+  const reconcileMutates = 'reconcile' in flags;
 
   if (!existsSync(stateDir)) {
     console.error(`No cycle state directory at ${stateDir}`);
@@ -413,7 +418,7 @@ function cmdCoherence(): void {
     topics = loadPortfolioState(stateDir, cwd);
   } else {
     const rawTopics = loadPortfolioState(stateDir, cwd);
-    const recon = reconcileStates(rawTopics, cwd, true); // write=true, fix stale states
+    const recon = reconcileStates(rawTopics, cwd, reconcileMutates); // write only when --reconcile
     const corrections = recon.filter(r => r.action === 'corrected');
     if (corrections.length > 0) {
       log(formatReconciliation(recon));
@@ -458,8 +463,12 @@ function cmdCoherence(): void {
 }
 
 function cmdStatus(): void {
+  const flags = parseArgs();
   const cwd = process.cwd();
   const stateDir = resolve(cwd, '.lattice/cycle-state');
+  // MEDIUM-8 fix: see cmdCoherence above. `lattice status` was the same
+  // silent-mutation path. Default read-only; --reconcile to opt in.
+  const reconcileMutates = 'reconcile' in flags;
 
   if (!existsSync(stateDir)) {
     console.error(`No cycle state directory at ${stateDir}`);
@@ -474,7 +483,7 @@ function cmdStatus(): void {
 
   // Reconcile state against git FIRST
   const rawTopics = loadPortfolioState(stateDir, cwd);
-  const recon = reconcileStates(rawTopics, cwd, true);
+  const recon = reconcileStates(rawTopics, cwd, reconcileMutates);
   const corrections = recon.filter(r => r.action === 'corrected');
   if (corrections.length > 0) {
     log(formatReconciliation(recon));
