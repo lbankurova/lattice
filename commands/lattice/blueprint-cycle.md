@@ -1,6 +1,6 @@
 ---
 name: blueprint-cycle
-description: Blueprint phase — synthesize research into a validated build plan. Steps 0-7: implementation knowledge load → synthesize → architect gate → probe → plan review (2 rounds) → complete.
+description: "Blueprint phase — synthesize research into a validated build plan. Steps 0-7: implementation knowledge load → synthesize → architect gate → probe → plan review (2 rounds) → complete."
 ---
 
 You are orchestrating the **blueprint phase** of a topic. This cycle takes validated research and produces a validated build plan — architecturally gated, probed for cross-system impact, and challenged by two rounds of peer review.

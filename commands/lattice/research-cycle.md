@@ -1,6 +1,6 @@
 ---
 name: research-cycle
-description: Research phase — produce, challenge, and validate research. Steps 1-7: research → R1 → incorporate → R2 → evaluate → distill → probe.
+description: "Research phase — produce, challenge, and validate research. Steps 1-7: research → R1 → incorporate → R2 → evaluate → distill → probe."
 ---
 
 You are orchestrating the **research phase** of a topic. This cycle produces validated research — challenged by two rounds of peer review, checked for corpus coherence, and probed for cross-system impact.

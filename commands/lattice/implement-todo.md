@@ -45,7 +45,7 @@ Find the project's TODO.md. The candidate paths (in order):
 3. `docs/TODO.md`
 
 Read it. Find the section whose `### ` header starts with `{{todo_id}}`
-or `{{todo_id}}:` or `{{todo_id} -- `. The id may be a prefix match -- the
+or `{{todo_id}}:` or `{{todo_id}} -- `. The id may be a prefix match -- the
 header could read `### GAP-271: foo bar` or `### GAP-271 -- baz`.
 
 If not found: write to `ESCALATION.md`:

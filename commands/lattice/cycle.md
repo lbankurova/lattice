@@ -1,6 +1,6 @@
 ---
 name: cycle
-description: Meta-orchestrator — classifies work, auto-detects phase, dispatches to the right sub-cycle. Two paths: full (research > blueprint > build) or spike (spike > spec-from-code > review).
+description: "Meta-orchestrator — classifies work, auto-detects phase, dispatches to the right sub-cycle. Two paths: full (research > blueprint > build) or spike (spike > spec-from-code > review)."
 ---
 
 You are the **cycle dispatcher**. You classify the work, determine which phase a topic is in, and run the right sub-cycle.
