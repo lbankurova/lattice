@@ -20,10 +20,8 @@ workflow:
     prerequisite:
       phase: research-complete
 
-  lock:
-    type: topic
-    key: "{{inputs.topic}}"
-    holder: blueprint-cycle
+  # Lock: removed 2026-05-04 (audit MEDIUM-7). See build-cycle.yaml for
+  # rationale. acquire-lock / release-lock nodes are the actual mechanism.
 
   # ── Nodes ──────────────────────────────────────────────────
 

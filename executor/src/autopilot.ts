@@ -682,6 +682,16 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
           );
           await adapter.sendMessage(`  Root cause prefix: ${prefix}`);
           await adapter.sendMessage(`  See ESCALATION.md / decisions.log for details. Re-run autopilot after addressing the root cause.`);
+          // LOW-4 fix from the 2026-05-04 audit: persist the circuit-breaker
+          // trip to decisions.log so it survives terminal close. Pre-fix this
+          // only printed to stdout, making post-hoc audit impossible.
+          try {
+            const ts = new Date().toISOString();
+            const row = `${ts}\tautopilot\tCIRCUIT_BREAKER\t-\tprefix=${prefix.replace(/\t/g, ' ')}\tconsecutive=${consecutiveFailures}\n`;
+            execSync(`mkdir -p .lattice 2>/dev/null; printf '%s' ${JSON.stringify(row)} >> .lattice/decisions.log`, {
+              cwd, encoding: 'utf-8', timeout: 5_000,
+            });
+          } catch { /* best-effort */ }
           result.circuitBreakerTripped = true;
           break;
         }

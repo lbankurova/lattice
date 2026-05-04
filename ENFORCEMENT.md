@@ -10,6 +10,19 @@ See also:
 - [WORKFLOW.md](WORKFLOW.md) — pipeline overview and skill list
 - [WORKFLOW-INTERNALS.md](WORKFLOW-INTERNALS.md) — executor engine, autopilot, coherence, peer-review protocol
 
+## Safety audit 2026-05-04
+
+A broad audit of destructive git operations and concurrency safety found 6 CRITICAL + 7 HIGH + 8 MEDIUM + 5 LOW findings (full report at `.lattice/safety-audit-2026-05-04.md`). The fixes shipped in commits `113ac8d` … `0989d49` (and the doc-only follow-up containing this addendum). Summary of what changed and the section to look in:
+
+- **Lock model overhaul** (CRITICAL-1/2/3 + HIGH-1/5). Section 7 (Hooks) and a new "Lock lifecycle" section below: every cycle workflow's `release-lock` was being placed in Layer 0 and destroying the topic lock microseconds after acquire-lock took it; both `release-lock.sh` and `release-topic-lock.sh` had no ownership check; both PreToolUse hooks silently force-cleared stale locks at 300s; the heartbeat documented in CLAUDE.md was never implemented. All fixed.
+- **Path-scoped destructive ops** (CRITICAL-4 + HIGH-2 + the seed bug). Sections 8 + the per-item autopilot stash: autopilot's `stashIfDirty`, the engine's `maybeWipCommit`, and e2e's `git stash push` all ran against the entire dirty tree without checking ownership. Now: stash is path-scoped to (post − pre); maybeWipCommit no longer auto-commits (advisory only); e2e refuses to run when foreign dirty paths are present.
+- **State integrity** (CRITICAL-5/6). New atomic temp+rename writes via `executor/src/state-io.ts`; `revision_check: true` (declared in every cycle YAML) is now actually enforced -- writeCheckpoint reads the file's current revision and throws on mismatch.
+- **UX/input safety** (HIGH-3 + HIGH-6). Approval node no longer silently defaults to options[0] on invalid input -- re-prompts up to 3 times then aborts. CLI input sanitization on string-typed workflow inputs (`^[A-Za-z0-9_./-]+$`).
+- **Read-only inspection** (MEDIUM-8). `lattice status` and `lattice coherence` default to read-only; pass `--reconcile` to opt into mutation.
+- **Test harness** (HIGH-4). 30 regression tests across `executor/src/*.test.ts` (Node test runner) and `scripts/tests/test-lock-ownership.sh`. Run with `npm test` from `executor/`.
+
+Deferred items (filed for follow-up): MEDIUM-2 (autopilot snapshot timing), MEDIUM-4 (appendFileSync atomicity), MEDIUM-6 (auto-resolve writes outside topic lock), all LOWs.
+
 ## 1. Review Gate (`scripts/write-review-gate.sh` + `.git/hooks/pre-commit`)
 
 Every commit requires a review gate file (`.lattice/review-gate.json`). Two ways to create it:

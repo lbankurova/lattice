@@ -26,10 +26,10 @@ workflow:
     prerequisite:
       phase: blueprint-complete         # Skipped for spec_path entry
 
-  lock:
-    type: topic
-    key: "{{inputs.topic}}"
-    holder: build-cycle
+  # Lock: removed 2026-05-04 (audit MEDIUM-7). The top-level `lock:` field
+  # was descriptive only -- the engine never read it. Locks are acquired
+  # and released by the explicit `acquire-lock` / `release-lock` bash
+  # nodes below, with ownership checks added in the same audit (CRITICAL-2).
 
   # ── Nodes ──────────────────────────────────────────────────
 

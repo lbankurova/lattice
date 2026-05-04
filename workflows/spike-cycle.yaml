@@ -24,10 +24,8 @@ workflow:
       phase: spike
       current_step: spike.0
 
-  lock:
-    type: topic
-    key: "{{inputs.topic}}"
-    holder: spike-cycle
+  # Lock: removed 2026-05-04 (audit MEDIUM-7). See build-cycle.yaml for
+  # rationale. acquire-lock / release-lock nodes are the actual mechanism.
 
   # ── Nodes ──────────────────────────────────────────────────
 

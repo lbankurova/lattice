@@ -47,6 +47,10 @@ The `--source todo` and `--source topics` flags restrict to one queue; default m
 
 **Drain semantics (faf0f2b).** A failure or escalation on one item does NOT halt the queue. Per-item failures are captured (workflow stash on exit, `ESCALATION.md` row), the topic lock is released, and autopilot advances to the next item. The outer loop terminates only on `--max` cap, `--max-loops` cap, no-progress steady state, or budget exceeded. This makes autopilot idempotent over a partial-failure batch — re-invoke and it resumes draining.
 
+**Foreign-state stash discipline (post-2026-05-04 audit, commit `113ac8d`).** Per-item cleanup snapshots dirty paths BEFORE running each workflow item and stashes only paths that became dirty DURING that item. Anything dirty at item-start is foreign state (parallel session, residue from a prior item) and is left untouched. The pre-fix unscoped `git stash push -u` was the seed bug of the 2026-05-04 incident -- it swept ~2300 LOC of a parallel session into a stash labeled with autopilot's failing topic. See `executor/src/autopilot.ts::stashWorkflowOutput` and the foreign-state regression tests in `autopilot-stash.test.ts`.
+
+**Lock heartbeat (post-2026-05-04 audit, commit `f3225e3`).** The engine touches the topic-lock meta file's mtime after every checkpoint write (`engine.ts::refreshTopicLock`). Combined with the bumped 1-hour stale threshold in `acquire-topic-lock.sh`, normal long workflows (10-minute peer-review, 25-minute research-cycle pass) never trip the stale-clear path. Force-clears that DO fire are logged to `decisions.log` for post-hoc audit.
+
 **Autonomous decisions (no human):**
 - Classification (full/spike/bugfix)
 - Phase transitions (research -> blueprint -> build)

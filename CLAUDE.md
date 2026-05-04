@@ -278,7 +278,7 @@ Layer: implementation
 
 **`Phase:` values:** `research-complete`, `blueprint-complete`, `complete`. Use the phase that this commit COMPLETES, not the phase it starts. If the commit is mid-phase (one of several), omit `Phase:` — the final commit in the phase carries it.
 
-The executor's `lattice status` and `lattice coherence` commands run git-based reconciliation automatically — they grep for `Topic:` trailers and correct stale cycle state files. No manual state file maintenance needed.
+The executor's `lattice status` and `lattice coherence` commands grep `Topic:` trailers from git log and can correct stale cycle state files -- but as of the 2026-05-04 audit (MEDIUM-8 fix), the mutation is OPT-IN. Default behavior is read-only; pass `--reconcile` to write corrections. Skill prompts that need the corrections (e.g. `/lattice:autopilot` Step 0a) call `lattice status --reconcile` explicitly.
 
 ## Architecture Gotchas
 
