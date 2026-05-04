@@ -151,11 +151,11 @@ workflow:
     complete:
       type: bash
       depends_on: [review]
-      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}"
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}" "spike-cycle"
       checkpoint:
         state_key: complete
         phase: complete
 
     release-lock:
       type: bash
-      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}"
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}" "spike-cycle"

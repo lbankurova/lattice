@@ -22,7 +22,15 @@ set -euo pipefail
 TOPIC="${1:?Usage: acquire-topic-lock.sh <topic> [holder-name]}"
 HOLDER="${2:-agent}"
 LOCK_DIR=".lattice/cycle-lock/$TOPIC"
-STALE_THRESHOLD=1800  # 30 minutes
+# Stale threshold bumped 2026-05-04 from 1800s -> 3600s after audit
+# CRITICAL-3 + HIGH-5. Long workflows can exceed 30 minutes (research-cycle
+# with two peer-review rounds, blueprint-cycle through architect gate +
+# probe + plan review, build-cycle with full e2e gate). The engine
+# heartbeat (engine.ts -- refreshLockMeta after each checkpoint write)
+# keeps the meta mtime fresh during normal operation, so this threshold
+# is only reached when the holder genuinely crashed. Force-clears are
+# logged to decisions.log for audit.
+STALE_THRESHOLD=3600
 
 # Ensure parent exists
 mkdir -p .lattice/cycle-lock
@@ -58,9 +66,26 @@ check_reentrant() {
     return 1
 }
 
+log_force_clear() {
+    # Audit trail for force-clears (CRITICAL-3 fix, 2026-05-04). Even when
+    # the clear is legitimate, we want a permanent record so unexpected
+    # force-acquires can be diagnosed post-hoc.
+    local reason="$1"
+    local prev_holder="$2"
+    local age="$3"
+    local ts
+    ts=$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S)
+    if [ -d ".lattice" ]; then
+        printf '%s\tacquire-topic-lock.sh\tFORCED\t%s\treason=%s\tprev_holder=%s\tage_s=%s\tnew_holder=%s\n' \
+            "$ts" "$TOPIC" "$reason" "$prev_holder" "$age" "$HOLDER" \
+            >> .lattice/decisions.log 2>/dev/null || true
+    fi
+}
+
 check_stale() {
     if [ ! -f "$LOCK_DIR/meta" ]; then
         echo "STALE TOPIC LOCK (no metadata) for $TOPIC -- force-acquiring"
+        log_force_clear "no-metadata" "unknown" "0"
         rm -rf "$LOCK_DIR"
         return 0
     fi
@@ -73,8 +98,9 @@ check_stale() {
 
     if [ "$age" -gt "$STALE_THRESHOLD" ]; then
         local holder
-        holder=$(head -1 "$LOCK_DIR/meta" 2>/dev/null || echo "unknown")
+        holder=$(grep "^holder:" "$LOCK_DIR/meta" 2>/dev/null | head -1 | sed 's/^holder: *//' || echo "unknown")
         echo "STALE TOPIC LOCK (${age}s old, $holder) for $TOPIC -- force-acquiring"
+        log_force_clear "stale-${STALE_THRESHOLD}s-threshold" "$holder" "$age"
         rm -rf "$LOCK_DIR"
         return 0
     fi

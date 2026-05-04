@@ -601,11 +601,11 @@ workflow:
     complete:
       type: bash
       depends_on: [verify-gaps]
-      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}"
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}" "blueprint-cycle"
       checkpoint:
         state_key: build.0
         phase: blueprint-complete
 
     release-lock:
       type: bash
-      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}"
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}" "blueprint-cycle"

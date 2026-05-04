@@ -500,7 +500,7 @@ workflow:
     complete:
       type: bash
       depends_on: [verify-gaps]
-      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}"
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}" "research-cycle"
       checkpoint:
         state_key: research.complete
         phase: research-complete
@@ -509,5 +509,5 @@ workflow:
 
     release-lock:
       type: bash
-      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}"
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}" "research-cycle"
       # Reached via abort routes from approval nodes

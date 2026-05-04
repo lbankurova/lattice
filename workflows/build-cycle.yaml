@@ -142,11 +142,14 @@ workflow:
     complete:
       type: bash
       depends_on: [spec-refresh]
-      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}"
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}" "build-cycle"
       checkpoint:
         state_key: complete
         phase: complete
-
-    release-lock:
-      type: bash
-      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}"
+      # No abort path in build-cycle, so no parentless release-lock node.
+      # Removed 2026-05-04 after CRITICAL-1 audit: parentless release-lock was
+      # being placed in Layer 0 by Kahn's topological sort and destroyed the
+      # topic lock microseconds after acquire-lock took it. The `complete`
+      # node above is the only release path; on failure, the topic lock
+      # leaks and is recovered by the 30-minute stale-clear in
+      # acquire-topic-lock.sh, or via manual `release-topic-lock.sh`.

@@ -6,7 +6,7 @@
  * Integrates with .lattice/cycle-state/ files.
  */
 
-import { readFileSync, writeFileSync, existsSync, appendFileSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync, appendFileSync, utimesSync } from 'node:fs';
 import { execSync } from 'node:child_process';
 import yaml from 'js-yaml';
 import type {
@@ -299,6 +299,54 @@ export async function executeWorkflow(
         await adapter.sendMessage(`  [???] Unexpected error: ${error}`);
       }
     }
+
+    // ── Post-layer route-target dispatch (CRITICAL-1 fix, 2026-05-04 audit) ──
+    //
+    // Parentless route-only targets (typically `release-lock`) are excluded
+    // from the topological layer schedule by `getNodesExcludedFromLayers` so
+    // they no longer execute unconditionally in Layer 0. Instead, after each
+    // layer's gate/approval nodes have populated activeRoutes, we dispatch
+    // any newly-activated route target whose definition is parentless.
+    //
+    // Targets WITH depends_on still run via normal layer scheduling (their
+    // depends_on places them in a later layer; shouldExecute already gates on
+    // activeRoutes).
+    for (const targetId of run.activeRoutes) {
+      if (run.nodeResults[targetId]) continue;             // already executed
+      const targetNode = wf.nodes[targetId];
+      if (!targetNode) continue;                            // dangling reference, ignore
+      if (targetNode.depends_on && targetNode.depends_on.length > 0) continue; // not parentless
+
+      await adapter.sendMessage(`  [${targetId}] ${targetNode.type} (route target) -- starting`);
+      let routeResult: NodeResult;
+      try {
+        if (targetNode.type === 'parallel') {
+          routeResult = await executeParallelGroup(
+            targetId, targetNode as ParallelNode, wf, ctx, adapter, cwd,
+          );
+        } else {
+          routeResult = await executeNode(targetId, targetNode, ctx, adapter, cwd);
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        routeResult = {
+          nodeId: targetId,
+          status: 'failed',
+          output: '',
+          error: msg,
+          startedAt: new Date().toISOString(),
+          completedAt: new Date().toISOString(),
+        };
+      }
+      run.nodeResults[targetId] = routeResult;
+      ctx.nodes[targetId] = routeResult;
+      const icon = routeResult.status === 'completed' ? 'OK' : routeResult.status === 'skipped' ? 'SKIP' : 'FAIL';
+      await adapter.sendMessage(`  [${targetId}] ${icon}${routeResult.error ? ` -- ${routeResult.error}` : ''}`);
+
+      if (routeResult.status === 'completed' && targetNode.checkpoint) {
+        writeCheckpoint(wf, inputs, cwd, targetNode.checkpoint.state_key, targetNode.checkpoint.phase, routeResult);
+      }
+    }
   }
 
   run.status = 'completed';
@@ -553,6 +601,59 @@ function writeCheckpoint(
   };
 
   writeFileSync(path, yaml.dump(data, { lineWidth: -1 }), 'utf-8');
+
+  // Heartbeat: refresh the topic-lock meta mtime so long-running workflows
+  // don't trip acquire-topic-lock.sh's stale threshold and lose their lock
+  // mid-execution. HIGH-5 fix from the 2026-05-04 audit -- the heartbeat
+  // was documented in CLAUDE.md but never implemented before this commit.
+  refreshTopicLock(inputs, cwd);
+}
+
+/**
+ * Refresh the topic-lock meta file's mtime so the lock doesn't go stale
+ * during long workflows.
+ *
+ * Called after every checkpoint write. Best-effort -- if the lock dir
+ * doesn't exist (workflow doesn't take a topic lock), or the meta file
+ * is missing, or filesystem fails, the function silently returns. Lock
+ * staleness already has its own recovery path in acquire-topic-lock.sh,
+ * so a missed heartbeat means a longer workflow MIGHT trip stale; it
+ * doesn't cause data loss on its own.
+ *
+ * Heuristic for the topic name: looks for `inputs.topic` (every cycle
+ * workflow's required input). Optionally honors a per-workflow lock
+ * holder prefix from `wf.lock.key` if present (e.g., mechanical-fix-cycle
+ * uses `mechfix-{topic}`), but since `wf.lock.key` is a template not a
+ * computed value, we do prefix matching against a small known set
+ * rather than re-running the template engine. Future: pass the actual
+ * acquired-lock dir into engine.runWorkflow and look it up directly.
+ */
+function refreshTopicLock(
+  inputs: Record<string, string | number | boolean>,
+  cwd: string,
+): void {
+  const topic = inputs['topic'];
+  if (!topic || typeof topic !== 'string') return;
+
+  // Candidate lock dirs to refresh. Try plain topic name, then known
+  // prefixed variants. Whichever exists gets touched.
+  const candidates = [
+    `${cwd}/.lattice/cycle-lock/${topic}/meta`,
+    `${cwd}/.lattice/cycle-lock/mechfix-${topic}/meta`,
+    `${cwd}/.lattice/cycle-lock/bugfix-${topic}/meta`,
+  ];
+  const now = new Date();
+  for (const metaPath of candidates) {
+    try {
+      if (existsSync(metaPath)) {
+        utimesSync(metaPath, now, now);
+        // Touch only the first matching candidate -- any extras are stale.
+        return;
+      }
+    } catch {
+      // Best-effort; ignore.
+    }
+  }
 }
 
 // ── Cost persistence ───────────────────────────────────────

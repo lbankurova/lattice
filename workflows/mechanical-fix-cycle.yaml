@@ -185,11 +185,10 @@ workflow:
     complete:
       type: bash
       depends_on: [commit]
-      command: bash scripts/release-topic-lock.sh "mechfix-{{inputs.topic}}"
+      command: bash scripts/release-topic-lock.sh "mechfix-{{inputs.topic}}" "mechanical-fix-cycle"
       checkpoint:
         state_key: complete
         phase: complete
-
-    release-lock:
-      type: bash
-      command: bash scripts/release-topic-lock.sh "mechfix-{{inputs.topic}}"
+      # No abort path in mechanical-fix-cycle, so no parentless release-lock
+      # node. Removed 2026-05-04 after CRITICAL-1 audit. See build-cycle.yaml
+      # for the full rationale.

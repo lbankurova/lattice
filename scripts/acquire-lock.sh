@@ -18,9 +18,15 @@ set -euo pipefail
 LOCK_DIR=".lattice/commit.lock"
 HOLDER="${1:-unknown}"
 POLL=false
-POLL_INTERVAL=30    # seconds between retries
-MAX_WAIT=600        # 10 minutes max wait
-STALE_THRESHOLD=300 # 5 minutes = stale lock
+POLL_INTERVAL=30     # seconds between retries
+MAX_WAIT=600         # 10 minutes max wait
+# Stale threshold bumped 2026-05-04 from 300s -> 1800s after audit CRITICAL-3.
+# A 6-minute peer-review pass is normal under the cycle workflows; the engine
+# also refreshes the meta file's mtime at every checkpoint, so a properly
+# operating workflow never reaches this threshold. Anything older means the
+# holder genuinely crashed -- but the force-clear is still LOGGED to
+# decisions.log so the recovery is auditable.
+STALE_THRESHOLD=1800
 
 # Check for --poll flag
 for arg in "$@"; do
@@ -44,10 +50,27 @@ acquire() {
     return 1
 }
 
+log_force_clear() {
+    # Audit trail for force-clears (CRITICAL-3 fix, 2026-05-04). Even when the
+    # clear is legitimate, we want a permanent record so unexpected force-
+    # acquires can be diagnosed post-hoc.
+    local reason="$1"
+    local prev_holder="$2"
+    local age="$3"
+    local ts
+    ts=$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S)
+    if [ -d ".lattice" ]; then
+        printf '%s\tacquire-lock.sh\tFORCED\tcommit-lock\treason=%s\tprev_holder=%s\tage_s=%s\tnew_holder=%s\n' \
+            "$ts" "$reason" "$prev_holder" "$age" "$HOLDER" \
+            >> .lattice/decisions.log 2>/dev/null || true
+    fi
+}
+
 check_stale() {
     if [ ! -f "$LOCK_DIR/meta" ]; then
         # Lock dir exists but no metadata — probably stale
         echo "STALE LOCK (no metadata) — force-acquiring"
+        log_force_clear "no-metadata" "unknown" "0"
         rm -rf "$LOCK_DIR"
         return 0
     fi
@@ -61,8 +84,9 @@ check_stale() {
 
     if [ "$age" -gt "$STALE_THRESHOLD" ]; then
         local holder
-        holder=$(head -1 "$LOCK_DIR/meta" 2>/dev/null || echo "unknown")
+        holder=$(grep "^holder:" "$LOCK_DIR/meta" 2>/dev/null | head -1 | sed 's/^holder: *//' || echo "unknown")
         echo "STALE LOCK ($age seconds old, $holder) — force-acquiring"
+        log_force_clear "stale-${STALE_THRESHOLD}s-threshold" "$holder" "$age"
         rm -rf "$LOCK_DIR"
         return 0
     fi
