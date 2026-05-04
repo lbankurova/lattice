@@ -87,6 +87,40 @@ export interface E2EResult {
 const DEFAULT_TIMEOUTS = { per_suite: 120_000, total: 600_000 };
 
 /**
+ * Detect the repository's default branch via `git symbolic-ref refs/remotes/origin/HEAD`.
+ * Falls back to scanning local branches for `master` or `main` (in that order, since
+ * GitHub flipped its default mid-2020 — older repos still default to `master`).
+ * Throws when none of the lookups resolve, so the caller surfaces a clear error
+ * instead of silently producing `git rev-list main..HEAD` against a non-existent ref.
+ */
+export function detectDefaultBranch(cwd: string): string {
+  try {
+    const ref = execSync('git symbolic-ref --quiet refs/remotes/origin/HEAD', {
+      cwd, encoding: 'utf-8', timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim();
+    // Form: "refs/remotes/origin/master" -> "master"
+    const m = ref.match(/refs\/remotes\/origin\/(.+)$/);
+    if (m) return m[1];
+  } catch {
+    // Origin HEAD not set — fall through to local-branch probe.
+  }
+  for (const candidate of ['master', 'main']) {
+    try {
+      execSync(`git rev-parse --verify --quiet refs/heads/${candidate}`, {
+        cwd, encoding: 'utf-8', timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'],
+      });
+      return candidate;
+    } catch {
+      // Not present, try next.
+    }
+  }
+  throw new Error(
+    "Could not determine default branch. Set 'origin/HEAD' " +
+    "('git remote set-head origin --auto') or pin 'base_branch' in .lattice/e2e.yaml.",
+  );
+}
+
+/**
  * Load E2E config from .lattice/e2e.yaml in the project root.
  * Returns null if no config file exists (E2E not configured).
  */
@@ -121,7 +155,7 @@ export function loadE2EConfig(projectRoot: string): E2EConfig | null {
       per_suite: timeouts?.['per_suite'] ?? DEFAULT_TIMEOUTS.per_suite,
       total: timeouts?.['total'] ?? DEFAULT_TIMEOUTS.total,
     },
-    base_branch: (e2e['base_branch'] as string) ?? 'main',
+    base_branch: (e2e['base_branch'] as string) ?? detectDefaultBranch(projectRoot),
   };
 }
 
