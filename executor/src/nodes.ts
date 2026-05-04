@@ -539,30 +539,43 @@ export class CliAdapter implements PlatformAdapter {
 
     const rl = createInterface({ input: process.stdin, output: process.stdout });
 
-    return new Promise<string>((resolve) => {
-      rl.question('Enter option number (or ID): ', (answer) => {
-        rl.close();
-        const trimmed = answer.trim();
-
-        // Try as number
-        const num = parseInt(trimmed, 10);
-        if (num >= 1 && num <= options.length) {
-          resolve(options[num - 1].id);
-          return;
-        }
-
-        // Try as ID
-        const match = options.find(o => o.id === trimmed);
-        if (match) {
-          resolve(match.id);
-          return;
-        }
-
-        // Default to first option
-        console.log(`Invalid selection "${trimmed}", defaulting to: ${options[0].id}`);
-        resolve(options[0].id);
+    // HIGH-3 fix from the 2026-05-04 audit: do NOT silently default to
+    // options[0] on invalid input. Approval options are often ordered for
+    // narrative clarity, not safety -- defaulting to the first option can
+    // pick a destructive `revise` (re-runs synthesize, burns budget) or
+    // an irreversible `r1` (sides with R1 silently). On invalid/blank
+    // input, re-prompt up to 3 times before throwing.
+    const askOnce = (attempt: number): Promise<string> =>
+      new Promise<string>((resolve, reject) => {
+        const promptText = attempt === 0
+          ? 'Enter option number (or ID): '
+          : `(attempt ${attempt + 1}/3) Enter option number (or ID): `;
+        rl.question(promptText, (answer) => {
+          const trimmed = answer.trim();
+          const num = parseInt(trimmed, 10);
+          if (num >= 1 && num <= options.length) {
+            resolve(options[num - 1].id);
+            return;
+          }
+          const match = options.find(o => o.id === trimmed);
+          if (match) {
+            resolve(match.id);
+            return;
+          }
+          if (attempt >= 2) {
+            reject(new Error(
+              `Invalid approval selection "${trimmed}" after 3 attempts. Aborting workflow. ` +
+              `(Pre-2026-05-04 audit fix: this used to default silently to options[0], which was ` +
+              `often a destructive choice. Now: explicit selection required.)`,
+            ));
+            return;
+          }
+          console.log(`Invalid selection "${trimmed}". Try again.`);
+          askOnce(attempt + 1).then(resolve).catch(reject);
+        });
       });
-    });
+
+    return askOnce(0).finally(() => rl.close());
   }
 
   getPlatformType(): string {

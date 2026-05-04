@@ -221,6 +221,32 @@ async function cmdRun(): Promise<void> {
   if (flags['mode']) inputs['mode'] = flags['mode'];
   if (flags['force']) inputs['force'] = true;
 
+  // HIGH-6 fix from the 2026-05-04 audit. Bash nodes execute with template
+  // substitution against `inputs`, including `{{inputs.topic}}` -- those
+  // strings land in `execSync(command)` which runs through the shell. A
+  // topic ID containing shell metacharacters (`$()`, backticks, semicolons,
+  // newlines) would inject arbitrary commands. Surface is small (workflow
+  // inputs are typically authored locally), but autopilot reads topic IDs
+  // from TODO.md and cycle-state filenames -- both writable by any skill
+  // -- so a malicious or careless name could leak through.
+  //
+  // Validate string-typed inputs against a conservative allowlist:
+  // alphanumerics, underscore, dash, dot, slash. This is the same regex
+  // the audit recommended.
+  const TOPIC_RE = /^[A-Za-z0-9_./-]+$/;
+  for (const [key, value] of Object.entries(inputs)) {
+    if (typeof value === 'string' && !TOPIC_RE.test(value)) {
+      console.error(
+        `Workflow input '${key}' contains characters outside the safe set ` +
+        `(allowlist: alphanumerics, _, -, ., /). Value: ${JSON.stringify(value)}. ` +
+        `Refusing to run -- the value would be substituted into bash node ` +
+        `commands without escaping. Rename the topic / sanitize the value, ` +
+        `then retry.`,
+      );
+      process.exit(2);
+    }
+  }
+
   const adapter = new CliAdapter();
   const dryRun = 'dry-run' in flags;
 
