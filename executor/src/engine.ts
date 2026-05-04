@@ -574,7 +574,7 @@ function getCompletedCheckpoints(
   return completed;
 }
 
-function writeCheckpoint(
+export function writeCheckpoint(
   wf: Workflow,
   inputs: Record<string, string | number | boolean>,
   cwd: string,

@@ -13,7 +13,8 @@
  * volume. Closes CRITICAL-5 from the 2026-05-04 audit.
  */
 
-import { writeFileSync, renameSync } from 'node:fs';
+import { writeFileSync, renameSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 
 /**
  * Atomic-replace write: write to `<path>.tmp`, then rename to `<path>`.
@@ -28,6 +29,11 @@ import { writeFileSync, renameSync } from 'node:fs';
  */
 export function atomicWriteFileSync(path: string, content: string | Buffer): void {
   const tmpPath = `${path}.tmp`;
+  // Ensure parent directory exists. Pre-fix code relied on the dir being
+  // created elsewhere (e.g., the user setting up `.lattice/`); making the
+  // helper self-sufficient avoids ENOENT cascades when state files land
+  // in directories that haven't been touched yet.
+  mkdirSync(dirname(path), { recursive: true });
   writeFileSync(tmpPath, content, typeof content === 'string' ? 'utf-8' : undefined);
   renameSync(tmpPath, path);
 }

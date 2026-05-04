@@ -145,7 +145,7 @@ function rootCausePrefix(message: string | undefined): string {
  * of a parallel agent's work was swept into a stash labelled with
  * autopilot's failing topic, with no ownership check.
  */
-function captureDirtyPaths(cwd: string): Set<string> {
+export function captureDirtyPaths(cwd: string): Set<string> {
   try {
     const out = execSync('git status --porcelain -z -uall', {
       cwd, encoding: 'utf-8', timeout: 10_000,
@@ -189,7 +189,7 @@ function captureDirtyPaths(cwd: string): Set<string> {
  * The caller logs each outcome distinctly so `git stash list` and
  * decisions.log are interpretable.
  */
-function stashWorkflowOutput(
+export function stashWorkflowOutput(
   cwd: string,
   excludePaths: Set<string>,
   status: 'completed' | 'paused' | 'failed' | 'error',
