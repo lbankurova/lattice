@@ -128,19 +128,28 @@ workflow:
     architect-verdict:
       type: gate
       depends_on: [architect-and-probe]
+      # D3 (2026-05-05): SCIENCE-FLAG evaluates BEFORE SIMPLIFY/PASS so a
+      # probe-only SCIENCE-FLAG is not masked by an architect SIMPLIFY/PASS
+      # arriving on the same parallel-evaluation cycle. Per CLAUDE.md rule 19
+      # any SCIENCE-FLAG anywhere routes to the citation-memo path; the
+      # `architect-science-memo` node accepts flags from either upstream
+      # (architect or probe) -- its prompt header already says "raised by
+      # architect or probe". Evaluation order in `gate.evaluate[]` is
+      # first-match-wins (executor/src/engine.ts), so reordering here is
+      # the entirety of the fix.
       evaluate:
+        - condition: "{{nodes.architect-gate.output.verdict}} == 'SCIENCE-FLAG'"
+          route: architect-science-memo
+        - condition: "{{nodes.probe.output.verdict}} == 'SCIENCE-FLAG'"
+          route: architect-science-memo
         - condition: "{{nodes.architect-gate.output.verdict}} == 'PASS' && ({{nodes.probe.output.verdict}} == 'SAFE' || {{nodes.probe.output.verdict}} == 'PROPAGATES')"
           route: plan-review-r1
         - condition: "{{nodes.architect-gate.output.verdict}} == 'SIMPLIFY'"
           route: simplify-and-regate
         - condition: "{{nodes.architect-gate.output.verdict}} == 'REJECT'"
           route: architect-stop-reject
-        - condition: "{{nodes.architect-gate.output.verdict}} == 'SCIENCE-FLAG'"
-          route: architect-science-memo
         - condition: "{{nodes.probe.output.verdict}} == 'BREAKS'"
           route: probe-stop-breaks
-        - condition: "{{nodes.probe.output.verdict}} == 'SCIENCE-FLAG'"
-          route: architect-science-memo
         - condition: default
           route: plan-review-r1
 

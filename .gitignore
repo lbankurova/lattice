@@ -1,2 +1,5 @@
 # Lattice runtime state (not committed)
 .lattice/commit.lock/
+.lattice/last-review-output.md
+.lattice/review-gate.json
+.lattice/pending-attestations.json

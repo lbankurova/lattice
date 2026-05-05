@@ -2,8 +2,8 @@
 """
 sync-workflow-includes.py
 
-Propagates `workflows/_includes/science-flag-resolution.yaml` into the three
-consumer workflows (blueprint, research, bug-fix). The lattice executor
+Propagates `workflows/_includes/science-flag-resolution.yaml` into the four
+consumer workflows (blueprint, research, bug-fix, build). The lattice executor
 (`executor/src/loader.ts`) does not natively support sub-workflow includes,
 so the smallest viable mechanism is template-substitution + delimited
 marker regions.
@@ -87,6 +87,22 @@ CONSUMERS: dict[str, dict[str, str]] = {
             "        literature citations that justify either accepting the change\n"
             "        (the new behavior is more correct) or rejecting it (revise the\n"
             "        fix to preserve current behavior)."
+        ),
+    },
+    "build-cycle.yaml": {
+        "PREFIX": "review",
+        "UPSTREAM": "review-verdict",
+        "RESOLVED_ROUTE": "spec-refresh",
+        "REVISE_ROUTE": "implement",
+        "REVISE_LABEL": "Revise implementation to preserve current behavior",
+        "LOG_TAG": "build",
+        "MEMO_INTRO": (
+            "Review raised SCIENCE-FLAG on the build for topic {{inputs.topic}}\n"
+            "        -- the implementation would change analytical behavior. For each\n"
+            "        flagged item, attempt to author a decision memo with at least 3\n"
+            "        literature citations that justify either accepting the change\n"
+            "        (the new behavior is more correct) or rejecting it (revise the\n"
+            "        implementation to preserve current behavior)."
         ),
     },
 }

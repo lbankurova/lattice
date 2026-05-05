@@ -53,6 +53,22 @@ EXECUTOR_DIR="$REPO_ROOT/executor"
 ALGO_PATHS_FILE="$REPO_ROOT/.lattice/algorithm-paths.txt"
 PENDING_ATTESTATIONS_FILE="$REPO_ROOT/.lattice/pending-attestations.json"
 
+# D7 (2026-05-05): mandatory 7-section anchor enforcement.
+# The review skill (commands/lattice/review.md:18-30) declares 7 mandatory
+# output sections (CHANGES, ARCHITECT REVIEW, DECISION AUDIT, REQUIREMENT
+# TRACE, MECHANICAL CHECKS, DOCS UPDATE, VERDICT). Pre-D7 enforcement was
+# prose only; design-mode-gate.sh has a real lock script as the comparison
+# template. Side-channel file: review.md writes the structured review
+# output to LAST_REVIEW_OUTPUT_FILE before invoking write-review-gate.sh;
+# the gate greps for the seven anchors. Missing any -> non-zero exit with
+# the missing list.
+#
+# The check is OPT-IN by file presence: if .lattice/last-review-output.md
+# does not exist (e.g., a skip-review trivial-fix invocation), the check
+# is SKIPPED. When the file exists, the check is ENFORCED. Skill prose
+# discipline still requires the side-channel file for full reviews.
+LAST_REVIEW_OUTPUT_FILE="$REPO_ROOT/.lattice/last-review-output.md"
+
 VERDICT="${1:-pass}"
 SUMMARY="${2:-Review passed}"
 
@@ -223,6 +239,51 @@ PYEOF
             exit 1
             ;;
     esac
+fi
+
+# --- Check 2.5: 7-section anchor enforcement (D7) ---
+# When the side-channel review-output file exists, grep for the seven
+# mandatory section anchors declared by commands/lattice/review.md:18-30.
+# Missing anchors -> non-zero exit with the missing list.
+if [ -f "$LAST_REVIEW_OUTPUT_FILE" ]; then
+    CHECKS_RUN=$((CHECKS_RUN + 1))
+    echo "--- Check: Review output 7-section anchors (D7) ---"
+
+    REQUIRED_ANCHORS=(
+        "^## CHANGES"
+        "^## ARCHITECT REVIEW"
+        "^## DECISION AUDIT"
+        "^## REQUIREMENT TRACE"
+        "^## MECHANICAL CHECKS"
+        "^## DOCS UPDATE"
+        "^## VERDICT"
+    )
+
+    MISSING_ANCHORS=()
+    for anchor in "${REQUIRED_ANCHORS[@]}"; do
+        if ! grep -qE "$anchor" "$LAST_REVIEW_OUTPUT_FILE"; then
+            # Strip the leading ^## for the user-facing missing list
+            display="${anchor#^## }"
+            MISSING_ANCHORS+=("$display")
+        fi
+    done
+
+    if [ "${#MISSING_ANCHORS[@]}" -gt 0 ]; then
+        echo "  FAIL: review output is missing ${#MISSING_ANCHORS[@]} mandatory section(s):"
+        for missing in "${MISSING_ANCHORS[@]}"; do
+            echo "    - ## $missing"
+        done
+        echo ""
+        echo "  Side-channel file: $LAST_REVIEW_OUTPUT_FILE"
+        echo "  See commands/lattice/review.md \"Mandatory Output Sections\" for the contract."
+        echo ""
+        echo "  Resolution: edit the file to include each missing section anchor (a"
+        echo "  markdown ## heading with the exact name), then re-run this script."
+        exit 1
+    fi
+
+    echo "  PASS: all 7 mandatory section anchors present."
+    CHECKS_PASSED=$((CHECKS_PASSED + 1))
 fi
 
 # --- Check 3: Attestations (SIMPLIFY-1 unified format) ---

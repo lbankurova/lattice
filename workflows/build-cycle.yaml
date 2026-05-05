@@ -42,13 +42,145 @@ workflow:
       command: bash scripts/acquire-topic-lock.sh "{{inputs.topic}}" "build-cycle"
       on_failure: stop
 
+    # ── Layer 0.5: Pre-implement gate (D2) ───────────────────
+    #
+    # A spec arriving directly to `incoming/` and picked up by build-cycle
+    # (via spec_path input) skips F5 spec-lint, F3 algorithmic peer-review,
+    # and SPEC-VALUE-AUDIT (rule 17). The blueprint-cycle path runs these
+    # at synthesize/architect-and-probe; the path-based entry into build
+    # bypasses them. Without this gate, an algorithmic spec lacking
+    # knowledge-graph citation can reach implement and ship.
+    #
+    # The architect skill in `gate` mode dispatches:
+    #   Step 1.25 — algorithmic-spec detection + peer-review (F3) — BLOCKING
+    #   Step 1.4  — spec lint (F5) — BLOCKING in --strict mode
+    #   Step 1.5  — SPEC-VALUE-AUDIT (rule 17) — BLOCKING for multi-feature specs
+    #   Step 2    — architect-reviewer agent (PASS|SIMPLIFY|REJECT|SCIENCE-FLAG)
+    #
+    # Block on any non-PASS verdict. SIMPLIFY auto-applies in architect Step 3
+    # (re-gate); REJECT and SCIENCE-FLAG escalate. Cycle skill output captures
+    # the architect verdict; the gate below routes accordingly.
+
+    pre-implement-gate:
+      type: skill
+      skill: lattice/architect
+      context: fresh
+      depends_on: [acquire-lock]
+      verdict_enum: architect
+      inputs:
+        mode: gate
+        spec_path: "{{inputs.spec_path}}"
+      checkpoint:
+        state_key: build.0.5
+        captures: [verdict, simplifications, flags]
+      log: true
+
+    pre-implement-verdict:
+      type: gate
+      depends_on: [pre-implement-gate]
+      evaluate:
+        - condition: "{{nodes.pre-implement-gate.output.verdict}} == 'PASS'"
+          route: implement
+        - condition: "{{nodes.pre-implement-gate.output.verdict}} == 'SCIENCE-FLAG'"
+          route: pre-implement-stop-science
+        - condition: "{{nodes.pre-implement-gate.output.verdict}} == 'REJECT'"
+          route: pre-implement-stop-reject
+        - condition: "{{nodes.pre-implement-gate.output.verdict}} == 'SIMPLIFY'"
+          route: pre-implement-stop-simplify
+        - condition: default
+          route: pre-implement-stop-reject
+
+    # Pre-implement SCIENCE-FLAG gets its own escalation rather than the
+    # post-review memo block: at pre-implement time no implementation diff
+    # exists yet, so the on-data verification path of rule 19 has no target
+    # to verify. The architect-reviewer's flag indicates the SPEC encodes
+    # an analytical behavior change without citation; resolution is to
+    # author the citation memo or revise the spec, not to ship and verify.
+    # Route to user-approval so the spec gets re-authored before implement.
+
+    pre-implement-stop-science:
+      type: approval
+      depends_on: [pre-implement-verdict]
+      prompt: |
+        Pre-implement gate raised SCIENCE-FLAG on the spec. The spec
+        proposes analytical behavior change without citing the typed
+        knowledge graph or regulatory source. Per CLAUDE.md rule 19, the
+        flag clears via (1) revise spec to preserve current behavior,
+        (2) author >=3-citation memo and re-submit, or (3) explicit defer
+        with named dependency.
+
+        Architect output:
+        {{nodes.pre-implement-gate.output}}
+
+        How do you want to proceed?
+      options:
+        - id: revise
+          label: "Revise spec -- return to incoming/ for rework"
+          route: release-lock
+        - id: memo
+          label: "Author memo + revise spec, then re-enter cycle"
+          route: release-lock
+        - id: defer
+          label: "Defer with named dependency (logged)"
+          route: release-lock
+        - id: abort
+          label: "Abort"
+          route: release-lock
+
+    pre-implement-stop-reject:
+      type: approval
+      depends_on: [pre-implement-verdict]
+      prompt: |
+        Pre-implement gate REJECTED the spec. F5 lint, F3 peer-review,
+        SPEC-VALUE-AUDIT, or architect-reviewer found a blocking defect.
+
+        Architect output:
+        {{nodes.pre-implement-gate.output}}
+
+        How do you want to proceed?
+      options:
+        - id: revise
+          label: "Revise spec -- return for rework"
+          route: release-lock
+        - id: override
+          label: "Override -- proceed to implement anyway (logged)"
+          route: implement
+        - id: abort
+          label: "Abort"
+          route: release-lock
+
+    pre-implement-stop-simplify:
+      type: approval
+      depends_on: [pre-implement-verdict]
+      prompt: |
+        Pre-implement gate returned SIMPLIFY. Architect proposed
+        simplifications; per blueprint-cycle's auto-apply pattern, Risk:None
+        cuts are rubber-stamp and Risk:SCIENCE-FLAG cuts route to memo.
+        Build-cycle's path-entry case lacks the synthesis doc to revise
+        in-place, so this surfaces to the user for an explicit decision.
+
+        Architect output:
+        {{nodes.pre-implement-gate.output}}
+
+        How do you want to proceed?
+      options:
+        - id: apply
+          label: "Apply simplifications to the spec, then implement"
+          route: implement
+        - id: proceed
+          label: "Proceed to implement without applying"
+          route: implement
+        - id: abort
+          label: "Abort"
+          route: release-lock
+
     # ── Layer 1: Implement ───────────────────────────────────
 
     implement:
       type: skill
       skill: lattice/implement
       context: inherit
-      depends_on: [acquire-lock]
+      depends_on: [pre-implement-verdict, pre-implement-stop-reject, pre-implement-stop-simplify, pre-implement-stop-science]
       inputs:
         spec_path: "{{inputs.spec_path}}"
       # Implement handles its own internal phases:
@@ -115,8 +247,117 @@ workflow:
       # Review offers to commit when all checks pass.
       checkpoint:
         state_key: build.2
-        captures: [verdict, commit_hash, gaps_persisted]
+        captures: [verdict, commit_hash, gaps_persisted, has_science_flag]
       log: true
+
+    # ── Layer 2.5: Review verdict gate ─────────────────────────
+    #
+    # Review's overall verdict enum is PASS|FAIL (workflows/verdict-enums.yaml
+    # `enums.review`). A SCIENCE-FLAG raised inside review by any agent
+    # (architect, decision-auditor, requirement reviewer, peer-reviewer) is
+    # surfaced via has_science_flag boolean -- it does NOT collapse into the
+    # review verdict. Per CLAUDE.md rule 19, an algorithmic-touching build that
+    # raises SCIENCE-FLAG must route to the citation-memo path; without this
+    # gate the flag is silent passthrough and reaches `commit` unaddressed.
+    # See `docs/skills-includes/science-flag-protocol.md` for the canonical
+    # protocol; the memo block below is auto-synced from
+    # `workflows/_includes/science-flag-resolution.yaml`.
+
+    review-verdict:
+      type: gate
+      depends_on: [review]
+      evaluate:
+        - condition: "{{nodes.review.output.has_science_flag}} == true"
+          route: review-science-memo
+        - condition: "{{nodes.review.output.verdict}} == 'PASS'"
+          route: spec-refresh
+        - condition: default
+          route: spec-refresh
+
+    # ── SCIENCE-FLAG memo resolution ────────────────────────
+    # Per the d8dd418 contract: SCIENCE-FLAG resolves by Claude authoring
+    # a decision memo with >=3 literature citations, NOT by waiting for
+    # an SME. User escalation only when citations cannot be found.
+    #
+    # The block below is auto-synced from
+    # `workflows/_includes/science-flag-resolution.yaml` by
+    # `scripts/sync-workflow-includes.py`. DO NOT edit between the markers.
+    # To change the protocol: edit the include, run the sync script, then
+    # `node executor/dist/cli.js validate`.
+
+    # === BEGIN SCIENCE-FLAG-MEMO (synced from _includes/science-flag-resolution.yaml) ===
+    review-science-memo:
+      type: skill
+      skill: null
+      context: fresh
+      depends_on: [review-verdict]
+      prompt_append: |
+        Review raised SCIENCE-FLAG on the build for topic {{inputs.topic}}
+        -- the implementation would change analytical behavior. For each
+        flagged item, attempt to author a decision memo with at least 3
+        literature citations that justify either accepting the change
+        (the new behavior is more correct) or rejecting it (revise the
+        implementation to preserve current behavior).
+
+        Permitted sources for citations:
+        - docs/_internal/knowledge/species-profiles.md
+        - docs/_internal/knowledge/vehicle-profiles.md
+        - docs/_internal/knowledge/methods-index.md
+        - docs/_internal/knowledge/field-contracts.md
+        - peer-reviewed research streams in docs/_internal/research/
+        - prior validated decisions in .lattice/decisions.log
+
+        For each flag, output:
+          FLAG_ID: [identifier from upstream output]
+          DESCRIPTION: [what the flag claims would change analytically]
+          DECISION: ACCEPT_CHANGE | REJECT_CHANGE
+          MEMO_PATH: [decisions.log entry, or research/ doc path if substantive]
+          CITATIONS: [list of >=3 cited sources with file:line or paper refs]
+          STATUS: RESOLVED | CITATIONS_NOT_FOUND
+
+        If a flag has fewer than 3 verifiable citations after genuine
+        search, output STATUS: CITATIONS_NOT_FOUND with a list of what
+        you searched and what specific evidence was missing. Do not
+        manufacture citations.
+
+        Append RESOLVED memos to .lattice/decisions.log:
+        TIMESTAMP\tbuild\tSCIENCE_FLAG_RESOLVED\ttopic={{inputs.topic}}\tflag=<id>\tdecision=<accept|reject>\tcitations=<n>
+
+        Final summary line:
+        MEMO_VERDICT=all_resolved | MEMO_VERDICT=partial_unresolved
+      log: true
+
+    review-science-route:
+      type: gate
+      depends_on: [review-science-memo]
+      evaluate:
+        - condition: "{{nodes.review-science-memo.output}}.contains('MEMO_VERDICT=all_resolved')"
+          route: spec-refresh
+        - condition: default
+          route: review-stop-science
+
+    review-stop-science:
+      type: approval
+      depends_on: [review-science-route]
+      prompt: |
+        SCIENCE-FLAG could not be fully resolved via the citation-memo
+        path -- one or more flags lacked >=3 verifiable citations after
+        genuine search. The arbiter's report:
+
+        {{nodes.review-science-memo.output}}
+
+        How do you want to proceed?
+      options:
+        - id: accept
+          label: "Accept -- note rationale in commit message"
+          route: spec-refresh
+        - id: revise
+          label: "Revise implementation to preserve current behavior"
+          route: implement
+        - id: abort
+          label: "Abort"
+          route: release-lock
+    # === END SCIENCE-FLAG-MEMO ===
 
     # ── Layer 3: Post-Ship Spec Refresh ──────────────────────
 
@@ -124,7 +365,7 @@ workflow:
       type: skill
       skill: null
       context: inherit
-      depends_on: [review]
+      depends_on: [review-verdict, review-science-route, review-stop-science]
       prompt_append: |
         Post-ship spec refresh. Check whether this implementation invalidates
         downstream specs:
@@ -147,10 +388,20 @@ workflow:
       checkpoint:
         state_key: complete
         phase: complete
-      # No abort path in build-cycle, so no parentless release-lock node.
-      # Removed 2026-05-04 after CRITICAL-1 audit: parentless release-lock was
-      # being placed in Layer 0 by Kahn's topological sort and destroyed the
-      # topic lock microseconds after acquire-lock took it. The `complete`
-      # node above is the only release path; on failure, the topic lock
-      # leaks and is recovered by the 30-minute stale-clear in
-      # acquire-topic-lock.sh, or via manual `release-topic-lock.sh`.
+
+    # ── Lock release for abort paths ─────────────────────────
+    # D1 (2026-05-05): the SCIENCE-FLAG resolution block introduced an `abort`
+    # option that routes here. The CRITICAL-1 audit (2026-05-04) noted that a
+    # parentless `release-lock` node was placed by Kahn topological sort in
+    # Layer 0 and destroyed the topic lock microseconds after acquire-lock
+    # took it. The fix: declare an explicit `depends_on` on the science-memo
+    # gates that route here, so Kahn places the node downstream of the
+    # SCIENCE-FLAG resolution path rather than parentless. The depends_on
+    # acknowledges that this node is reached only via routing, not by direct
+    # execution sequence -- the executor honors gate routing over depends_on
+    # when both are present (see executor/src/engine.ts).
+
+    release-lock:
+      type: bash
+      depends_on: [review-stop-science, pre-implement-stop-reject, pre-implement-stop-simplify, pre-implement-stop-science]
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}" "build-cycle"
