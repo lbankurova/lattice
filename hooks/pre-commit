@@ -59,7 +59,10 @@ if [ -x "$LOCK_SCRIPT" ] && [ -x "$RELEASE_SCRIPT" ]; then
     fi
     if [ "$LOCK_OUTER_OWNED" = "0" ]; then
         HOLDER="pre-commit-pid-$$"
-        if (cd "$REPO_ROOT" && bash "$LOCK_SCRIPT" "$HOLDER" --poll); then
+        # Pass our PID so PID-liveness check (C1) treats this lock as
+        # held while pre-commit runs. The lock is released via the EXIT
+        # trap below, so the live-PID guarantee covers the whole hook.
+        if (cd "$REPO_ROOT" && LATTICE_LOCK_PID=$$ bash "$LOCK_SCRIPT" "$HOLDER" --poll); then
             LOCK_HELD_BY_HOOK=1
             # Release on ANY exit path (success, failure, signal).
             trap '[ "$LOCK_HELD_BY_HOOK" = "1" ] && (cd "$REPO_ROOT" && bash "$RELEASE_SCRIPT" >/dev/null 2>&1 || true)' EXIT INT TERM

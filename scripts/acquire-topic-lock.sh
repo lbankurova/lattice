@@ -22,6 +22,10 @@ set -euo pipefail
 TOPIC="${1:?Usage: acquire-topic-lock.sh <topic> [holder-name]}"
 HOLDER="${2:-agent}"
 LOCK_DIR=".lattice/cycle-lock/$TOPIC"
+# Holder PID -- see acquire-lock.sh for rationale. Default 0 means
+# clock-based stale only; pass LATTICE_LOCK_PID=$$ from the workflow
+# that brackets acquire/release to opt in to PID-liveness override.
+HOLDER_PID="${LATTICE_LOCK_PID:-0}"
 # Stale threshold bumped 2026-05-04 from 1800s -> 3600s after audit
 # CRITICAL-3 + HIGH-5. Long workflows can exceed 30 minutes (research-cycle
 # with two peer-review rounds, blueprint-cycle through architect gate +
@@ -36,10 +40,14 @@ STALE_THRESHOLD=3600
 mkdir -p .lattice/cycle-lock
 
 write_meta() {
+    # pid records HOLDER_PID (caller's long-lived workflow PID via
+    # LATTICE_LOCK_PID env) or 0 = "no PID liveness check, clock only."
+    # See acquire-lock.sh -- writing $$ here would create a perpetually
+    # dead PID after this script exits.
     cat > "$LOCK_DIR/meta" <<METAEOF
 holder: $HOLDER
 acquired: $(date -Iseconds)
-pid: $$
+pid: $HOLDER_PID
 METAEOF
 }
 
@@ -101,7 +109,16 @@ pid_alive() {
 
 check_stale() {
     if [ ! -f "$LOCK_DIR/meta" ]; then
-        echo "STALE TOPIC LOCK (no metadata) for $TOPIC -- force-acquiring"
+        # No-metadata grace period (C2, 2026-05-05 audit). The same race
+        # the spec describes for acquire-lock.sh applies here: mkdir wins
+        # before write_meta, racer sees the empty dir, force-clears.
+        # SCOPE-NOTE: spec scope was acquire-lock.sh only; mirroring to
+        # topic-lock for consistency since the race pattern is identical.
+        sleep 2
+        if [ -f "$LOCK_DIR/meta" ]; then
+            return 1
+        fi
+        echo "STALE TOPIC LOCK (no metadata after 2s grace) for $TOPIC -- force-acquiring"
         log_force_clear "no-metadata" "unknown" "0"
         rm -rf "$LOCK_DIR"
         return 0
@@ -112,7 +129,8 @@ check_stale() {
     # clock-clear (closes the stat-returns-0 false-stale bug).
     local lock_pid
     lock_pid=$(grep "^pid:" "$LOCK_DIR/meta" 2>/dev/null | head -1 | sed 's/^pid: *//' | tr -d ' ' || echo "")
-    if [ -n "$lock_pid" ] && ! pid_alive "$lock_pid"; then
+    # PID 0 / unset = no opt-in; clock-only. See acquire-lock.sh.
+    if [ -n "$lock_pid" ] && [ "$lock_pid" != "0" ] && ! pid_alive "$lock_pid"; then
         local holder
         holder=$(grep "^holder:" "$LOCK_DIR/meta" 2>/dev/null | head -1 | sed 's/^holder: *//' || echo "unknown")
         echo "STALE TOPIC LOCK (pid $lock_pid not alive, $holder) for $TOPIC -- force-acquiring"
@@ -127,7 +145,7 @@ check_stale() {
     now=$(date +%s)
     local age=$((now - lock_time))
 
-    if [ -n "$lock_pid" ] && pid_alive "$lock_pid"; then
+    if [ -n "$lock_pid" ] && [ "$lock_pid" != "0" ] && pid_alive "$lock_pid"; then
         return 1
     fi
 
