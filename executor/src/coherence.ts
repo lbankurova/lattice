@@ -142,7 +142,13 @@ export interface CoherenceReport {
 
 // ── State extraction ────────────────────────────────────────
 
-const SUBSYSTEM_RE = /\bS(\d{2})\b/g;
+// B4 fix: pre-fix regex was `\bS(\d{2})\b` which matched exactly 2
+// digits -- S100+ (S100, S101, ...), S5, S05a were all silently invisible
+// to the coherence/heatmap subsystem-extraction pipeline. The system
+// manifest (Layer 0) names 25 subsystems today; growth past S99 is
+// coming. Broadening to 2-3 digits + optional sub-letter covers every
+// shape used in the manifest plus the next two orders of magnitude.
+const SUBSYSTEM_RE = /\bS(\d{2,3}[a-z]?)\b/g;
 const COMPLETED_PHASES = new Set(['complete', 'build-complete']);
 const SKIP_LIFECYCLE = new Set<LifecycleState>(['archived']);
 
@@ -435,6 +441,13 @@ function extractSubsystems(text: string): string[] {
   }
   return [...matches].sort();
 }
+
+/**
+ * Test-only export of `extractSubsystems`. Required by coherence.test.ts
+ * for B4 regex coverage. The internal helper stays unexported to keep
+ * the module surface stable; this re-export is the seam.
+ */
+export const extractSubsystemsForTest = extractSubsystems;
 
 /**
  * Read the structured `probe_outcome` field from a cycle-state YAML.
