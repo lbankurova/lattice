@@ -19,19 +19,19 @@
  * fan-out false-positive. B5 forces SF authors to declare an explicit
  * scope; the warning surfaces the legacy YAMLs that need backfilling.
  *
- * CROSS-STREAM (per spec E3): this test is authored on stream-e in
- * parallel with B5 on stream-b. The test runs `test.skip(...)` so it is
- * a no-op on `lattice-stream-e` HEAD. Once B5 lands and the branches
- * merge, the skip wrapper is removed in a follow-up commit.
+ * CROSS-STREAM (per spec E3): authored on stream-e in parallel with B5
+ * on stream-b. Once B5 merged into the umbrella, this follow-up commit
+ * removed the test.skip wrappers; the assertions now run live against
+ * the post-B5 implementation.
  *
- * Authoring on stream-e ensures the contract is captured at the same
- * moment the gap is identified, and avoids the failure mode where a
- * fix lands without a regression test.
+ * Authoring on stream-e ensured the contract was captured at the same
+ * moment the gap was identified, avoiding the failure mode where a fix
+ * lands without a regression test.
  */
 
 import { test } from 'node:test';
 import { strict as assert } from 'node:assert';
-import { checkCoherence } from './coherence.js';
+import { checkCoherence, setCoherenceWarnSink } from './coherence.js';
 import type {
   TopicState,
   ScienceFlag,
@@ -78,9 +78,9 @@ function mkScienceFlag(overrides: Partial<ScienceFlag>): ScienceFlag {
   };
 }
 
-// ── E3 tests (skipped pre-B5) ───────────────────────────────
+// ── E3 tests (active post-B5 merge) ─────────────────────────
 
-test.skip(
+test(
   'E3 (post-B5): SF with empty subsystems does NOT propagate to consumers',
   () => {
     // Setup: source topic has an active SF with NO declared subsystems,
@@ -132,7 +132,7 @@ test.skip(
   },
 );
 
-test.skip(
+test(
   'E3 (post-B5): SF with empty subsystems emits a warning to surface legacy YAMLs',
   () => {
     // The B5 fix logs a warning when an SF has empty subsystems so the
@@ -141,15 +141,10 @@ test.skip(
     //   (b) name the SF (id or description prefix),
     //   (c) NOT be silent.
     //
-    // The warning sink for coherence is TBD in B5 — likely `setWarnSink`
-    // (mirroring loader.ts) or stderr. The assertion below tests for
-    // *some* warning being emitted; once B5 lands, tighten the matcher
-    // against the exact channel.
+    // B5 introduced setCoherenceWarnSink (mirrors loader.ts setWarnSink).
+    // The default sink writes to stderr; tests intercept via a recorder.
     const captured: string[] = [];
-    const origWarn = console.warn;
-    console.warn = (...args: unknown[]) => {
-      captured.push(args.map(a => String(a)).join(' '));
-    };
+    const prevSink = setCoherenceWarnSink((msg) => captured.push(msg));
     try {
       const source = mkTopic({
         topic: 'src',
@@ -180,12 +175,12 @@ test.skip(
         `warning should mention empty/no subsystems; got: ${JSON.stringify(captured)}`,
       );
     } finally {
-      console.warn = origWarn;
+      setCoherenceWarnSink(prevSink);
     }
   },
 );
 
-test.skip(
+test(
   'E3 (post-B5): SF with explicit subsystems still propagates correctly',
   () => {
     // Sanity: B5 only changes the empty-list path. SFs that name their

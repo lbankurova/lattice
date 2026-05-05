@@ -294,21 +294,14 @@ test('E1: .contains() false on missing substring', async () => {
 
 // ── exists / !exists ────────────────────────────────────────
 //
-// B3 (Stream B) replaces the always-false `!exists()` with a real
-// filesystem check. The tests below are written against the post-B3
-// contract; pre-B3 they pass trivially because `!exists('...')` returns
-// false (the `if (trimmed.startsWith("!exists('"))` short-circuit), which
-// happens to match the "default" branch of these gates.
-//
-// FOLLOW-UP (B3 unblocks): once the implementation actually probes the
-// filesystem, the file-present case below should return route='go' for
-// `exists('...')` (currently no exists() handler exists at all — falls
-// through to truthy-string), and the file-absent case for `!exists('...')`
-// should return route='go' (currently always falls to fallback).
+// B3 (Stream B) replaced the always-false `!exists()` with a real
+// filesystem check via fs.existsSync. The tests below assert the
+// post-B3 contract.
 
-test('E1: !exists() currently returns false (pre-B3) — documents contract', async () => {
-  // Even with a clearly-nonexistent path, `!exists()` returns false in
-  // the current impl. Post-B3 this should flip to true and route 'go'.
+test('E1: !exists() routes to go when path is absent (post-B3)', async () => {
+  // The path does not exist on the filesystem, so !exists() returns true
+  // and the gate routes to 'go'. Pre-B3 this fell through to 'fallback'
+  // because !exists() was hard-coded to false.
   const out = await runGate(
     [
       {
@@ -319,9 +312,7 @@ test('E1: !exists() currently returns false (pre-B3) — documents contract', as
     ],
     emptyCtx(),
   );
-  // Pre-B3 contract: !exists() returns false -> falls to default.
-  // Post-B3: this assertion will flip and the test should be updated.
-  assert.equal(out.route, 'fallback');
+  assert.equal(out.route, 'go');
 });
 
 // ── Un-substituted template detection ───────────────────────
