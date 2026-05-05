@@ -89,6 +89,36 @@ else
     echo ""
 fi
 
+# --- Step 0a: Merge shared state (C3, 2026-05-05 audit) ---
+# scripts/merge-shared-state.sh refreshes shared-state files (TODO.md,
+# REGISTRY.md, decisions.log, ROADMAP.md, MANIFEST.md) from git HEAD and
+# re-applies local additions on top, so a concurrent agent's commit to
+# the same shared file is not silently overwritten. It runs AFTER the
+# commit lock is acquired (Step -1) and BEFORE the rest of the gate
+# checks, so any merge-time tweaks to working-tree files are visible to
+# subsequent staging-drift / freshness checks.
+#
+# Soft-fail if the script is missing -- consumer projects that have not
+# yet synced this update should not be blocked by its absence.
+MERGE_SCRIPT="$REPO_ROOT/scripts/merge-shared-state.sh"
+if [ -x "$MERGE_SCRIPT" ]; then
+    echo "--- Step 0a: Shared-state merge ---"
+    if (cd "$REPO_ROOT" && bash "$MERGE_SCRIPT"); then
+        echo ""
+    else
+        echo ""
+        echo "  WARNING: merge-shared-state.sh exited non-zero. Continuing -- merge"
+        echo "           failures should be visible above. If a shared file ended"
+        echo "           up with conflict markers, resolve manually before retry."
+        echo ""
+    fi
+else
+    echo "--- Step 0a: Shared-state merge (SKIPPED: scripts/merge-shared-state.sh not found) ---"
+    echo "  Concurrent shared-file edits are NOT auto-merged in this repo."
+    echo "  Install via: bash <lattice>/scripts/sync-skills.sh <repo-root>"
+    echo ""
+fi
+
 # --- Step 0: Review gate check (BLOCKS) ---
 GATE_FILE="$REPO_ROOT/.lattice/review-gate.json"
 GATE_MAX_AGE=1800
