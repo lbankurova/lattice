@@ -670,8 +670,16 @@ function looksLikeErrorOutput(text: string): boolean {
  * non-JSON fallback that looks like an error message). The caller's catch
  * is responsible for producing a `failed` NodeResult so skill failures do
  * not pass silently through the orchestrator.
+ *
+ * @internal Exported for unit-testing in `nodes.parse-claude-output.test.ts`
+ *   (Stream E item E2). Production callers should not import this directly;
+ *   it stays an `executeSkill` implementation detail. No behavioral change —
+ *   the export keyword is the only edit required to give the test runner
+ *   access to fan-in fixture coverage without spawning a fake `claude` on
+ *   PATH (which Node's child_process binary lookup makes brittle on
+ *   Windows). See lattice-self-fix-2026-05-05.md E2.
  */
-function parseClaudeJsonOutput(raw: string): { text: string; cost?: NodeCost } {
+export function parseClaudeJsonOutput(raw: string): { text: string; cost?: NodeCost } {
   const trimmed = raw.trim();
   if (!trimmed) return { text: '' };
 
