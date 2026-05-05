@@ -102,8 +102,8 @@ When ANY trigger fires, run the architect agent. Pass the trigger reason ("new f
 
 **Trigger:** any staged file matches `.lattice/algorithm-paths.txt` (the same regex used by ALGORITHM and `write-review-gate.sh`'s `LATTICE_ALGORITHM_CHECK` enforcement). When the trigger does not fire, skip this agent entirely.
 
-- **Agent type:** `general-purpose` (no specialized agent needed; the peer-review skill prompt does the work)
-- **Prompt:** Use the prompt at `commands/lattice/peer-review.md`. Pass the diff + a one-line scope description ("review the algorithmic logic in {file} against domain truth"). Tell the agent to follow the **Algorithmic-Tightening Requirements** section: invoke `query-knowledge.py`, cite sources, return `SOUND` / `CONDITIONAL` / `FLAWED` / `INSUFFICIENT`.
+- **Agent type:** `peer-review` (harness-loaded — the agent definition at `agents/peer-review.md` is the complete protocol; do NOT inline `commands/lattice/peer-review.md` content into the prompt). This matches `commands/lattice/research-cycle.md:152` and the architect-side wiring at `commands/lattice/architect.md:77` — single contract for all peer-review subagent invocations.
+- **Prompt:** Pass the diff + a one-line scope description ("review the algorithmic logic in {file} against domain truth"). The agent's instructions already require it to follow the **Algorithmic-Tightening Requirements** (invoke `query-knowledge.py`, cite sources, return `SOUND` / `CONDITIONAL` / `FLAWED` / `INSUFFICIENT`); the parent skill does not need to repeat them.
 - **No implementation context.** Same discipline as the other parallel agents — do not feed the agent your synthesis or the rationale for the change.
 
 After the agent returns, persist the verdict via the SIMPLIFY-1 attestation path (one entry per peer-review run, AFTER the review's mechanical checks pass and BEFORE `write-review-gate.sh`):
