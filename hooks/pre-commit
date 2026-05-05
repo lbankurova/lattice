@@ -289,9 +289,37 @@ if [ "$IS_BUG_FIX" -eq 1 ]; then
             in_entry && /^### BUG-/ && $0 !~ "^### "id" " { in_entry=0 }
             in_entry { print }
         ' "$BUG_SWEEP")
-        for field in "1\. \*\*Root cause" "2\. \*\*Genesis" "3\. \*\*Detection gap" "4\. \*\*Prevention class" "5\. \*\*Lattice change"; do
-            if ! echo "$ENTRY" | grep -qE "$field"; then
-                MISSING_FIELDS="${MISSING_FIELDS}  - missing: $(echo $field | sed 's/\\\*//g; s/\\\.//g')\n"
+        # C7 (2026-05-05): tolerate format variants. Pre-fix the grep
+        # required literally `1. **Root cause`; perfectly substantive
+        # retros written as `**1.** Root cause`, `1) Root cause`,
+        # `### 1. Root cause`, `**Root cause:**`, etc., all failed the
+        # gate. Cargo-cult formatting was the only way to pass.
+        # New pattern: any prefix in {`**N.**`, `**N)**`, `N.`, `N)`,
+        # `###`, `####`} (with optional N digit) followed by whitespace,
+        # any text, then the keyword. Keyword match is case-insensitive.
+        # This still requires the substance (the keyword phrase) to be
+        # present; only loosens the surface format.
+        PREFIX_RE='(^|\n)[[:space:]]*(\*\*[0-9]+[.)]\*\*|[0-9]+[.)]|####?)[[:space:]]+'
+        for pair in \
+            "1|[Rr]oot cause" \
+            "2|[Gg]enesis" \
+            "3|[Dd]etection gap" \
+            "4|[Pp]revention class" \
+            "5|[Ll]attice change"; do
+            num="${pair%%|*}"
+            keyword="${pair#*|}"
+            field_re="${PREFIX_RE}.*${keyword}"
+            if ! printf '%s' "$ENTRY" | grep -qE "$field_re"; then
+                # Friendly label for the missing-field message.
+                case "$num" in
+                    1) label="Root cause" ;;
+                    2) label="Genesis" ;;
+                    3) label="Detection gap" ;;
+                    4) label="Prevention class" ;;
+                    5) label="Lattice change" ;;
+                    *) label="(field $num)" ;;
+                esac
+                MISSING_FIELDS="${MISSING_FIELDS}  - missing field $num: $label\n"
             fi
         done
         if [ -n "$MISSING_FIELDS" ]; then
