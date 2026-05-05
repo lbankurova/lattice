@@ -220,3 +220,23 @@ When multiple agents work in parallel on the same repo:
 - **Staging-drift check** (pre-commit Step 4) — re-snapshots `git diff --cached` at hook exit; BLOCKS if files were added during the hook run. Catches concurrent autopilot `git add` interleaving with a manual commit (precedent: commits `1370c103`, `521f1d16`).
 
 See CLAUDE.md "Concurrent Sessions" for full protocol.
+
+## 10. Scripts (`scripts/`)
+
+| Script | Purpose |
+|--------|---------|
+| `install-hooks.sh` | Install git hooks from `hooks/` to `.git/hooks/`. Refuses if `git config core.hooksPath` overrides the default — message names the override path and the unset instruction (C5). |
+| `sync-skills.sh` | Sync `commands/lattice/`, `commands/ops/`, `agents/`, `docs/skills-includes/`, and `scripts/` (`*.sh` + `*.py`) from lattice to a consumer project. Runs automatically on lattice edits via the optional PostToolUse hook (Section 7). Partner files at `docs/skills-includes/` propagate so skills referencing them (e.g. `review.md → review-protocols.md`) don't hit broken pointers in the consumer. |
+| `sync-workflow-includes.{sh,py}` | Synthesize each consumer workflow's marker-delimited region from `workflows/_includes/*.yaml` (e.g. `science-flag-resolution.yaml`, `topic-lock.md`, `revision-checked-writes.md`). Replaces triplicated protocol bodies that previously lived inline across cycle workflows. `--check` mode for CI; non-zero exit when consumers drift from the include. |
+| `write-review-gate.sh` | Mechanical checks before writing the review-gate file: executor TypeScript build (if `executor/` staged), algorithm-defensibility verdict (rule 18; if any staged file matches `.lattice/algorithm-paths.txt`, requires `LATTICE_ALGORITHM_CHECK=pass:<≥40-char rationale citing a staged file>` per C4), attestation validation (rationale, no trivial substrings, no duplicate kind+ref pairs), 7-section anchor enforcement against `.lattice/last-review-output.md` (D7). |
+| `validation-ratchet.sh` | Capture / compare analytical validation scores. Improvement no longer auto-advances the baseline; emits `BASELINE-ADVANCE-PROPOSED` (exit 3) or advances on `LATTICE_RATCHET_CONFIRM_ADVANCE=1` (C6). |
+| `acquire-lock.sh` / `release-lock.sh` | Atomic commit lock on `.lattice/commit.lock/` (polls every 30s, 30min wall-clock stale, PID-liveness override, 2s no-metadata grace). Autopilot acquires before staging (outer-held lock pattern, `922cf24`); pre-commit Step -1 also acquires when no outer holder is set (`20f2eb4`). |
+| `acquire-topic-lock.sh` / `release-topic-lock.sh` | Per-topic WIP lock on `.lattice/cycle-lock/{topic}/` — prevents concurrent work on the same topic. 60-min wall-clock stale threshold, PID-liveness override (C1), 2s no-metadata grace (C2), engine heartbeat refreshes mtime after every checkpoint write. |
+| `merge-shared-state.sh` | Refresh shared files (TODO.md, REGISTRY.md, decisions.log, ROADMAP.md, MANIFEST.md) from HEAD before commit. Wired into pre-commit Step 0a (C3). |
+| `append-attestation.sh` / `test-attestation-format.sh` | SIMPLIFY-1 unified `attestations[]` format for `review-gate.json` — peer-review, architect, spec-lint, bug-pattern, retro-action verdicts all funnel through one format that `write-review-gate.sh` validates. |
+| `design-session.sh` / `design-mode-gate.sh` | Design-mode preamble gate. `design-session.sh begin <trigger>` writes `.lattice/design-mode.lock`; `preamble-done <evidence>` validates the four `/lattice:design` Step 1 blocks; `design-mode-gate.sh` is a PreToolUse Write\|Edit hook that BLOCKS in-scope UI edits when the lock is `pending`. Stale locks (>1h) auto-clear. Failure mode prevented: port-mode redesign — relocating UI without engaging engine outputs. |
+| `discovery-scan.py` | Discovery-scan template — runs corpus-wide pattern checks. Consumed by `/lattice:autopilot --discover` (LIT-03). |
+| `audit-corpus-citations.py` / `audit-peer-review-citations.py` / `audit-novel-source-discovery.py` | LIT-DS literature trail audits — corpus-wide cite extractor + load-bearing classifier, retroactive peer-review citation extractor, novel-source discovery audit. Wired into `/lattice:peer-review` verify-before-citing gate. |
+| `extract-pdf-text.py` | PyMuPDF text-extract wrapper used by `/lattice:lit-triage`. |
+| `context-meter.sh` | Measure conversation context usage. Invoked by the optional PostToolUse Read hook (Section 7). |
+| `tests/` | Shell-script regression tests for lock ownership, lock concurrency, install-hooks, validation-ratchet, shared-state merge, attestation format. |

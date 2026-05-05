@@ -25,6 +25,29 @@ The executor (`executor/src/`) runs workflow YAML DAGs. It is separate from the 
 
 **Bash-step CWD:** bash nodes run with `cwd` set to the *consuming project* (e.g., `pcc`), not the lattice install. To invoke the executor or other lattice-relative files from a workflow command, use the `{{env.LATTICE_ROOT}}` template variable rather than a relative path -- e.g., `node "{{env.LATTICE_ROOT}}/executor/dist/cli.js" e2e run --base main`. Project-side scripts in `scripts/*.sh` are an exception: those are mirrored into each consuming project, so a relative `bash scripts/foo.sh` resolves correctly. Full template-variable list: `workflows/schema.md`.
 
+### Modules (`executor/src/`)
+
+| Module | Purpose |
+|--------|---------|
+| `engine.ts` | Core execution loop — layers, filtering, full-map checkpoint resume, un-substituted state-path detection, cost aggregation, `writeCheckpoint` (revision check + CAS write via state-io). |
+| `nodes.ts` | Node executors (bash, skill, gate, approval) + Claude CLI JSON parser. Surfaces `is_error: true` and error-shaped text output as failed nodes. `evaluateCondition` supports `==`/`!=` against quoted strings, unquoted booleans (`== true`/`== false`, post-`ee05bc6`), `.contains()`, `exists()`/`!exists()` (real filesystem checks, B3), and `&&`/`||` composition. Unhandled comparison expressions return false (fail-loud), not silent truthy. Skill prompts pass via `spawnSync` argv-form (no shell quoting; B2). |
+| `cli.ts` | CLI entry point — 9 commands. Argument parsing via `node:util.parseArgs`. Validate / list skip non-workflow YAMLs (e.g., `verdict-enums.yaml`). |
+| `dag.ts` | Kahn's algorithm for topological sort. |
+| `loader.ts` | YAML workflow parser + validate-time checks: `validateVerdictReferences` (rejects gate conditions testing a verdict literal not in the producer's declared `verdict_enum`); approval options without `route`; `max_iterations` not a positive integer; orphan-node warnings (override-able via `setWarnSink`). |
+| `template.ts` | `{{}}` expression resolver. Throws on output substitution against a dry-run sentinel result; planning fields (`status`, `route`) still resolve. |
+| `state-io.ts` | `atomicWriteFileSync` (temp+rename) for non-checked writes; `atomicWriteFileSyncCAS` (filesystem-atomic create-or-fail via `linkSync` on `<path>.tmp-rev-{N+1}`) for revision-checked writes (B1, closes lost-update race). `captureDirtyPaths` snapshots dirty-tree paths for autopilot's per-item ownership tracking. |
+| `coherence.ts` | Portfolio-level conflict detection (5 conflict types). Subsystem references matched by anchored regex `\bS(\d{2,3}[a-z]?)\b` (B4 — supports 3-digit + sub-lettered IDs). SCIENCE-FLAG without explicit `subsystems` no longer fans out; empty subsystems trigger a warning and skip propagation (B5). |
+| `reconcile.ts` | Derive topic state truth from git `Topic:` trailers. Lookback configurable via `LATTICE_RECONCILE_LOOKBACK_DAYS` (default 90). |
+| `autopilot.ts` | Continuous portfolio advancement loop. Loop-local portfolio cache invalidated on state-mutating calls (reconcile, auto-resolve, workflow returns). Per-item path-scoped stash discipline (post-2026-05-04 audit). `--max-loops` cap (default 50). |
+| `auto-resolve.ts` | Resolve coherence conflicts via targeted distill analysis. Subsystem-overlap, stale-blueprint, science-flag-propagation auto-resolvable; prerequisite + BREAKS always human. |
+| `todo-queue.ts` | TODO-queue source for autopilot. Loads `docs/_internal/TODO.md` items tagged `autopilot: ready`; sorts by score; dispatches by `kind` (mechanical → mechanical-fix-cycle, research → research-cycle, etc.). |
+| `budget.ts` | Cost tracking, budget limits, alerting. Per-call context-rot telemetry to `.lattice/context-telemetry.jsonl` with warn/block thresholds against declared context window (defaults 0.6 / 0.8). |
+| `e2e.ts` | Branch-comparison E2E testing gate. Three modes auto-detected (branch / uncommitted / last-commit). Refuses to run when foreign dirty paths are present (HIGH-2 fix). |
+| `types.ts` | Type definitions (workflow, nodes, cost, budget, context). |
+| `index.ts` | Public API exports. |
+
+Test files are colocated under the same directory (`*.test.ts`); run via `npm test` from `executor/`.
+
 ## Autopilot
 
 `lattice autopilot` (CLI) or `/lattice:autopilot` (in-session) runs the full portfolio autonomously.

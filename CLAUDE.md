@@ -110,6 +110,49 @@ Development cycles are defined as YAML DAGs in `workflows/`. The DAG defines orc
 
 **Relationship to markdown skills:** YAML DAGs complement, not replace. The DAG references skills by name (`skill: lattice/research`). The executor reads the DAG, resolves the topological order, and dispatches each node using the skill's prompt. Markdown skills remain the authoritative source for agent instructions.
 
+## Project Scaffold (`scaffold/`)
+
+Templates copied into a new consumer project during setup:
+
+- `.claude/settings.json` — Claude Code hook config (commit lock, gap-persistence reminder, pipeline test-first, validation-ratchet check, co-author block, complexity advisory, engine-change marker)
+- `.claude/rules/design-decisions.md` — project-specific design decisions (Layer 2)
+- `.lattice/budget.yaml` — per-workflow and per-topic cost limits + context-rot thresholds (override the code defaults of 0.6 warn / 0.8 block)
+- `.lattice/e2e.yaml` — E2E testing gate suite configuration
+- `scripts/write-review-gate.sh` — mechanical checks before writing review gate (mirrored from lattice)
+- `hooks/pre-commit` — pre-commit hook template (review gate + project-specific checks)
+- `complexity-check.sh` + `eslint-complexity-rules.js` + `ruff.toml` — code complexity guardrails
+- `docs/_internal/` — full directory structure with:
+  - `TODO.md`, `ROADMAP.md`, `MANIFEST.md` — backlog and tracking
+  - `checklists/` — commit checklist, post-impl review
+  - `knowledge/` — methods registry, field contracts, conventions, code quality guardrails, knowledge-graph (typed facts)
+  - `research/` — research file inventory + INDEX.md
+  - `reference/` — UI casing, interactivity rule, Datagrok patterns
+  - `design-system/` — Datagrok platform design system (5 docs)
+  - `scaffold/spec-template.md` — feature spec template
+
+## Setup
+
+### New project
+
+1. Copy `CLAUDE.md` to project root — adapt paths, add project-specific rules
+2. Copy `commands/lattice/` and `commands/ops/` to `.claude/commands/`
+3. Copy `agents/` to `.claude/agents/`
+4. Copy `scaffold/docs/` to your project's `docs/`
+5. Copy `scaffold/.claude/` to `.claude/` — `settings.json` (hooks) + `rules/design-decisions.md`
+6. Copy `scaffold/scripts/write-review-gate.sh` to `scripts/` — adapt checks for your stack
+7. Copy `scripts/validation-ratchet.sh` to `scripts/` — adapt for your validation suite
+8. Copy `scaffold/.lattice/budget.yaml` to `.lattice/budget.yaml` — set cost limits per workflow and topic, optionally override context warn/block thresholds
+9. Copy `scaffold/.lattice/e2e.yaml` to `.lattice/e2e.yaml` — configure test suites
+10. Install pre-commit hook: `bash scripts/install-hooks.sh` (copies from `hooks/` to `.git/hooks/`, refuses if `git config core.hooksPath` overrides the default; re-run after pulling lattice updates)
+11. Run `bash scripts/sync-skills.sh` from lattice to sync skills + agents + scripts + skills-includes into the project (re-run after lattice updates)
+12. In `.claude/settings.json`: replace placeholder patterns (`PIPELINE_MODULES_PATTERN`, `ENGINE_FILES_PATTERN`) with your project's regexes
+13. Create `.claude/rules/domain-knowledge-map.md` — topic-to-file lookup for your domain
+14. (Optional, if your project uses commit-intent discipline) Provide a project-side `scripts/declare-commit-intent.sh`. The framework's `mechanical-fix-cycle` invokes the script but does not ship it; consumers wire their own commit-intent protocol.
+
+### Existing project
+
+Cherry-pick what you need. CLAUDE.md rules are the foundation — everything else builds on them.
+
 ## Propagating Framework Changes to Consumer Projects
 
 Lattice is the source of truth. Consumer projects (e.g., `pcc/`) carry independent **copies** of skills, agents, and scripts under `<project>/.claude/commands/lattice/`, `<project>/.claude/agents/`, and `<project>/scripts/` — these are mirrors, not symlinks. Editing only `C:/pg/lattice/commands/lattice/<skill>.md` does **not** reach the consumer's runtime; the project's own copy is what Claude Code loads when the slash command fires.
