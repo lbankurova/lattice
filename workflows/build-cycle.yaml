@@ -42,13 +42,145 @@ workflow:
       command: bash scripts/acquire-topic-lock.sh "{{inputs.topic}}" "build-cycle"
       on_failure: stop
 
+    # ── Layer 0.5: Pre-implement gate (D2) ───────────────────
+    #
+    # A spec arriving directly to `incoming/` and picked up by build-cycle
+    # (via spec_path input) skips F5 spec-lint, F3 algorithmic peer-review,
+    # and SPEC-VALUE-AUDIT (rule 17). The blueprint-cycle path runs these
+    # at synthesize/architect-and-probe; the path-based entry into build
+    # bypasses them. Without this gate, an algorithmic spec lacking
+    # knowledge-graph citation can reach implement and ship.
+    #
+    # The architect skill in `gate` mode dispatches:
+    #   Step 1.25 — algorithmic-spec detection + peer-review (F3) — BLOCKING
+    #   Step 1.4  — spec lint (F5) — BLOCKING in --strict mode
+    #   Step 1.5  — SPEC-VALUE-AUDIT (rule 17) — BLOCKING for multi-feature specs
+    #   Step 2    — architect-reviewer agent (PASS|SIMPLIFY|REJECT|SCIENCE-FLAG)
+    #
+    # Block on any non-PASS verdict. SIMPLIFY auto-applies in architect Step 3
+    # (re-gate); REJECT and SCIENCE-FLAG escalate. Cycle skill output captures
+    # the architect verdict; the gate below routes accordingly.
+
+    pre-implement-gate:
+      type: skill
+      skill: lattice/architect
+      context: fresh
+      depends_on: [acquire-lock]
+      verdict_enum: architect
+      inputs:
+        mode: gate
+        spec_path: "{{inputs.spec_path}}"
+      checkpoint:
+        state_key: build.0.5
+        captures: [verdict, simplifications, flags]
+      log: true
+
+    pre-implement-verdict:
+      type: gate
+      depends_on: [pre-implement-gate]
+      evaluate:
+        - condition: "{{nodes.pre-implement-gate.output.verdict}} == 'PASS'"
+          route: implement
+        - condition: "{{nodes.pre-implement-gate.output.verdict}} == 'SCIENCE-FLAG'"
+          route: pre-implement-stop-science
+        - condition: "{{nodes.pre-implement-gate.output.verdict}} == 'REJECT'"
+          route: pre-implement-stop-reject
+        - condition: "{{nodes.pre-implement-gate.output.verdict}} == 'SIMPLIFY'"
+          route: pre-implement-stop-simplify
+        - condition: default
+          route: pre-implement-stop-reject
+
+    # Pre-implement SCIENCE-FLAG gets its own escalation rather than the
+    # post-review memo block: at pre-implement time no implementation diff
+    # exists yet, so the on-data verification path of rule 19 has no target
+    # to verify. The architect-reviewer's flag indicates the SPEC encodes
+    # an analytical behavior change without citation; resolution is to
+    # author the citation memo or revise the spec, not to ship and verify.
+    # Route to user-approval so the spec gets re-authored before implement.
+
+    pre-implement-stop-science:
+      type: approval
+      depends_on: [pre-implement-verdict]
+      prompt: |
+        Pre-implement gate raised SCIENCE-FLAG on the spec. The spec
+        proposes analytical behavior change without citing the typed
+        knowledge graph or regulatory source. Per CLAUDE.md rule 19, the
+        flag clears via (1) revise spec to preserve current behavior,
+        (2) author >=3-citation memo and re-submit, or (3) explicit defer
+        with named dependency.
+
+        Architect output:
+        {{nodes.pre-implement-gate.output}}
+
+        How do you want to proceed?
+      options:
+        - id: revise
+          label: "Revise spec -- return to incoming/ for rework"
+          route: release-lock
+        - id: memo
+          label: "Author memo + revise spec, then re-enter cycle"
+          route: release-lock
+        - id: defer
+          label: "Defer with named dependency (logged)"
+          route: release-lock
+        - id: abort
+          label: "Abort"
+          route: release-lock
+
+    pre-implement-stop-reject:
+      type: approval
+      depends_on: [pre-implement-verdict]
+      prompt: |
+        Pre-implement gate REJECTED the spec. F5 lint, F3 peer-review,
+        SPEC-VALUE-AUDIT, or architect-reviewer found a blocking defect.
+
+        Architect output:
+        {{nodes.pre-implement-gate.output}}
+
+        How do you want to proceed?
+      options:
+        - id: revise
+          label: "Revise spec -- return for rework"
+          route: release-lock
+        - id: override
+          label: "Override -- proceed to implement anyway (logged)"
+          route: implement
+        - id: abort
+          label: "Abort"
+          route: release-lock
+
+    pre-implement-stop-simplify:
+      type: approval
+      depends_on: [pre-implement-verdict]
+      prompt: |
+        Pre-implement gate returned SIMPLIFY. Architect proposed
+        simplifications; per blueprint-cycle's auto-apply pattern, Risk:None
+        cuts are rubber-stamp and Risk:SCIENCE-FLAG cuts route to memo.
+        Build-cycle's path-entry case lacks the synthesis doc to revise
+        in-place, so this surfaces to the user for an explicit decision.
+
+        Architect output:
+        {{nodes.pre-implement-gate.output}}
+
+        How do you want to proceed?
+      options:
+        - id: apply
+          label: "Apply simplifications to the spec, then implement"
+          route: implement
+        - id: proceed
+          label: "Proceed to implement without applying"
+          route: implement
+        - id: abort
+          label: "Abort"
+          route: release-lock
+
     # ── Layer 1: Implement ───────────────────────────────────
 
     implement:
       type: skill
       skill: lattice/implement
       context: inherit
-      depends_on: [acquire-lock]
+      depends_on: [pre-implement-verdict, pre-implement-stop-reject, pre-implement-stop-simplify, pre-implement-stop-science]
       inputs:
         spec_path: "{{inputs.spec_path}}"
       # Implement handles its own internal phases:
@@ -271,5 +403,5 @@ workflow:
 
     release-lock:
       type: bash
-      depends_on: [review-stop-science]
+      depends_on: [review-stop-science, pre-implement-stop-reject, pre-implement-stop-simplify, pre-implement-stop-science]
       command: bash scripts/release-topic-lock.sh "{{inputs.topic}}" "build-cycle"
