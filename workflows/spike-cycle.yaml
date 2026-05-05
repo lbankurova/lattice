@@ -93,6 +93,20 @@ workflow:
         phase: research
         # Reset to research phase -- cycle.yaml will pick up and dispatch
 
+    # D4 (2026-05-05): release the topic lock on escalation. Previously the
+    # escalate-to-full path wrote `phase: research` and exited without
+    # routing to release-lock; the topic lock dangled for up to 30 minutes
+    # until acquire-topic-lock.sh's stale-clear reaped it. The
+    # research-cycle dispatched by the orchestrator would then fail to
+    # acquire the same topic lock, blocking the user. Add an explicit
+    # escalate-release-lock node and a parent-side route so the escalation
+    # path closes out cleanly.
+
+    escalate-release-lock:
+      type: bash
+      depends_on: [escalate-to-full]
+      command: bash scripts/release-topic-lock.sh "{{inputs.topic}}" "spike-cycle"
+
     # ── Layer 3: Generate spec from code ─────────────────────
 
     spec-from-code:
