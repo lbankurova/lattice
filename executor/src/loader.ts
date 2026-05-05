@@ -3,7 +3,8 @@
  * Parses workflow files, validates node references, checks for cycles.
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
 import yaml from 'js-yaml';
 import type { Workflow, WorkflowNode, GateNode, ApprovalNode, ParallelNode } from './types.js';
 
@@ -12,6 +13,113 @@ export class WorkflowLoadError extends Error {
     super(file ? `${file}: ${message}` : message);
     this.name = 'WorkflowLoadError';
   }
+}
+
+// ── Verdict enum registry (A2) ──────────────────────────────────────────
+
+interface VerdictEnumRegistry {
+  enums: Record<string, { members: string[]; description?: string }>;
+  aliases: Record<string, string>;
+}
+
+let cachedRegistry: VerdictEnumRegistry | null = null;
+let cachedRegistryFile: string | null = null;
+
+/**
+ * Load the verdict enum registry from `workflows/verdict-enums.yaml`. Returns
+ * `null` if the file is absent (back-compat: existing consumer projects without
+ * the registry yaml continue to validate without verdict-enum checks).
+ */
+export function loadVerdictRegistry(workflowFile: string): VerdictEnumRegistry | null {
+  // Resolve registry file: same directory as the workflow file.
+  const dir = dirname(resolve(workflowFile));
+  const registryPath = `${dir}/verdict-enums.yaml`;
+
+  if (cachedRegistryFile === registryPath && cachedRegistry) {
+    return cachedRegistry;
+  }
+
+  if (!existsSync(registryPath)) {
+    return null;
+  }
+
+  const raw = readFileSync(registryPath, 'utf-8');
+  const doc = yaml.load(raw) as { enums?: Record<string, { members: string[] }>; aliases?: Record<string, string> } | null;
+
+  if (!doc?.enums) {
+    throw new WorkflowLoadError('verdict-enums.yaml missing top-level "enums" key', registryPath);
+  }
+
+  const registry: VerdictEnumRegistry = {
+    enums: doc.enums,
+    aliases: doc.aliases ?? {},
+  };
+
+  cachedRegistry = registry;
+  cachedRegistryFile = registryPath;
+  return registry;
+}
+
+/** Test-only: clear the cached registry between tests. */
+export function _resetVerdictRegistryCache(): void {
+  cachedRegistry = null;
+  cachedRegistryFile = null;
+}
+
+/** Resolve a verdict-enum name through aliases. */
+function resolveEnumName(name: string, registry: VerdictEnumRegistry): string {
+  const visited = new Set<string>();
+  let current = name;
+  while (registry.aliases[current] && !visited.has(current)) {
+    visited.add(current);
+    current = registry.aliases[current];
+  }
+  return current;
+}
+
+/** Substring prefixes the loader recognizes when checking `.contains('PREFIX=VALUE')`. */
+const KNOWN_VERDICT_PREFIXES = [
+  'SECOND_GATE_VERDICT=',
+  'MEMO_VERDICT=',
+  'ARBITER_VERDICT=',
+  'OPS_CHECK_VERDICT: ',
+  'OPS_CHECK_VERDICT:',
+];
+
+interface VerdictReference {
+  nodeId: string;
+  literal: string;
+  /** True when the literal came from a `.contains('PREFIX=VALUE')` form. */
+  fromContains: boolean;
+}
+
+/**
+ * Extract every `{{nodes.X.output.verdict}} == 'LITERAL'` and
+ * `{{nodes.X.output}}.contains('PREFIX=LITERAL')` reference from a condition
+ * expression. Returns the producing node id and the tested literal.
+ */
+function extractVerdictReferences(expr: string): VerdictReference[] {
+  const refs: VerdictReference[] = [];
+
+  // Equality / inequality form: {{nodes.<id>.output.verdict}} <op> '<X>'
+  const eqRe = /\{\{nodes\.([a-zA-Z0-9_-]+)\.output\.verdict\}\}\s*(?:==|!=)\s*'([^']+)'/g;
+  for (let m: RegExpExecArray | null; (m = eqRe.exec(expr)); ) {
+    refs.push({ nodeId: m[1], literal: m[2], fromContains: false });
+  }
+
+  // Contains form: {{nodes.<id>.output}}.contains('<prefix>=<X>')
+  const containsRe = /\{\{nodes\.([a-zA-Z0-9_-]+)\.output\}\}\.contains\(\s*'([^']+)'\s*\)/g;
+  for (let m: RegExpExecArray | null; (m = containsRe.exec(expr)); ) {
+    const inside = m[2];
+    for (const prefix of KNOWN_VERDICT_PREFIXES) {
+      if (inside.startsWith(prefix)) {
+        refs.push({ nodeId: m[1], literal: inside.slice(prefix.length), fromContains: true });
+        break;
+      }
+    }
+  }
+
+  return refs;
 }
 
 /**
@@ -43,7 +151,68 @@ export function loadWorkflow(filePath: string): Workflow {
   // Check for cycles
   detectCycles(wf, filePath);
 
+  // A2: verdict-enum validation. No-op when registry is absent (consumer
+  // projects without verdict-enums.yaml).
+  const registry = loadVerdictRegistry(filePath);
+  if (registry) {
+    validateVerdictReferences(wf, filePath, registry);
+  }
+
   return wf;
+}
+
+/**
+ * A2: Validate that every `{{nodes.X.output.verdict}} == 'LITERAL'` (and the
+ * substring-form variants) references a literal in the producing node's
+ * declared `verdict_enum`. Nodes without `verdict_enum` are skipped (opt-in
+ * semantics — pre-existing workflows continue to validate).
+ */
+function validateVerdictReferences(wf: Workflow, file: string, registry: VerdictEnumRegistry): void {
+  const errors: string[] = [];
+
+  for (const [nodeId, node] of Object.entries(wf.nodes)) {
+    if (node.type !== 'gate') continue;
+    const conds = (node as GateNode).evaluate ?? [];
+
+    for (const cond of conds) {
+      if (!cond.condition || cond.condition === 'default') continue;
+      const refs = extractVerdictReferences(cond.condition);
+
+      for (const ref of refs) {
+        const producing = wf.nodes[ref.nodeId];
+        if (!producing) continue; // already caught by validateReferences
+
+        const enumName = producing.verdict_enum;
+        if (!enumName) continue; // opt-in: skip when producer doesn't declare
+
+        const canonical = resolveEnumName(enumName, registry);
+        const enumDef = registry.enums[canonical];
+        if (!enumDef) {
+          errors.push(
+            `${nodeId}.evaluate references node "${ref.nodeId}" with verdict_enum "${enumName}" ` +
+            `but no such enum is defined in verdict-enums.yaml. ` +
+            `Known enums: ${Object.keys(registry.enums).join(', ')}.`
+          );
+          continue;
+        }
+
+        if (!enumDef.members.includes(ref.literal)) {
+          errors.push(
+            `${nodeId}.evaluate tests "${ref.literal}" against node "${ref.nodeId}" ` +
+            `(verdict_enum: ${enumName}), but "${ref.literal}" is not a member. ` +
+            `Allowed: ${enumDef.members.map(m => `'${m}'`).join(', ')}.`
+          );
+        }
+      }
+    }
+  }
+
+  if (errors.length > 0) {
+    throw new WorkflowLoadError(
+      `Verdict-enum violations:\n  ${errors.join('\n  ')}`,
+      file
+    );
+  }
 }
 
 /**

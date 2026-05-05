@@ -131,6 +131,13 @@ These properties are available on all node types:
     <check-name>: <expression>    # e.g., min_findings: "count(output.findings) >= 1"
     on_fail: retry | stop | route_to(<node-id>)
   log: boolean                    # Log to decisions.log (default: true for skills)
+  verdict_enum: string            # Optional. Names the verdict enum this node
+                                  # emits as `output.verdict`. Loaded from
+                                  # `workflows/verdict-enums.yaml` and used by
+                                  # the loader to validate gate conditions of
+                                  # the form `{{nodes.<id>.output.verdict}} == 'X'`
+                                  # at workflow-load time. See
+                                  # docs/skills-includes/verdict-enums.md.
 ```
 
 ## Template Expressions

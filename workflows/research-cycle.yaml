@@ -78,6 +78,7 @@ workflow:
       skill: lattice/peer-review
       context: fresh                    # Separate agent -- non-negotiable
       depends_on: [research]
+      verdict_enum: peer-review
       inputs:
         doc_path: "docs/_internal/research/{{inputs.topic}}.md"
       gate_check:
@@ -121,6 +122,7 @@ workflow:
       skill: lattice/peer-review
       context: fresh                    # Fresh agent -- not the R1 agent
       depends_on: [incorporate-r1]
+      verdict_enum: peer-review
       inputs:
         doc_path: "docs/_internal/research/{{inputs.topic}}.md"
         prior_review: "docs/_internal/research/peer-reviews/{{inputs.topic}}-review.md"
@@ -352,6 +354,7 @@ workflow:
       skill: lattice/probe
       context: inherit
       depends_on: [distill]
+      verdict_enum: probe
       inputs:
         doc_path: "docs/_internal/research/{{inputs.topic}}.md"
         topic: "{{inputs.topic}}"

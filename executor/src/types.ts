@@ -67,6 +67,14 @@ export interface BaseNode {
   auto_decision?: Record<string, string>;
   gate_check?: Record<string, string>;
   log?: boolean;
+  /**
+   * Names the verdict enum this node emits as `output.verdict`. Loaded from
+   * `workflows/verdict-enums.yaml` (Stream A item A2). When set, gate
+   * conditions of the form `{{nodes.<this-id>.output.verdict}} == 'X'` are
+   * validated at workflow-load time: 'X' must be a member of the named enum.
+   * Optional — when unset, no validation runs (legacy / no-emit nodes).
+   */
+  verdict_enum?: string;
 }
 
 export interface BashNode extends BaseNode {

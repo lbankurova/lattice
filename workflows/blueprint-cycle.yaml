@@ -100,6 +100,7 @@ workflow:
       skill: null
       context: fresh
       agent_type: architect-reviewer
+      verdict_enum: architect
       inputs:
         synthesis_path: "docs/_internal/incoming/{{inputs.topic}}-synthesis.md"
         guardrails_path: "docs/_internal/knowledge/code-quality-guardrails.md"
@@ -113,6 +114,7 @@ workflow:
       type: skill
       skill: lattice/probe
       context: inherit
+      verdict_enum: probe
       inputs:
         doc_path: "docs/_internal/incoming/{{inputs.topic}}-synthesis.md"
         topic: "{{inputs.topic}}"
@@ -341,6 +343,7 @@ workflow:
       skill: lattice/peer-review
       context: fresh
       depends_on: [architect-verdict]
+      verdict_enum: peer-review
       inputs:
         doc_path: "docs/_internal/incoming/{{inputs.topic}}-synthesis.md"
       gate_check:
@@ -382,6 +385,7 @@ workflow:
       skill: lattice/peer-review
       context: fresh
       depends_on: [incorporate-plan]
+      verdict_enum: peer-review
       inputs:
         doc_path: "docs/_internal/incoming/{{inputs.topic}}-synthesis.md"
         prior_review: "docs/_internal/research/peer-reviews/{{inputs.topic}}-synthesis-review.md"

@@ -105,6 +105,8 @@ Required: Scientist review before proceeding
 
 #### 5. Verdict
 
+The architect verdict enum (`PASS` / `SIMPLIFY` / `REJECT` / `SCIENCE-FLAG`) is canonically defined in [`docs/skills-includes/verdict-enums.md`](../docs/skills-includes/verdict-enums.md) (`enums.architect`). Workflow YAMLs that test this verdict at gates declare `verdict_enum: architect` (or the alias `architect-reviewer`); the loader rejects typos at validate time.
+
 | Verdict | Meaning | Action |
 |---------|---------|--------|
 | **PASS** | Plan is appropriately complex for the problem | Proceed to peer review |

@@ -111,7 +111,7 @@ Any "this is/isn't defensible" claim in your review MUST cite either:
 
 ### D. Verdict format and blocking semantics
 
-`SOUND` and `CONDITIONAL` and `FLAWED` and `INSUFFICIENT` are unchanged (see Section 6 below). For algorithmic peer-review specifically:
+`SOUND` and `CONDITIONAL` and `FLAWED` and `INSUFFICIENT` are unchanged (see Section 6 below). The peer-review verdict enum is canonically defined in [`docs/skills-includes/verdict-enums.md`](../../docs/skills-includes/verdict-enums.md) (`enums.peer-review`); workflow YAMLs that test this verdict declare `verdict_enum: peer-review` and the loader rejects typos at validate time. For algorithmic peer-review specifically:
 
 | Verdict | Effect on the parent gate (review.md or architect.md) |
 |---------|--------------------------------------------------------|

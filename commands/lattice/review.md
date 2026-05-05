@@ -125,6 +125,8 @@ This unblocks the pcc-side pre-commit kind-specific check (which verifies an alg
 
 > **Any blocking verdict from any agent stops the review.** Process all blocking verdicts together — present them as a batch, not one at a time.
 
+The verdict enums for each agent below are canonically defined in [`docs/skills-includes/verdict-enums.md`](../../docs/skills-includes/verdict-enums.md): `enums.architect`, `enums.decision-auditor`, `enums.peer-review`, `enums.review`. Workflow YAMLs that route on review's overall verdict declare `verdict_enum: review`; the loader rejects typos at validate time.
+
 Blocking verdicts (each is a STOP — fix, rebut per the SCIENCE-FLAG protocol below, or get explicit user defer):
 
 - **Architect:** SCIENCE-FLAG.

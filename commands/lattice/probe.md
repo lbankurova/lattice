@@ -66,7 +66,7 @@ For `--safety`:
 
 ## Step 3: Classify implications
 
-For each affected subsystem, classify the implication:
+For each affected subsystem, classify the implication. The probe verdict enum (`SAFE` / `PROPAGATES` / `BREAKS` / `SCIENCE-FLAG` / `STALE` / `RECONSIDER-SURFACE`) is canonically defined in [`docs/skills-includes/verdict-enums.md`](../../docs/skills-includes/verdict-enums.md) (`enums.probe`); workflow YAMLs that test this verdict declare `verdict_enum: probe` and the loader rejects typos at validate time. The structured `probe_outcome.verdict` field in cycle-state YAML uses the underscore form `SCIENCE_FLAG` — see `enums.probe-structured` in the same registry.
 
 | Classification | Meaning | Action |
 |---------------|---------|--------|

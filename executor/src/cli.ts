@@ -301,7 +301,9 @@ function cmdValidate(): void {
   } else {
     // Validate all
     const dir = resolve(latticeRoot, 'workflows');
-    const files = readdirSync(dir).filter(f => f.endsWith('.yaml') || f.endsWith('.yml'));
+    const files = readdirSync(dir)
+      .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
+      .filter(f => !NON_WORKFLOW_YAMLS.has(f));
     let total = 0;
     for (const file of files) {
       validateOne(resolve(dir, file));
@@ -310,6 +312,13 @@ function cmdValidate(): void {
     console.log(`\n${total} workflows validated.`);
   }
 }
+
+/**
+ * YAML files in workflows/ that are NOT workflow definitions and should be
+ * skipped by validate/list/inspect. Currently: verdict-enums.yaml (registry
+ * data file consumed by loader.ts; not a workflow itself).
+ */
+const NON_WORKFLOW_YAMLS = new Set(['verdict-enums.yaml']);
 
 function validateOne(path: string): void {
   try {
@@ -332,7 +341,9 @@ function cmdList(): void {
     process.exit(1);
   }
 
-  const files = readdirSync(dir).filter(f => f.endsWith('.yaml') || f.endsWith('.yml'));
+  const files = readdirSync(dir)
+    .filter(f => f.endsWith('.yaml') || f.endsWith('.yml'))
+    .filter(f => !NON_WORKFLOW_YAMLS.has(f));
 
   console.log('Available workflows:\n');
   for (const file of files) {

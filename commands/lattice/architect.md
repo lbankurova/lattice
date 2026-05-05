@@ -143,6 +143,8 @@ A spec that can't answer audit questions 1-10 for every proposed feature should 
 
 ### Step 3: Handle verdict
 
+The architect verdict enum (`PASS` / `SIMPLIFY` / `REJECT` / `SCIENCE-FLAG`) is canonically defined in [`docs/skills-includes/verdict-enums.md`](../../docs/skills-includes/verdict-enums.md) (`enums.architect`); workflow YAMLs that test this verdict at gates declare `verdict_enum: architect` and the loader rejects typos at validate time.
+
 | Verdict | Action |
 |---------|--------|
 | **PASS** | Tell the user: "Architecture review passed. Ready for implementation." |

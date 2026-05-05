@@ -43,6 +43,8 @@ You must do the comparison work yourself. Missing documentation is not a merit f
 
 ### Verdict criteria
 
+The per-decision verdicts below (`MERIT-SOUND` / `EFFORT-BIASED`) and per-deferral verdicts later in this document (`VALID-DEFERRAL` / `UNPROMPTED-DEFERRAL`) are *findings inside the audit*, not gate verdicts. The audit's overall gate verdict is `PASS` / `FAIL` — see [`docs/skills-includes/verdict-enums.md`](../docs/skills-includes/verdict-enums.md) `enums.decision-auditor`. Gates that route on this audit declare `verdict_enum: decision-auditor` and use boolean signals (`has_effort_biased`, `has_unprompted_deferral`, `has_silent_drop`) to route on findings rather than a single string.
+
 | Verdict | Meaning | When to use |
 |---------|---------|-------------|
 | **MERIT-SOUND** | No better alternative identified after reasoning from code, domain references, and prior decisions | Chosen approach is correct, OR you cannot name a concretely better alternative |

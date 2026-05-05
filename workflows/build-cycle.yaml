@@ -105,6 +105,7 @@ workflow:
       skill: lattice/review
       context: inherit
       depends_on: [implement, e2e-classify, e2e-run]
+      verdict_enum: review
       inputs:
         spec_path: "{{inputs.spec_path}}"
         topic: "{{inputs.topic}}"
