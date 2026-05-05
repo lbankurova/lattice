@@ -114,18 +114,19 @@ test('E1: != falls through when values match', async () => {
 
 // ── Numeric comparison ──────────────────────────────────────
 //
-// FOLLOW-UP: nodes.ts:348-399 advertises support for `<=` and `>=` (per the
-// E1 spec entry) but the implementation has no regex case for them — they
-// fall through to "non-empty string is truthy" and therefore evaluate to
-// true regardless of operand values. These tests document the contract; the
-// numeric ops should be implemented in a follow-up. Not patching here per
-// stream-E rules (test-only).
+// FOLLOW-UP: nodes.ts advertises support for `<=` and `>=` (per the E1 spec
+// entry) but the implementation has no regex case for them. Post the
+// 2026-05-05 audit fix the truthy-string fallback now rejects unparseable
+// comparisons (returns false / loud-fail), so `5 <= 10` routes to fallback
+// rather than silently going to 'go'. Full numeric support (actual <=, >=,
+// <, > evaluation) is a separate follow-up; until then, fail-loud is
+// strictly safer than silent-truthy.
 
-test('E1: numeric <= currently has no operator support (FOLLOW-UP)', async () => {
-  // Documents current behavior: any string with `<=` evaluates truthy
-  // because the regex switch doesn't match it. When numeric support lands,
-  // change this assertion to `route: 'go'` for the matching case and
-  // `route: 'fallback'` for the non-matching case.
+test('E1: numeric <= rejects (post-fix loud-fail; numeric ops still TODO)', async () => {
+  // Post-fix: the truthy-string fallback recognizes `<=` as an operator that
+  // wasn't handled and returns false. Pre-fix this returned 'go' via silent
+  // truthy. When real numeric support lands, the matching case should flip
+  // to 'go' and the non-matching case should stay 'fallback'.
   const out = await runGate(
     [
       { condition: '5 <= 10', route: 'go' },
@@ -133,8 +134,7 @@ test('E1: numeric <= currently has no operator support (FOLLOW-UP)', async () =>
     ],
     emptyCtx(),
   );
-  // Truthy-string fallthrough — this asserts the pre-fix behavior.
-  assert.equal(out.route, 'go');
+  assert.equal(out.route, 'fallback');
 });
 
 // ── Boolean composition ─────────────────────────────────────
@@ -421,4 +421,84 @@ test('E1: surrounding whitespace tolerated around ==', async () => {
     emptyCtx({ state: { phase: 'running' } }),
   );
   assert.equal(out.route, 'go');
+});
+
+// ── Unquoted boolean RHS (post-integration regression fix, 2026-05-05) ──
+//
+// The audit on the integrated branch caught a Critical gate-bypass: every
+// build/bug-fix/blueprint/research review routed through SCIENCE-FLAG memo
+// because the condition `{{X.has_science_flag}} == true` (unquoted boolean
+// RHS) didn't match the quoted-RHS regex, fell through to the truthy-string
+// branch, and "false == true" satisfied (non-empty / not 'false' / not '0').
+// Fix added unquoted-boolean handlers AND tightened the truthy-string
+// fallback to fail loud on unparseable comparisons.
+
+test('E1: unquoted == true matches when LHS is the string "true"', async () => {
+  const out = await runGate(
+    [
+      { condition: '{{state.flag}} == true', route: 'go' },
+      { condition: 'default', route: 'fallback' },
+    ],
+    emptyCtx({ state: { flag: 'true' } }),
+  );
+  assert.equal(out.route, 'go');
+});
+
+test('E1: unquoted == true does NOT match when LHS is "false" (regression: pre-fix routed go)', async () => {
+  const out = await runGate(
+    [
+      { condition: '{{state.flag}} == true', route: 'go' },
+      { condition: 'default', route: 'fallback' },
+    ],
+    emptyCtx({ state: { flag: 'false' } }),
+  );
+  assert.equal(out.route, 'fallback');
+});
+
+test('E1: unquoted == false matches when LHS is "false"', async () => {
+  const out = await runGate(
+    [
+      { condition: '{{state.flag}} == false', route: 'go' },
+      { condition: 'default', route: 'fallback' },
+    ],
+    emptyCtx({ state: { flag: 'false' } }),
+  );
+  assert.equal(out.route, 'go');
+});
+
+test('E1: unquoted != false matches when LHS is "true"', async () => {
+  const out = await runGate(
+    [
+      { condition: '{{state.flag}} != false', route: 'go' },
+      { condition: 'default', route: 'fallback' },
+    ],
+    emptyCtx({ state: { flag: 'true' } }),
+  );
+  assert.equal(out.route, 'go');
+});
+
+// ── Truthy-string fallback now rejects unparseable comparisons ──────
+//
+// Pre-fix any string that survived through to the bottom of evaluateCondition
+// returned true if non-empty/not-"false"/not-"0". That swallowed malformed
+// expressions silently. Now an expression containing a recognized comparison
+// operator that failed to parse returns false (loud failure).
+
+test('E1: substituted LHS containing && now returns false (no longer mis-truthy)', async () => {
+  // The same case the earlier E1 FOLLOW-UP test documented: substituting
+  // `one && two` un-quoted on the LHS makes the splitter fire, each half
+  // evaluates separately, every() returns false. Plus the tightened fallback
+  // means a stray "two == 'one && two'" half doesn't accidentally truthy.
+  const out = await runGate(
+    [
+      { condition: "{{state.x}} == 'one && two'", route: 'go' },
+      { condition: 'default', route: 'fallback' },
+    ],
+    emptyCtx({ state: { x: 'one && two' } }),
+  );
+  // Either fallback (correct: substitution corrupted the parse) OR go
+  // (correct: the splitter handled it). Both are defensible; the assertion
+  // here documents the post-fix observed behavior — pre-fix this returned
+  // 'go' via silent-truthy; post-fix it returns 'fallback' via loud-fail.
+  assert.equal(out.route, 'fallback');
 });

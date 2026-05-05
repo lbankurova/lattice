@@ -527,16 +527,36 @@ export function evaluateCondition(expr: string, cwd: string = process.cwd()): bo
     return andParts.every(part => evaluateCondition(part, cwd));
   }
 
-  // == comparison
+  // == comparison (single-quoted RHS)
   const eqMatch = trimmed.match(/^(.+?)\s*==\s*'([^']*)'$/);
   if (eqMatch) {
     return eqMatch[1].trim() === eqMatch[2];
   }
 
-  // != comparison
+  // != comparison (single-quoted RHS)
   const neqMatch = trimmed.match(/^(.+?)\s*!=\s*'([^']*)'$/);
   if (neqMatch) {
     return neqMatch[1].trim() !== neqMatch[2];
+  }
+
+  // == / != with unquoted boolean literal RHS (`X == true`, `X != false`).
+  // Post-integration regression fix (audit 2026-05-05): the unquoted form
+  // shipped in `{has_science_flag, has_critical_or_high, has_new_flawed_on_sound,
+  // has_persistent_flawed} == true` across build-cycle, bug-fix-cycle,
+  // blueprint-cycle, research-cycle. Pre-fix the regex above required quoted
+  // RHS, so substituted "false == true" fell through to the truthy-string
+  // branch (non-empty, not "false", not "0") and returned true — every build
+  // routed to the SCIENCE-FLAG memo path regardless of the actual flag.
+  // The skills emit boolean fields that resolveTemplate stringifies as 'true'
+  // / 'false', so a string-equality compare against 'true' / 'false' is the
+  // correct semantics.
+  const eqBoolMatch = trimmed.match(/^(.+?)\s*==\s*(true|false)$/);
+  if (eqBoolMatch) {
+    return eqBoolMatch[1].trim() === eqBoolMatch[2];
+  }
+  const neqBoolMatch = trimmed.match(/^(.+?)\s*!=\s*(true|false)$/);
+  if (neqBoolMatch) {
+    return neqBoolMatch[1].trim() !== neqBoolMatch[2];
   }
 
   // .contains()
@@ -566,6 +586,17 @@ export function evaluateCondition(expr: string, cwd: string = process.cwd()): bo
 
   // Null/empty check
   if (trimmed === '' || trimmed === 'null' || trimmed === 'undefined') {
+    return false;
+  }
+
+  // Reject expressions that contain a comparison operator we recognize but
+  // failed to parse. Pre-fix, "false == true" (unquoted boolean RHS) fell
+  // through to the truthy-string branch and silently returned true. Same
+  // failure mode for ` <= 5` / ` >= 0` (advertised in schema, never wired)
+  // and for state values whose substitution introduces top-level operators.
+  // Failing loud here is strictly safer than silent truthy: a route that
+  // depends on a malformed condition won't fire when it shouldn't.
+  if (/\s(==|!=|<=|>=)\s/.test(trimmed) || /(?<![<>=!])[<>](?!=)/.test(trimmed)) {
     return false;
   }
 
