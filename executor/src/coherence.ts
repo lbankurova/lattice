@@ -793,6 +793,25 @@ function detectSubsystemOverlap(
 }
 
 /**
+ * Pluggable warning sink for B5 (SCIENCE-FLAG without explicit subsystem
+ * scope). Tests swap this for a recorder; production defaults to stderr
+ * with a `[coherence]` prefix that's easy to grep in logs.
+ *
+ * Kept module-local rather than reusing loader.ts's `warnSink` (Stream
+ * A4): different semantic responsibility, different audience (cycle
+ * autopilot vs validate-time loader), so collocating the sink with the
+ * call site keeps the dependency graph one-directional.
+ */
+type CoherenceWarnSink = (message: string) => void;
+let coherenceWarnSink: CoherenceWarnSink = (msg) => process.stderr.write(`[coherence] ${msg}\n`);
+
+export function setCoherenceWarnSink(sink: CoherenceWarnSink): CoherenceWarnSink {
+  const prev = coherenceWarnSink;
+  coherenceWarnSink = sink;
+  return prev;
+}
+
+/**
  * Detect when a topic has an unresolved SCIENCE-FLAG that propagates to
  * a subsystem used by another topic's blueprint.
  */
@@ -809,9 +828,26 @@ function detectScienceFlagPropagation(
 
     // For each unresolved SF, check which subsystems it affects
     for (const sf of unresolvedSFs) {
-      const affectedSubs = sf.subsystems.length > 0
-        ? sf.subsystems
-        : source.subsystems; // If no specific subsystems, assume all of source's subsystems
+      // B5 fix: pre-fix code fell back to `source.subsystems` whenever
+      // `sf.subsystems` was empty -- one ill-typed flag would propagate
+      // to every subsystem the SOURCE topic touches and block unrelated
+      // downstream work. The fan-out amplified false positives across
+      // the full subsystem heatmap.
+      //
+      // Post-fix: empty `sf.subsystems` is a per-author defect. Log a
+      // warning naming the offending topic + a description prefix, then
+      // skip propagation. Forces callers to author SFs with explicit
+      // scope; the warning is the migration nudge.
+      if (sf.subsystems.length === 0) {
+        const desc = sf.description.slice(0, 80).replace(/\s+/g, ' ').trim();
+        coherenceWarnSink(
+          `SCIENCE-FLAG without explicit subsystems on topic '${source.topic}': "${desc}". ` +
+          `Skipping propagation -- author SF with explicit subsystem scope to enable cross-topic blocking. ` +
+          `B5 fix: pre-fix would have fanned this to every subsystem '${source.topic}' touches.`,
+        );
+        continue;
+      }
+      const affectedSubs = sf.subsystems;
 
       for (const sub of affectedSubs) {
         const consumers = (heatmap[sub] ?? []).filter(t => t !== source.topic);
