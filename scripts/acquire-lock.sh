@@ -66,11 +66,56 @@ log_force_clear() {
     fi
 }
 
+# pid_alive: returns 0 if PID is currently a live process, 1 otherwise.
+# Tries POSIX `kill -0` first (cheap, works on every Unix shell + git-bash on
+# Windows when the PID is a bash subshell). Falls back to Windows `tasklist`
+# for native-Windows PIDs that `kill -0` may not resolve under MINGW. Anything
+# unparseable (empty / non-numeric) returns 1 so the caller treats it as dead.
+pid_alive() {
+    local pid="$1"
+    if [ -z "$pid" ]; then return 1; fi
+    case "$pid" in *[!0-9]*) return 1;; esac
+    if kill -0 "$pid" 2>/dev/null; then
+        return 0
+    fi
+    # Windows fallback: tasklist /FI "PID eq <pid>" /NH prints a row when the
+    # process is live, "INFO: No tasks are running..." when not. The grep -q
+    # on the literal pid is robust against either output shape.
+    if command -v tasklist >/dev/null 2>&1; then
+        if tasklist /FI "PID eq $pid" /NH 2>/dev/null | grep -q " $pid "; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
 check_stale() {
     if [ ! -f "$LOCK_DIR/meta" ]; then
         # Lock dir exists but no metadata — probably stale
         echo "STALE LOCK (no metadata) — force-acquiring"
         log_force_clear "no-metadata" "unknown" "0"
+        rm -rf "$LOCK_DIR"
+        return 0
+    fi
+
+    # PID liveness check (C1, 2026-05-05 audit). The pre-fix code relied
+    # solely on wall-clock age vs STALE_THRESHOLD. Two failure modes:
+    #   (a) a PID that died seconds ago holds the lock for the full
+    #       30-minute threshold;
+    #   (b) when stat returns 0 (file vanished mid-check, fs glitch), age
+    #       computes to "now" and a healthy long-running holder gets
+    #       force-cleared.
+    # PID liveness is the ground-truth signal: if the holder PID is dead,
+    # force-clear immediately regardless of clock; if it's alive, treat the
+    # lock as held even if mtime drifts. Clock check stays as a fallback
+    # for orphaned PIDs we can't resolve (cross-host / cross-container).
+    local lock_pid
+    lock_pid=$(grep "^pid:" "$LOCK_DIR/meta" 2>/dev/null | head -1 | sed 's/^pid: *//' | tr -d ' ' || echo "")
+    if [ -n "$lock_pid" ] && ! pid_alive "$lock_pid"; then
+        local holder
+        holder=$(grep "^holder:" "$LOCK_DIR/meta" 2>/dev/null | head -1 | sed 's/^holder: *//' || echo "unknown")
+        echo "STALE LOCK (pid $lock_pid not alive, $holder) — force-acquiring"
+        log_force_clear "dead-pid-$lock_pid" "$holder" "0"
         rm -rf "$LOCK_DIR"
         return 0
     fi
@@ -81,6 +126,12 @@ check_stale() {
     local now
     now=$(date +%s)
     local age=$((now - lock_time))
+
+    # If PID is alive, never clock-clear -- liveness overrides clock-based
+    # stale (closes the "stat returns 0 -> infinite age" force-clear bug).
+    if [ -n "$lock_pid" ] && pid_alive "$lock_pid"; then
+        return 1
+    fi
 
     if [ "$age" -gt "$STALE_THRESHOLD" ]; then
         local holder

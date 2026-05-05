@@ -82,10 +82,41 @@ log_force_clear() {
     fi
 }
 
+# pid_alive: returns 0 if PID is currently a live process, 1 otherwise.
+# See acquire-lock.sh for full rationale; same implementation kept in sync.
+pid_alive() {
+    local pid="$1"
+    if [ -z "$pid" ]; then return 1; fi
+    case "$pid" in *[!0-9]*) return 1;; esac
+    if kill -0 "$pid" 2>/dev/null; then
+        return 0
+    fi
+    if command -v tasklist >/dev/null 2>&1; then
+        if tasklist /FI "PID eq $pid" /NH 2>/dev/null | grep -q " $pid "; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
 check_stale() {
     if [ ! -f "$LOCK_DIR/meta" ]; then
         echo "STALE TOPIC LOCK (no metadata) for $TOPIC -- force-acquiring"
         log_force_clear "no-metadata" "unknown" "0"
+        rm -rf "$LOCK_DIR"
+        return 0
+    fi
+
+    # PID liveness (C1, 2026-05-05 audit) -- override clock-based stale in
+    # both directions: dead PID -> immediate clear; live PID -> never
+    # clock-clear (closes the stat-returns-0 false-stale bug).
+    local lock_pid
+    lock_pid=$(grep "^pid:" "$LOCK_DIR/meta" 2>/dev/null | head -1 | sed 's/^pid: *//' | tr -d ' ' || echo "")
+    if [ -n "$lock_pid" ] && ! pid_alive "$lock_pid"; then
+        local holder
+        holder=$(grep "^holder:" "$LOCK_DIR/meta" 2>/dev/null | head -1 | sed 's/^holder: *//' || echo "unknown")
+        echo "STALE TOPIC LOCK (pid $lock_pid not alive, $holder) for $TOPIC -- force-acquiring"
+        log_force_clear "dead-pid-$lock_pid" "$holder" "0"
         rm -rf "$LOCK_DIR"
         return 0
     fi
@@ -95,6 +126,10 @@ check_stale() {
     local now
     now=$(date +%s)
     local age=$((now - lock_time))
+
+    if [ -n "$lock_pid" ] && pid_alive "$lock_pid"; then
+        return 1
+    fi
 
     if [ "$age" -gt "$STALE_THRESHOLD" ]; then
         local holder
