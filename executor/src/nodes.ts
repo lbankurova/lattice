@@ -7,6 +7,7 @@
  */
 
 import { execSync, spawnSync, type ExecSyncOptionsWithStringEncoding } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import type {
   WorkflowNode, BashNode, SkillNode, GateNode, ApprovalNode, ParallelNode,
@@ -34,7 +35,7 @@ export async function executeNode(
       case 'skill':
         return await executeSkill(nodeId, node, ctx, cwd, adapter, startedAt);
       case 'gate':
-        return executeGate(nodeId, node, ctx, startedAt);
+        return executeGate(nodeId, node, ctx, cwd, startedAt);
       case 'approval':
         return await executeApproval(nodeId, node, ctx, adapter, startedAt);
       case 'parallel':
@@ -387,6 +388,7 @@ function executeGate(
   nodeId: string,
   node: GateNode,
   ctx: TemplateContext,
+  cwd: string,
   startedAt: string,
 ): NodeResult {
   for (const cond of node.evaluate) {
@@ -402,7 +404,7 @@ function executeGate(
     }
 
     const resolved = resolveTemplate(cond.condition, ctx);
-    if (evaluateCondition(resolved)) {
+    if (evaluateCondition(resolved, cwd)) {
       return {
         nodeId,
         status: 'completed',
@@ -497,8 +499,15 @@ function splitTopLevel(expr: string, delim: string): string[] {
  * Precedence: || binds looser than && (standard). Splits respect single-
  * quoted string literals so `inputs.x == 'a && b'` is not mis-split at the
  * `&&` inside the literal.
+ *
+ * `cwd` is required for `exists(...)` / `!exists(...)` filesystem checks.
+ * Paths in the literal are resolved relative to cwd. The pre-fix version
+ * unconditionally returned `false` for `!exists(...)` (with the comment
+ * "Would need filesystem check") and fell through to the truthy-string
+ * branch for `exists(...)` -- both produced silently wrong gate routing
+ * for any workflow that depended on the predicate.
  */
-function evaluateCondition(expr: string): boolean {
+export function evaluateCondition(expr: string, cwd: string = process.cwd()): boolean {
   const trimmed = expr.trim();
 
   // Boolean literals
@@ -509,13 +518,13 @@ function evaluateCondition(expr: string): boolean {
   // Splits ignore occurrences inside single-quoted string literals.
   const orParts = splitTopLevel(trimmed, '||');
   if (orParts.length > 1) {
-    return orParts.some(part => evaluateCondition(part));
+    return orParts.some(part => evaluateCondition(part, cwd));
   }
 
   // && has higher precedence than ||.
   const andParts = splitTopLevel(trimmed, '&&');
   if (andParts.length > 1) {
-    return andParts.every(part => evaluateCondition(part));
+    return andParts.every(part => evaluateCondition(part, cwd));
   }
 
   // == comparison
@@ -536,10 +545,23 @@ function evaluateCondition(expr: string): boolean {
     return containsMatch[1].trim().includes(containsMatch[2]);
   }
 
-  // !exists()
-  if (trimmed.startsWith("!exists('")) {
-    // Would need filesystem check -- for now treat as false
-    return false;
+  // !exists('path') -- B3 fix. Pre-fix returned false unconditionally.
+  // Now performs a real fs.existsSync check against `path` resolved
+  // relative to cwd. Absolute paths pass through unchanged. Template
+  // substitution happens upstream in resolveTemplate, so by the time
+  // we land here the literal is already concrete.
+  const notExistsMatch = trimmed.match(/^!exists\('([^']*)'\)$/);
+  if (notExistsMatch) {
+    return !pathExists(notExistsMatch[1], cwd);
+  }
+
+  // exists('path') -- positive form. Pre-fix this fell through to the
+  // truthy-string branch and incorrectly returned `true` because the
+  // literal "exists('foo')" is non-empty. Add the explicit handler so
+  // both forms have correct semantics.
+  const existsMatch = trimmed.match(/^exists\('([^']*)'\)$/);
+  if (existsMatch) {
+    return pathExists(existsMatch[1], cwd);
   }
 
   // Null/empty check
@@ -549,6 +571,32 @@ function evaluateCondition(expr: string): boolean {
 
   // Non-empty string is truthy
   return trimmed.length > 0 && trimmed !== 'false' && trimmed !== '0';
+}
+
+/**
+ * Resolve a path literal from a workflow condition against `cwd` and
+ * report whether it exists. Absolute paths pass through; relative paths
+ * are resolved against `cwd` (the workflow's working directory). Errors
+ * fall through as "does not exist" -- a permission error on a probe
+ * path is indistinguishable from absence for routing purposes.
+ *
+ * Exported for direct testing in nodes.test.ts.
+ */
+export function pathExists(literal: string, cwd: string): boolean {
+  try {
+    const resolved = isAbsolutePath(literal) ? literal : `${cwd}/${literal}`;
+    // existsSync is the right primitive here: we don't need to read,
+    // and stat-then-check would just duplicate its work.
+    return existsSync(resolved);
+  } catch {
+    return false;
+  }
+}
+
+function isAbsolutePath(p: string): boolean {
+  // POSIX absolute or Windows drive-letter absolute. Avoid pulling in
+  // path.isAbsolute to keep the helper self-contained for testing.
+  return p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
 }
 
 // ── Trigger rule evaluator ──────────────────────────────────
