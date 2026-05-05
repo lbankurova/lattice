@@ -23,14 +23,24 @@ A broad audit of destructive git operations and concurrency safety found 6 CRITI
 
 Deferred items (filed for follow-up): MEDIUM-2 (autopilot snapshot timing), MEDIUM-4 (appendFileSync atomicity), MEDIUM-6 (auto-resolve writes outside topic lock), all LOWs.
 
+## Lattice self-fix 2026-05-05
+
+Spec at `b7715c5` (`spec(lattice-self-fix): framework hardening from 2026-05-05 audit`); 25 KEPT items shipped across 5 streams (A1-A4, B1-B5, C1-C7, D1-D7, E1-E4). Closeout report at `.lattice/lattice-self-fix-review-2026-05-05.md`. Items most relevant to enforcement:
+
+- **Stream A — orchestration contracts.** `verdict-enums.yaml` registry + loader-time validate (A2); `_includes/science-flag-resolution.yaml` + `_includes/topic-lock.md` + `_includes/revision-checked-writes.md` extracted from triplicated cycle-skill prose, propagated by `scripts/sync-workflow-includes.py` (A1, A3); `max_iterations` field + validate-time DAG checks for approval-without-route, non-positive max_iterations, orphan nodes (A4).
+- **Stream B — executor hardening.** `atomicWriteFileSyncCAS` (filesystem-atomic create-or-fail via `linkSync` on `<path>.tmp-rev-{N+1}`) closes lost-update race that the in-memory revision check left open (B1). Argv-form bash execution closes shell-injection vector (B2). `exists()`/`!exists()` in `evaluateCondition` perform real filesystem checks instead of returning unconditional false/true (B3). Subsystem regex broadened to `\bS(\d{2,3}[a-z]?)\b` to support 3-digit + sub-lettered IDs (B4). SCIENCE-FLAG without explicit `subsystems` no longer fans out to source's subsystems — empty subsystems trigger a warning and skip propagation (B5).
+- **Stream C — hook + script hardening.** PID liveness in stale-lock detection: dead PID → immediate force-clear, live PID → skip clock-based stale check (C1). No-metadata 2s grace + `LATTICE_LOCK_PID` opt-in (default 0 = clock-only stale) (C2). Pre-commit Step 0a wires `merge-shared-state.sh` to refresh shared files (TODO/REGISTRY/decisions.log/ROADMAP/MANIFEST) from HEAD before commit (C3). Algorithm-defensibility rationale validation tightened to ≥40 chars, must reference a staged file by basename or path, substring (not exact-match) trivial blacklist (C4). `install-hooks.sh` now refuses if `git config core.hooksPath` overrides `.git/hooks/` (C5). Validation-ratchet baseline advancement requires `LATTICE_RATCHET_CONFIRM_ADVANCE=1`; default emits `BASELINE-ADVANCE-PROPOSED` (exit 3) instead of silent overwrite (C6). Bug-retro keyword tolerance for common markdown shapes (numbered lists, h3/h4 headers, bold-numbered) (C7).
+- **Stream D — skill / gate plumbing.** `build-cycle.yaml` gains a SCIENCE-FLAG resolver via `_includes/science-flag-resolution.yaml` sync — flagging is no longer silent on the build-cycle path (D1). `build-cycle.yaml` Layer 0.5 `pre-implement-gate` runs F5 spec lint, F3 algorithmic peer-review, SPEC-VALUE-AUDIT, architect-reviewer when entered with `spec_path` directly (closes the gap where direct-spec entry bypassed blueprint-cycle gates) (D2). `blueprint-cycle.yaml` architect-verdict gate reordered so `SCIENCE-FLAG` from architect or probe matches before PASS/SIMPLIFY (D3). `spike-cycle` escalate-to-full path releases the topic lock before exiting (D4). `agents/peer-review.md` self-contained — removed cross-reference to `commands/lattice/peer-review.md` (D5); `commands/lattice/review.md` Agent D launches `subagent_type: peer-review` (harness-loaded) instead of `general-purpose` with inline prompt (D6). 7-section anchor enforcement on `/lattice:review` output via side-channel file `.lattice/last-review-output.md` greppable by `write-review-gate.sh` (D7).
+- **Audit-followup.** Critical gate-bypass: `evaluateCondition` returned silent truthy on unhandled comparison expressions (`{{X}} == true` with unquoted boolean RHS fell through the truthy-string fallback). Two new handlers for `LHS == true|false` and `LHS != true|false`; truthy-string fallback now rejects expressions containing comparison operators that didn't match a specific handler — fail-loud, not silent. Pre-fix, every build / bug-fix / blueprint / research cycle silently routed post-review state through the SCIENCE-FLAG memo path regardless of whether a flag was raised (`ee05bc6`).
+
 ## 1. Review Gate (`scripts/write-review-gate.sh` + `.git/hooks/pre-commit`)
 
 Every commit requires a review gate file (`.lattice/review-gate.json`). Two ways to create it:
 
-- `/lattice:review` -- full quality gate with architect review, decision audit, requirement trace
-- `scripts/write-review-gate.sh` -- mechanical checks only (build, tests, syntax). Escape hatch for trivial commits.
+- `/lattice:review` -- full quality gate with architect review, decision audit, requirement trace. Writes the 7 mandatory sections to a side-channel file (`.lattice/last-review-output.md`); `write-review-gate.sh` greps for the seven `^## NAME` anchors and refuses to write the gate if any are missing (D7).
+- `scripts/write-review-gate.sh` -- mechanical checks for trivial commits. Runs the executor TypeScript build (if `executor/` files staged), the algorithm-defensibility verdict (if any staged file matches `.lattice/algorithm-paths.txt`), and attestation validation. Trivial-commit invocation (`bash scripts/write-review-gate.sh pass "..."`) skips the anchor check via the side-channel file's absence.
 
-The pre-commit hook verifies the gate file exists and is fresh (<30 min), runs build checks on staged code files, emits index freshness and complexity advisories, and consumes the gate after a successful commit (single-use).
+The pre-commit hook (`hooks/pre-commit`) runs eight steps before a commit lands: Step -1 commit lock acquisition (BLOCKS); Step 0a `merge-shared-state.sh` to refresh TODO / REGISTRY / decisions.log / ROADMAP / MANIFEST from HEAD (ADVISORY, soft-fails if script absent; C3); Step 0 review-gate freshness check (BLOCKS, ≤30 min, single-use); Step 1 executor TypeScript build (BLOCKS); Step 2 index freshness (ADVISORY); Step 2.5 bug-retro check on `fix:` commits (BLOCKS without 5-question retro); Step 3 complexity advisories (ADVISORY); Step 4 staging-drift check (BLOCKS if files added during the hook run). The gate is consumed (deleted) after a successful commit.
 
 ## 2. Validation Ratchet (`scripts/validation-ratchet.sh`)
 
@@ -41,10 +51,15 @@ baseline  -- capture current validation scores
 compare   -- compare current vs baseline
 auto      -- baseline (if needed) + regenerate all studies + compare
 
-Exit codes: 0 = same/improved, 2 = degradation detected
+Exit codes:
+  0 = no change OR confirmed advancement
+  2 = degradation detected
+  3 = improvement detected, baseline-advance proposed (NEW; C6)
 ```
 
 **Degradation handling:** Degradation doesn't mean rollback. It means analytical behavior changed. The ratchet identifies WHICH signals/assertions changed. The agent must determine: expected (documented in spec) -> update ground truth, or unexpected -> route to `/lattice:research`.
+
+**Baseline advancement (C6, post-2026-05-05).** Improvement no longer auto-advances the baseline file. The default path emits `BASELINE-ADVANCE-PROPOSED` (exit 3) with the diff logged to `.lattice/decisions.log`; the baseline file is untouched. To advance, set `LATTICE_RATCHET_CONFIRM_ADVANCE=1` and re-run; the script then rewrites the baseline, logs `BASELINE-ADVANCED`, and prints the exact `git add` + `git commit` commands so the bump lands as an audit-traceable commit. Closes the stealth-bypass class where a cherry-picked improvement could silently raise the baseline so a subsequent regression rode under it (no decision-log entry, no commit, no audit trail).
 
 ## 3. Coherence Engine (`executor/src/coherence.ts`)
 
@@ -87,9 +102,11 @@ alert_threshold: 0.8           # warn at 80% of any limit
 # reads are not counted against utilization.
 context:
   window_size: 1000000         # Opus 4.7 (1M); 200000 for Sonnet 4.6
-  warn_threshold: 0.5          # log a warning at 50% utilization
-  block_threshold: 0.75        # stop workflow at 75% utilization
+  warn_threshold: 0.5          # EXAMPLE OVERRIDE -- code default 0.6
+  block_threshold: 0.75        # EXAMPLE OVERRIDE -- code default 0.8
 ```
+
+The `warn_threshold` and `block_threshold` values shown above are project-overrides typical for projects with stricter rot tolerance; the code defaults in `executor/src/budget.ts` are `DEFAULT_CONTEXT_WARN = 0.6` and `DEFAULT_CONTEXT_BLOCK = 0.8`. A project with no `context:` block in its `budget.yaml` (or no `budget.yaml` at all) gets the code defaults.
 
 **Behavior:**
 - Below threshold: cost logged per node (`[implement] OK ($0.3842)`)
@@ -117,13 +134,16 @@ TIMESTAMP	SKILL	OUTCOME	CONTEXT	METRICS	NOTES
 
 Mechanical enforcement -- the agent cannot skip these:
 
-**PreToolUse on `Bash(git commit *)`:**
+**PreToolUse on `Bash(git commit *)`** (`hooks/claude-hooks.json`):
 
 | Hook | Action |
 |------|--------|
-| **Commit lock** | BLOCKS if another agent holds `.lattice/commit.lock`. Auto-expires stale locks >5min. Pre-commit Step -1 acquires when no `LATTICE_LOCK_HOLDER` env is set; honors outer-held lock (autopilot, `/lattice:review`) when set, to prevent staging-drift conflation across concurrent commits. (922cf24, 20f2eb4) |
-| **Topic trailer** | WARNS (non-blocking) when `feat:`/`fix:` commits lack a `Topic:` trailer. |
-| **Review gate** | BLOCKS ALL commits without a fresh `.lattice/review-gate.json`. |
+| **Commit lock check** | BLOCKS unconditionally if `.lattice/commit.lock` is held. Reports holder + age + recovery instructions. NO auto-clear of stale locks since 2026-05-04 audit (CRITICAL-3 / HIGH-1: auto-clear at 300s destroyed legitimate long-running locks — e.g. a 6-minute peer-review pass — and was a contributing factor to the data-loss incident). Manual recovery only via `bash scripts/release-lock.sh --force`. |
+| **Gap-persistence reminder** | WARNS (non-blocking) when research / synthesis / peer-review files are staged but neither `REGISTRY.md` nor `TODO.md` is staged. Prompts the author to confirm whether discovered gaps were persisted. |
+| **Pipeline test-first** | BLOCKS if pipeline modules (project-configurable regex `PIPELINE_MODULES_PATTERN`) are staged without an accompanying `*.test.*` or `*.spec.*` file. |
+| **Validation ratchet check** | BLOCKS if `.lattice/engine-changed` marker exists without a corresponding `.lattice/validation-compared` marker (the ratchet was not run). The PostToolUse engine-change hook below sets the first marker; `validation-ratchet.sh` clears it via the second. |
+
+The git pre-commit hook (`hooks/pre-commit`) — distinct from Claude Code PreToolUse — is what acquires the commit lock for the commit's duration and verifies the review-gate file (Section 1). Pre-commit Step -1 honors `LATTICE_LOCK_HOLDER` env and skips re-acquire when outer-held by autopilot / `/lattice:review` (922cf24, 20f2eb4).
 
 **PreToolUse on `Write|Edit|MultiEdit`:**
 
@@ -132,12 +152,13 @@ Mechanical enforcement -- the agent cannot skip these:
 | **Design-mode preamble gate** (`scripts/design-mode-gate.sh`) | BLOCKS in-scope `.tsx`/`.html`/`.ts` edits when `.lattice/design-mode.lock` exists with `preamble=pending`. The lock is created by `design-session.sh begin <trigger>`; flipped to `complete` by `preamble-done <evidence>` after the four `/lattice:design` Step 1 blocks (workflow audits, existing surfaces, first-principles, convention check) are authored to an evidence file. Stale locks (>1h) auto-clear. Out-of-scope files always allowed. Failure mode prevented: port-mode redesign — relocating UI without engaging engine outputs. (de8c1af, 09843ee, b349c71) |
 | **Block pcc-mirror edits** *(optional, user-global)* | DENIES Write/Edit/MultiEdit on `<project>/.claude/{commands/lattice/, commands/ops/, agents/}/...` with a message naming the lattice equivalent. Reinforces the "lattice is source of truth" rule physically — direct edits to consumer-project mirrors get clobbered on the next sync. See lattice/CLAUDE.md "Propagating Framework Changes to Consumer Projects". |
 
-**PostToolUse on `Write|Edit|MultiEdit`:**
+**PostToolUse on `Write|Edit|MultiEdit`** (`hooks/claude-hooks.json`):
 
 | Hook | Action |
 |------|--------|
 | **Co-author block** | BLOCKS writes containing `Co-Authored-By` (rule 4). |
-| **Build check** | Advisory -- runs TypeScript build after edits to code files. |
+| **Complexity spot-check** | ADVISORY — runs `scripts/complexity-check.sh` against the edited file. |
+| **Engine-change marker** | When the edited path matches `ENGINE_FILES_PATTERN` (project-configurable regex), sets `.lattice/engine-changed` and removes any `.lattice/validation-compared`. Consumed by the PreToolUse validation-ratchet check above — the next `git commit` is blocked until `validation-ratchet.sh` runs and writes the compared marker. |
 | **Lattice → consumer sync** *(optional, user-global)* | When the edited file is under `C:/pg/lattice/{commands,agents,scripts,docs/skills-includes}/...`, runs `bash C:/pg/lattice/scripts/sync-skills.sh <consumer>` for each registered consumer project and emits a `systemMessage` confirmation. Consumers list lives in the hook script. Removes the human-memory dependency of "remember to sync after editing lattice." Skill partner files at `docs/skills-includes/` propagate alongside `commands/` so by-path references (e.g. `review.md → review-protocols.md`) don't drift into broken-pointer state. |
 
 ## 8. Structural Quality Gates
@@ -146,6 +167,8 @@ File-based checks that cycle orchestrators run on skill outputs before proceedin
 
 | Gate | What it checks | Blocks proceed on failure |
 |------|---------------|--------------------------|
+| **Workflow validate-time DAG checks** (A2 + A4) | Loader (`executor/src/loader.ts`) walks every cycle YAML before any node runs and rejects: gate conditions testing a verdict literal not in the producer's declared `verdict_enum` (`workflows/verdict-enums.yaml`); approval options without a `route` field; `max_iterations` not a positive integer. Orphan nodes (depend_on chains never reachable from a route) emit a warning to stderr (override-able via `setWarnSink`) | Yes -- workflow refuses to load |
+| **7-section anchor enforcement** (D7) | `/lattice:review` writes its 7 mandatory sections (CHANGES, ARCHITECT REVIEW, DECISION AUDIT, REQUIREMENT TRACE, MECHANICAL CHECKS, DOCS UPDATE, VERDICT) to `.lattice/last-review-output.md`. `write-review-gate.sh` greps for `^## NAME` anchors and refuses to write the gate if any are missing | Yes -- mechanical, replaces honor-system "all 7 sections required" prose |
 | **Peer review quality** | >=3 findings, >=3 review dimensions, evidence per finding | Yes -- re-launches peer review |
 | **Algorithmic peer-review (F3)** | Every algorithmic spec or change to a function in `.lattice/algorithm-paths.txt` must produce a peer-review attestation citing at least one `query-knowledge.py` fact (or the explicit no-fact-found stub) before architect/build review proceeds | Yes -- `CONDITIONAL` / `FLAWED` / `INSUFFICIENT` BLOCKS the parent gate. Resolved by fix, citation of newly-populated fact, or explicit user defer with named dependency. (f9b2ca5) |
 | **Synthesis sections** | 6 mandatory sections present with content | Yes -- re-runs synthesize |
@@ -176,7 +199,9 @@ All structural gate verdicts above (peer-review, architect-review, spec-lint, bu
 }
 ```
 
-`scripts/append-attestation.sh` writes; `scripts/test-attestation-format.sh` is the regression suite. `write-review-gate.sh` validates each attestation: `rationale` must be ≥10 chars and not match a trivial value (`n/a` / `idk` / `tbd` / etc.), and `kind=peer-review` attestations on algorithmic-paths commits must reference at least one cited fact or no-fact-found stub. The pre-commit hook reads the gate and verifies required attestations exist for the staged file set. (829dc92)
+`scripts/append-attestation.sh` writes; `scripts/test-attestation-format.sh` is the regression suite. `write-review-gate.sh` validates each attestation: `rationale` must be ≥10 chars (general attestations); `kind=peer-review` attestations on algorithmic-paths commits must reference at least one cited fact or no-fact-found stub; duplicate `(kind, ref)` pairs are rejected. The pre-commit hook reads the gate and verifies required attestations exist for the staged file set. (829dc92)
+
+For the algorithm-defensibility rationale specifically (`LATTICE_ALGORITHM_CHECK="pass:..."` or `skipped:...`), the validation is tighter post-2026-05-05 (C4): rationale must be ≥40 chars (was 10), must mention at least one staged file by basename or relative path (regex intersected with `git diff --cached --name-only` — forces grounding in the actual diff), and must not contain trivial substrings (`n/a`, `idk`, `tbd`, `no real reason`, `trust me`, `obviously`) anywhere in the text — substring blacklist, not exact-match. The framework's strongest algorithmic gate now has real teeth; pre-fix, an 11-char "n/a really" passed.
 
 **SIMPLIFY auto-apply:** Architect findings flagged `Risk: None` (mechanical cuts — dead code, unused exports, redundant imports) auto-apply without user rubber-stamp. Non-trivial risk still routes to user. (ffbbb0f)
 
@@ -188,9 +213,10 @@ When a SCIENCE-FLAG fires under autopilot (rule 14, rule 18), the resolution con
 
 When multiple agents work in parallel on the same repo:
 
-- **Commit lock** (`scripts/acquire-lock.sh` / `release-lock.sh`) -- atomic mkdir, polls every 30s, 5min stale threshold
-- **Topic WIP lock** (`scripts/acquire-topic-lock.sh` / `release-topic-lock.sh`) -- prevents two agents from working on the same topic, 30min stale threshold
-- **Merge shared state** (`scripts/merge-shared-state.sh`) -- refreshes TODO.md, ROADMAP.md, etc. from HEAD before committing
-- **Revision-checked writes** -- state file `revision: N` field, re-read before write, abort on mismatch
+- **Commit lock** (`scripts/acquire-lock.sh` / `release-lock.sh`) — atomic mkdir on `.lattice/commit.lock/`. Polls every 30s, 30min wall-clock stale threshold; `kill -0` (or `tasklist /FI` on Windows) PID-liveness override when metadata records a PID via `LATTICE_LOCK_PID` (dead → immediate force-clear; live → skip the wall-clock path). 2-second grace window before clearing a lock dir whose metadata file is absent (covers microsecond-scale legitimate races between `mkdir` and `write_meta`). Force-clears logged to `.lattice/decisions.log` for post-hoc audit. (C1, C2, post-2026-05-04 audit)
+- **Topic WIP lock** (`scripts/acquire-topic-lock.sh` / `release-topic-lock.sh`) — per-topic `.lattice/cycle-lock/{topic}/`, mkdir-atomic, 60min wall-clock stale threshold (bumped from 30 in audit CRITICAL-3 + HIGH-5; long workflows like research-cycle through two peer-review rounds can exceed 30 min). Re-entrant for same holder. The engine `refreshTopicLock` heartbeat touches metadata mtime after every checkpoint write so normal long-running workflows never trip the stale path.
+- **CAS-style state writes** (B1, post-2026-05-05) — `atomicWriteFileSyncCAS` (`executor/src/state-io.ts`) encodes the expected new revision in the temp filename (`<path>.tmp-rev-{N+1}`) and uses `linkSync` as a filesystem-atomic create-or-fail. Two writers racing for revision N+1 collide on `EEXIST`; the loser throws `RevisionMismatchError`. Closes the lost-update race that the prior in-memory revision check left open (each writer's local `expectedRevision` check passed independently, last writer won, first writer's bump silently lost). `revision_check: true` declared in every cycle YAML triggers the CAS path; legacy atomic temp+rename stays for non-checked writes.
+- **Merge shared state** (`scripts/merge-shared-state.sh`) — wired into pre-commit Step 0a (C3). Refreshes TODO.md / REGISTRY.md / decisions.log / ROADMAP.md / MANIFEST.md from HEAD before this commit, preventing the case where agent B's commit overwrites agent A's just-committed appends to the same files. Soft-fails if script absent (deployment safety margin for consumers that haven't synced this update).
+- **Staging-drift check** (pre-commit Step 4) — re-snapshots `git diff --cached` at hook exit; BLOCKS if files were added during the hook run. Catches concurrent autopilot `git add` interleaving with a manual commit (precedent: commits `1370c103`, `521f1d16`).
 
 See CLAUDE.md "Concurrent Sessions" for full protocol.
