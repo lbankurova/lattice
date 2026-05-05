@@ -47,6 +47,12 @@ if [ -n "$HOOKS_PATH_OVERRIDE" ] && [ "$HOOKS_PATH_OVERRIDE" != ".git/hooks" ]; 
     echo "         (a) git -C \"$TARGET_ROOT\" config --unset core.hooksPath"
     echo "         (b) re-run with the override path:"
     echo "             bash scripts/install-hooks.sh \"$HOOKS_PATH_OVERRIDE/..\""
+    if [ -d "$TARGET_ROOT/.githooks" ]; then
+        echo "         (c) source-direct model: '$TARGET_ROOT' already has a .githooks/"
+        echo "             directory. Skip install-hooks.sh entirely and point git at it:"
+        echo "                 git -C \"$TARGET_ROOT\" config core.hooksPath .githooks"
+        echo "             Hooks fire from .githooks/ on every commit; no copy step."
+    fi
     exit 1
 fi
 
