@@ -33,23 +33,7 @@ Everything else proceeds automatically:
 
 ## Topic Lock
 
-**Acquire the WIP lock before doing any work:**
-
-```bash
-bash scripts/acquire-topic-lock.sh {topic} "research-cycle"
-```
-
-If exit code 1 (lock held by another agent), **STOP immediately** — show the lock holder info and tell the user. Do not proceed.
-
-**Release the lock** when the research phase completes (end of Step 7b):
-```bash
-bash scripts/release-topic-lock.sh {topic}
-```
-
-**Heartbeat:** After every state file update (`current_step` change), refresh the lock to prevent stale detection:
-```bash
-touch .lattice/cycle-lock/{topic}/meta 2>/dev/null
-```
+Acquire at Step 1, release at end of Step 7b, heartbeat on every `current_step` update. Cycle-name passed to acquire script: `research-cycle`. Full protocol (commands, STOP-on-contention, path-based-entry, anti-patterns) at the canonical [topic-lock protocol](../../docs/skills-includes/topic-lock.md).
 
 ---
 
@@ -67,14 +51,7 @@ completed: {}
 checkpoints: {}
 ```
 
-**Revision-checked writes.** Every state file has a `revision: N` field (integer, starts at 1). The protocol:
-1. **Read** the state file, note the `revision` value (e.g., `revision: 3`)
-2. **Do your work** for the step
-3. **Before writing**, re-read the state file and check that `revision` still matches what you read in step 1
-4. **If it matches**, write the update with `revision: 4` (increment by 1)
-5. **If it doesn't match**, another agent modified the file — **STOP**, report the conflict: "State file modified by another agent (expected revision {N}, found {M}). Aborting to prevent data loss."
-
-On **new state file creation**, set `revision: 1`. Every write increments unconditionally.
+**Revision-checked writes.** See the canonical [revision-checked writes protocol](../../docs/skills-includes/revision-checked-writes.md) — read → work → re-read → write-with-incremented-revision; STOP on mismatch with "State file modified by another agent (expected revision {N}, found {M})." New state files start at `revision: 1`.
 
 **Context discipline — disk is storage, context is RAM.** Before EVERY step:
 1. Re-read the state file and decisions log for this topic

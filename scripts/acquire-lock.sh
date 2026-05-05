@@ -20,6 +20,13 @@ HOLDER="${1:-unknown}"
 POLL=false
 POLL_INTERVAL=30     # seconds between retries
 MAX_WAIT=600         # 10 minutes max wait
+
+# Holder PID -- the long-lived process that owns the lock for its lifetime.
+# Callers SHOULD pass LATTICE_LOCK_PID=$$ from the workflow that brackets
+# acquire/release (the script's own $$ exits immediately after writing meta,
+# which would make the lock look perpetually dead under C1's PID-liveness
+# check). Default 0 = "no PID -- use clock-based stale only."
+HOLDER_PID="${LATTICE_LOCK_PID:-0}"
 # Stale threshold bumped 2026-05-04 from 300s -> 1800s after audit CRITICAL-3.
 # A 6-minute peer-review pass is normal under the cycle workflows; the engine
 # also refreshes the meta file's mtime at every checkpoint, so a properly
@@ -42,8 +49,13 @@ fi
 
 acquire() {
     if mkdir "$LOCK_DIR" 2>/dev/null; then
-        # Lock acquired — write metadata
-        echo -e "holder: $HOLDER\nacquired: $(date -Iseconds)\npid: $$" > "$LOCK_DIR/meta"
+        # Lock acquired — write metadata. pid records HOLDER_PID (caller's
+        # long-lived workflow PID) when the caller opted in via
+        # LATTICE_LOCK_PID; otherwise 0 = "no PID liveness check, use
+        # clock-based stale." Writing $$ here would be wrong: this script
+        # exits immediately after, so a racer would see a dead PID and
+        # legitimately force-clear a fresh lock.
+        echo -e "holder: $HOLDER\nacquired: $(date -Iseconds)\npid: $HOLDER_PID" > "$LOCK_DIR/meta"
         echo "LOCK ACQUIRED by $HOLDER"
         return 0
     fi
@@ -66,11 +78,73 @@ log_force_clear() {
     fi
 }
 
+# pid_alive: returns 0 if PID is currently a live process, 1 otherwise.
+# Tries POSIX `kill -0` first (cheap, works on every Unix shell + git-bash on
+# Windows when the PID is a bash subshell). Falls back to Windows `tasklist`
+# for native-Windows PIDs that `kill -0` may not resolve under MINGW. Anything
+# unparseable (empty / non-numeric) returns 1 so the caller treats it as dead.
+pid_alive() {
+    local pid="$1"
+    if [ -z "$pid" ]; then return 1; fi
+    case "$pid" in *[!0-9]*) return 1;; esac
+    if kill -0 "$pid" 2>/dev/null; then
+        return 0
+    fi
+    # Windows fallback: tasklist /FI "PID eq <pid>" /NH prints a row when the
+    # process is live, "INFO: No tasks are running..." when not. The grep -q
+    # on the literal pid is robust against either output shape.
+    if command -v tasklist >/dev/null 2>&1; then
+        if tasklist /FI "PID eq $pid" /NH 2>/dev/null | grep -q " $pid "; then
+            return 0
+        fi
+    fi
+    return 1
+}
+
 check_stale() {
     if [ ! -f "$LOCK_DIR/meta" ]; then
-        # Lock dir exists but no metadata — probably stale
-        echo "STALE LOCK (no metadata) — force-acquiring"
+        # No-metadata grace period (C2, 2026-05-05 audit). Pre-fix: we
+        # force-cleared instantly. Race exposed: process A wins `mkdir`
+        # but is preempted before `write_meta`; concurrent process B
+        # (called within milliseconds of A) sees the empty lock dir
+        # and force-clears it -- destroying A's legitimate lock and
+        # making both A and B think they own it.
+        # Wait 2s and re-check. Legitimate `mkdir -> write_meta` finishes
+        # in microseconds; 2s is comfortable margin. If the meta file is
+        # still missing after the wait, the original holder really did
+        # die between mkdir and write_meta -- proceed with force-clear.
+        sleep 2
+        if [ -f "$LOCK_DIR/meta" ]; then
+            # Racer recovered -- treat as a normal held lock.
+            return 1
+        fi
+        echo "STALE LOCK (no metadata after 2s grace) — force-acquiring"
         log_force_clear "no-metadata" "unknown" "0"
+        rm -rf "$LOCK_DIR"
+        return 0
+    fi
+
+    # PID liveness check (C1, 2026-05-05 audit). The pre-fix code relied
+    # solely on wall-clock age vs STALE_THRESHOLD. Two failure modes:
+    #   (a) a PID that died seconds ago holds the lock for the full
+    #       30-minute threshold;
+    #   (b) when stat returns 0 (file vanished mid-check, fs glitch), age
+    #       computes to "now" and a healthy long-running holder gets
+    #       force-cleared.
+    # PID liveness is the ground-truth signal: if the holder PID is dead,
+    # force-clear immediately regardless of clock; if it's alive, treat the
+    # lock as held even if mtime drifts. Clock check stays as a fallback
+    # for orphaned PIDs we can't resolve (cross-host / cross-container).
+    local lock_pid
+    lock_pid=$(grep "^pid:" "$LOCK_DIR/meta" 2>/dev/null | head -1 | sed 's/^pid: *//' | tr -d ' ' || echo "")
+    # PID 0 / unset = caller did not opt in to liveness check -- use clock
+    # only. Any other numeric PID is treated as the holder's long-lived
+    # workflow PID and checked for liveness.
+    if [ -n "$lock_pid" ] && [ "$lock_pid" != "0" ] && ! pid_alive "$lock_pid"; then
+        local holder
+        holder=$(grep "^holder:" "$LOCK_DIR/meta" 2>/dev/null | head -1 | sed 's/^holder: *//' || echo "unknown")
+        echo "STALE LOCK (pid $lock_pid not alive, $holder) — force-acquiring"
+        log_force_clear "dead-pid-$lock_pid" "$holder" "0"
         rm -rf "$LOCK_DIR"
         return 0
     fi
@@ -81,6 +155,13 @@ check_stale() {
     local now
     now=$(date +%s)
     local age=$((now - lock_time))
+
+    # If PID is alive (and opt-in was used), never clock-clear -- liveness
+    # overrides clock-based stale (closes the "stat returns 0 -> infinite
+    # age" force-clear bug).
+    if [ -n "$lock_pid" ] && [ "$lock_pid" != "0" ] && pid_alive "$lock_pid"; then
+        return 1
+    fi
 
     if [ "$age" -gt "$STALE_THRESHOLD" ]; then
         local holder

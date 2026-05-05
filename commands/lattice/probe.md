@@ -66,14 +66,14 @@ For `--safety`:
 
 ## Step 3: Classify implications
 
-For each affected subsystem, classify the implication:
+For each affected subsystem, classify the implication. The probe verdict enum (`SAFE` / `PROPAGATES` / `BREAKS` / `SCIENCE-FLAG` / `STALE` / `RECONSIDER-SURFACE`) is canonically defined in [`docs/skills-includes/verdict-enums.md`](../../docs/skills-includes/verdict-enums.md) (`enums.probe`); workflow YAMLs that test this verdict declare `verdict_enum: probe` and the loader rejects typos at validate time. The structured `probe_outcome.verdict` field in cycle-state YAML uses the underscore form `SCIENCE_FLAG` — see `enums.probe-structured` in the same registry.
 
 | Classification | Meaning | Action |
 |---------------|---------|--------|
 | **SAFE** | Change doesn't affect this consumer's behavior | Note why (e.g., "consumer only reads field X, change is to field Y") |
 | **PROPAGATES** | Change alters this consumer's input, but consumer handles it correctly | Note what propagates and why it's handled |
 | **BREAKS** | Change alters this consumer's input in a way it doesn't handle | Flag with specific failure mode |
-| **SCIENCE-FLAG** | Change alters analytical output (scores, classifications, verdicts) | Flag per Science preservation gate (CLAUDE.md). **Resolution contract:** decision memo with ≥3 literature citations (species profiles, methods-index, peer-reviewed sources in research/) documenting the chosen behavior and why. The gate's job is to force that decision-with-rationale, not to pause indefinitely for an absent SME. Only escalate to the user if citations cannot be found. |
+| **SCIENCE-FLAG** | Change alters analytical output (scores, classifications, verdicts) | Flag per Science-preservation gate (CLAUDE.md). Clears via the [SCIENCE-FLAG resolution protocol](../../docs/skills-includes/science-flag-protocol.md): fix, data-grounded counter-evidence (on-data verification or ≥3-citation literature memo), or named-dependency defer. Escalate to the user only if no path can be taken. |
 | **STALE** | Connection in manifest no longer exists in code | Flag for manifest update |
 | **RECONSIDER-SURFACE** | Change orphans or alters the role of a UI surface (a region in a specific state — e.g., Findings center pane in unselected state after NOAEL migrates out of it) | Flag with `view.region.state` and trigger; the user (or a follow-on `/lattice:design "audit {view}.{region}.{state} after {trigger}"` invocation) decides keep / redesign / remove / re-purpose |
 
@@ -198,6 +198,6 @@ Probe is called from research-cycle (Step 7), blueprint-cycle (Step 3), `/ops:im
 - **Read the manifest, don't guess.** The adjacency graph is the source of truth for what connects to what. Don't infer connections from file names or intuition.
 - **3-hop limit.** Beyond 3 hops, the signal-to-noise ratio drops. If a 4th-hop implication is genuinely important, include it with a note that it's at the edge of the blast radius.
 - **SCIENCE-FLAG is non-negotiable as a trigger.** Any change that alters analytical output (scores, classifications, verdicts, NOAEL values) for ANY input data gets flagged. No exceptions, no "it's a minor change."
-- **SCIENCE-FLAG resolves via decision memo, not indefinite defer.** The probe reports what changes and for what inputs. A downstream cycle (blueprint/build/autopilot) then authors a decision memo with ≥3 literature citations justifying the chosen behavior, logs the decision in `decisions.log`, and proceeds. "Wait for SME review" is not a valid resolution in a Claude-authored codebase — there is no SME in the feedback loop. Escalate to the user ONLY when supporting citations cannot be found after genuine search.
+- **SCIENCE-FLAG resolves via the [protocol](../../docs/skills-includes/science-flag-protocol.md), not indefinite defer.** The probe reports what changes and for what inputs. A downstream cycle (blueprint/build/autopilot) then takes one of three protocol paths: fix, data-grounded counter-evidence, or named-dependency defer. "Wait for SME indefinitely" is not a valid resolution in a Claude-authored codebase. Escalate only when no protocol path can be taken.
 - **Stale connections are defects.** If the manifest says A -> B but the code doesn't reflect that, the manifest needs updating. Flag it.
 - **Keep it concrete.** "S10 might be affected" is useless. "S10 Signal Scoring reads gLower from S02; if the threshold changes from 0.3 to 0.5, findings currently scoring 0.35 would drop below the gate and lose their treatment-related flag" is useful.

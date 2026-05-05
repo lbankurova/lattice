@@ -449,6 +449,7 @@ workflow:
       skill: lattice/review
       context: inherit
       depends_on: [bug-stress, stress-gate]
+      verdict_enum: review
       # trigger_rule: one_success (stress-gate routes either through
       # bug-stress or directly to review for cosmetic)
       inputs:

@@ -19,22 +19,7 @@ The design and implement skills handle their own internal STOP points. This orch
 
 ## Topic Lock
 
-**Acquire the WIP lock before doing any work:**
-
-```bash
-bash scripts/acquire-topic-lock.sh {topic} "build-cycle"
-```
-
-If exit code 1 (lock held by another agent), **STOP immediately** — show the lock holder info and tell the user. Do not proceed.
-
-For **path-based entry** (no topic), derive the topic from the spec filename (strip `-synthesis.md` suffix) and lock that.
-
-**Release the lock** when the build phase completes (end of Step 4).
-
-**Heartbeat:** After every state file update (`current_step` change), refresh the lock:
-```bash
-touch .lattice/cycle-lock/{topic}/meta 2>/dev/null
-```
+Acquire at Step 1, release at end of Step 4, heartbeat on every `current_step` update. Cycle-name passed to acquire script: `build-cycle`. For path-based entry (spec path instead of topic), derive the topic by stripping `-synthesis.md` from the filename and lock that. Full protocol (commands, STOP-on-contention, anti-patterns) at the canonical [topic-lock protocol](../../docs/skills-includes/topic-lock.md).
 
 ---
 
@@ -44,10 +29,7 @@ touch .lattice/cycle-lock/{topic}/meta 2>/dev/null
 
 **Path-based entry:** `build-cycle docs/_internal/incoming/{spec}.md` — starts directly from a spec without requiring a prior research/blueprint cycle.
 
-**Revision-checked writes.** The state file has a `revision: N` field. Before every write:
-1. Re-read the file, check `revision` matches what you last read
-2. If match: write with `revision: N+1`
-3. If mismatch: **STOP** — "State file modified by another agent (expected revision {N}, found {M})."
+**Revision-checked writes.** See the canonical [revision-checked writes protocol](../../docs/skills-includes/revision-checked-writes.md) — read → work → re-read → write-with-incremented-revision; STOP on mismatch.
 
 **Context discipline:** Re-read the state file and the spec before starting. If resuming mid-phase, check which step was last completed.
 

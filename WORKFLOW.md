@@ -155,6 +155,16 @@ Persistence is best-effort -- a write failure prints `[warn]` to stderr but does
 |  BUILD CYCLE (/lattice:build-cycle)                                       |
 |  Prerequisite: blueprint-complete (or direct spec path)                   |
 |                                                                           |
+|  Step 0.5: pre-implement-gate            <-- BLOCKS on direct spec entry |
+|       |  When build-cycle is entered with spec_path directly             |
+|       |  (skipping blueprint), runs lattice/architect in gate mode:       |
+|       |    Step 1.25 F3 algorithmic peer-review                           |
+|       |    Step 1.4  F5 spec lint --strict                                |
+|       |    Step 1.5  SPEC-VALUE-AUDIT                                     |
+|       |    Step 2    architect-reviewer                                  |
+|       |  PASS -> implement; REJECT/SIMPLIFY/SCIENCE-FLAG -> per-verdict  |
+|       |  stop with revise/override/abort options.                         |
+|       v                                                                   |
 |  Step 1: /lattice:implement {spec}       <-- autonomous phase-by-phase   |
 |       |  Phase 0: load & plan                                             |
 |       |  Phase 1-N: for each phase with new UI:                           |
@@ -170,11 +180,18 @@ Persistence is best-effort -- a write failure prints `[warn]` to stderr but does
 |       |  requirement trace (separate agent for spec work)                 |
 |       |  ALGORITHM CHECK (rule 18; BUG-031 hardening) when                 |
 |       |    diff touches algorithm-paths -- SCIENCE-FLAG clears             |
-|       |    only via fix, data-grounded counter-evidence, or                |
-|       |    named-dependency defer (NOT plumbing rebuttals)                |
+|       |    only via fix, data-grounded counter-evidence (rationale         |
+|       |    >=40 chars + cites a staged file), or named-dependency          |
+|       |    defer. Plumbing-only rebuttals do NOT clear it.                 |
+|       |  Review verdict gate -- has_science_flag routes through            |
+|       |    review-science-memo (>=3 citations) before commit               |
+|       |    [synced from _includes/science-flag-resolution.yaml             |
+|       |     to all four cycle workflows]                                   |
 |       |  attestations[] persisted via SIMPLIFY-1 unified format            |
+|       |  7 mandatory sections checked mechanically against                 |
+|       |    .lattice/last-review-output.md                                  |
 |       v                                                                   |
-|  Step 4: build complete                                                   |
+|  Step 4: spec-refresh + build complete                                    |
 |       |                                                                   |
 |       v                                                                   |
 |  commit                                                                   |
@@ -194,6 +211,9 @@ Persistence is best-effort -- a write failure prints `[warn]` to stderr but does
 |       |  Read TODO.md, locate section by id (e.g. "GAP-271")              |
 |       |  Edit deterministically OR write ESCALATED: reason if vague       |
 |       |  Declare commit intent via scripts/declare-commit-intent.sh       |
+|       |  (CONSUMER-SUPPLIED -- the framework's mechanical-fix-cycle calls |
+|       |   the script but does not ship it; consumer projects provide it    |
+|       |   per their own commit-intent-protocol)                            |
 |  3. commit-intent-check  <-- staged set must match declared intent        |
 |  4. /ops:check           <-- regression check                             |
 |  5. /lattice:review write-gate trivial OR full review per change scope    |
@@ -286,7 +306,7 @@ When the user re-invokes `/lattice:cycle {topic}` after `/clear`, the dispatcher
 
 **`--continue` flag (autopilot, not interactive):** `lattice:cycle {topic} --continue` auto-dispatches the next phase in-session. Autopilot uses this; humans usually shouldn't.
 
-**Why the default flipped:** the NOAEL-ALG cycle (2026-04-27) accumulated ~712K tokens by carrying research-phase context (7+ steps, 4 method decisions, R1+R2 reviews) into the blueprint phase, then both into the build phase. Per `.lattice/budget.yaml`, this project warns at 500K context utilization and halts at 750K (LIT-09 telemetry).
+**Why the default flipped:** end-to-end runs that auto-chain research → blueprint → build accumulate enough tokens (research-phase context: 7+ steps, method decisions, R1+R2 reviews) that retrieval degrades inside the build phase. Per-call telemetry (LIT-09, `executor/src/budget.ts`) emits warn/block alerts against the model's declared context window — code defaults are 0.6 / 0.8, project-overridable in `.lattice/budget.yaml`.
 
 Each sub-cycle auto-detects its entry point within the phase -- no `--from` flags needed.
 

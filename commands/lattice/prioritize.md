@@ -121,11 +121,11 @@ For each item, determine whether autopilot can advance it without human oversigh
 - No `BREAKS` in probe results
 - `lifecycle_state` is `active` (not `paused`)
 - Not a complex UI epic requiring design decisions
-- Active `SCIENCE-FLAG`s, if any, have ≥3 plausible literature sources (species profiles, methods-index, peer-reviewed research/) for Claude to cite in the decision memo. If citations are unavailable, the SF becomes a human-required item.
+- Active `SCIENCE-FLAG`s, if any, can clear via the [SCIENCE-FLAG resolution protocol](../../docs/skills-includes/science-flag-protocol.md) Path 2a or 2b — on-data verification on representative studies, OR ≥3-citation literature memo. If neither path is available, the SF becomes a human-required item.
 
 ### Human-required criteria (ANY makes it human-only)
 - Topic is `paused` — needs explicit user decision to resume
-- Active `SCIENCE-FLAG` with no citable literature grounding — Claude cannot author a defensible decision memo alone. (SCIENCE-FLAG with citable grounding is autopilot-safe — the autopilot authors the memo.)
+- Active `SCIENCE-FLAG` where neither on-data verification nor citable literature grounding is available per the [resolution protocol](../../docs/skills-includes/science-flag-protocol.md) — Claude cannot author a defensible rationale alone. (SCIENCE-FLAG that can clear via Path 2a or 2b is autopilot-safe.)
 - Complex UI work — layout, interaction design, multi-view coordination
 - Cross-cutting architectural change — touches 3+ subsystems with MODIFIES relationship
 - User has expressed specific opinions about direction (check MEMORY.md)

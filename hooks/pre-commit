@@ -59,7 +59,10 @@ if [ -x "$LOCK_SCRIPT" ] && [ -x "$RELEASE_SCRIPT" ]; then
     fi
     if [ "$LOCK_OUTER_OWNED" = "0" ]; then
         HOLDER="pre-commit-pid-$$"
-        if (cd "$REPO_ROOT" && bash "$LOCK_SCRIPT" "$HOLDER" --poll); then
+        # Pass our PID so PID-liveness check (C1) treats this lock as
+        # held while pre-commit runs. The lock is released via the EXIT
+        # trap below, so the live-PID guarantee covers the whole hook.
+        if (cd "$REPO_ROOT" && LATTICE_LOCK_PID=$$ bash "$LOCK_SCRIPT" "$HOLDER" --poll); then
             LOCK_HELD_BY_HOOK=1
             # Release on ANY exit path (success, failure, signal).
             trap '[ "$LOCK_HELD_BY_HOOK" = "1" ] && (cd "$REPO_ROOT" && bash "$RELEASE_SCRIPT" >/dev/null 2>&1 || true)' EXIT INT TERM
@@ -82,6 +85,36 @@ else
     # Lock scripts not installed -- continue without serialization.
     echo "--- Step -1: Commit lock (SKIPPED: scripts/acquire-lock.sh not found) ---"
     echo "  Concurrent commits are NOT serialized in this repo."
+    echo "  Install via: bash <lattice>/scripts/sync-skills.sh <repo-root>"
+    echo ""
+fi
+
+# --- Step 0a: Merge shared state (C3, 2026-05-05 audit) ---
+# scripts/merge-shared-state.sh refreshes shared-state files (TODO.md,
+# REGISTRY.md, decisions.log, ROADMAP.md, MANIFEST.md) from git HEAD and
+# re-applies local additions on top, so a concurrent agent's commit to
+# the same shared file is not silently overwritten. It runs AFTER the
+# commit lock is acquired (Step -1) and BEFORE the rest of the gate
+# checks, so any merge-time tweaks to working-tree files are visible to
+# subsequent staging-drift / freshness checks.
+#
+# Soft-fail if the script is missing -- consumer projects that have not
+# yet synced this update should not be blocked by its absence.
+MERGE_SCRIPT="$REPO_ROOT/scripts/merge-shared-state.sh"
+if [ -x "$MERGE_SCRIPT" ]; then
+    echo "--- Step 0a: Shared-state merge ---"
+    if (cd "$REPO_ROOT" && bash "$MERGE_SCRIPT"); then
+        echo ""
+    else
+        echo ""
+        echo "  WARNING: merge-shared-state.sh exited non-zero. Continuing -- merge"
+        echo "           failures should be visible above. If a shared file ended"
+        echo "           up with conflict markers, resolve manually before retry."
+        echo ""
+    fi
+else
+    echo "--- Step 0a: Shared-state merge (SKIPPED: scripts/merge-shared-state.sh not found) ---"
+    echo "  Concurrent shared-file edits are NOT auto-merged in this repo."
     echo "  Install via: bash <lattice>/scripts/sync-skills.sh <repo-root>"
     echo ""
 fi
@@ -256,9 +289,37 @@ if [ "$IS_BUG_FIX" -eq 1 ]; then
             in_entry && /^### BUG-/ && $0 !~ "^### "id" " { in_entry=0 }
             in_entry { print }
         ' "$BUG_SWEEP")
-        for field in "1\. \*\*Root cause" "2\. \*\*Genesis" "3\. \*\*Detection gap" "4\. \*\*Prevention class" "5\. \*\*Lattice change"; do
-            if ! echo "$ENTRY" | grep -qE "$field"; then
-                MISSING_FIELDS="${MISSING_FIELDS}  - missing: $(echo $field | sed 's/\\\*//g; s/\\\.//g')\n"
+        # C7 (2026-05-05): tolerate format variants. Pre-fix the grep
+        # required literally `1. **Root cause`; perfectly substantive
+        # retros written as `**1.** Root cause`, `1) Root cause`,
+        # `### 1. Root cause`, `**Root cause:**`, etc., all failed the
+        # gate. Cargo-cult formatting was the only way to pass.
+        # New pattern: any prefix in {`**N.**`, `**N)**`, `N.`, `N)`,
+        # `###`, `####`} (with optional N digit) followed by whitespace,
+        # any text, then the keyword. Keyword match is case-insensitive.
+        # This still requires the substance (the keyword phrase) to be
+        # present; only loosens the surface format.
+        PREFIX_RE='(^|\n)[[:space:]]*(\*\*[0-9]+[.)]\*\*|[0-9]+[.)]|####?)[[:space:]]+'
+        for pair in \
+            "1|[Rr]oot cause" \
+            "2|[Gg]enesis" \
+            "3|[Dd]etection gap" \
+            "4|[Pp]revention class" \
+            "5|[Ll]attice change"; do
+            num="${pair%%|*}"
+            keyword="${pair#*|}"
+            field_re="${PREFIX_RE}.*${keyword}"
+            if ! printf '%s' "$ENTRY" | grep -qE "$field_re"; then
+                # Friendly label for the missing-field message.
+                case "$num" in
+                    1) label="Root cause" ;;
+                    2) label="Genesis" ;;
+                    3) label="Detection gap" ;;
+                    4) label="Prevention class" ;;
+                    5) label="Lattice change" ;;
+                    *) label="(field $num)" ;;
+                esac
+                MISSING_FIELDS="${MISSING_FIELDS}  - missing field $num: $label\n"
             fi
         done
         if [ -n "$MISSING_FIELDS" ]; then

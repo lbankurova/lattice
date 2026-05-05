@@ -11,15 +11,15 @@ Readers:
 The executor (`executor/src/`) runs workflow YAML DAGs. It is separate from the markdown skills -- the YAML defines orchestration (what runs when), skills define behavior (what each node does).
 
 **Execution flow:**
-1. Load workflow YAML, validate nodes and edges
+1. Load workflow YAML, validate nodes and edges. Validate-time checks reject before any node runs: gate conditions testing a verdict literal not in the producer's declared `verdict_enum` (`workflows/verdict-enums.yaml`), approval options without a `route` field, `max_iterations` not a positive integer, orphan nodes (warning to stderr).
 2. Build topological layers (Kahn's algorithm) -- nodes in the same layer run concurrently
-3. For each layer: filter nodes (skip completed checkpoints, evaluate conditions, check routing)
+3. For each layer: filter nodes (skip completed checkpoints, evaluate conditions, check routing). The condition evaluator (`evaluateCondition` in `nodes.ts`) handles `==`/`!=` against quoted strings, unquoted booleans (`{{X}} == true`), `.contains()`, `exists()`/`!exists()` (real filesystem checks), and `&&`/`||` composition. Unhandled comparison expressions return false (fail-loud), not silent truthy — closes a gate-bypass class where unquoted boolean RHS fell through to a truthy-string fallback.
 4. Execute: `bash` -> child_process, `skill` -> Claude CLI (`--output-format json`), `gate` -> condition evaluation, `approval` -> human prompt
 5. Collect results, accumulate cost, check budget limits
 6. Write checkpoint to state file, log decision
 7. Repeat until all layers done or a failure/budget block stops the workflow
 
-**Resume:** When re-running a workflow for a topic, completed checkpoints are skipped. State file `revision` field prevents concurrent overwrites.
+**Resume:** When re-running a workflow for a topic, completed checkpoints are skipped. Concurrent overwrites are prevented by CAS-style state writes (B1, post-2026-05-05): `atomicWriteFileSyncCAS` (`executor/src/state-io.ts`) encodes the expected new revision in the temp filename (`<path>.tmp-rev-{N+1}`) and uses `linkSync` as a filesystem-atomic create-or-fail. Two writers racing for revision N+1 collide on `EEXIST`; the loser throws `RevisionMismatchError`. Closes the lost-update race that the in-memory revision check left open (each writer's local `expectedRevision` check passed independently).
 
 **Coherence pre-check:** Before advancing a topic, the engine loads all active cycle states, runs the coherence engine, and blocks if the topic has unresolved conflicts (subsystem overlap, stale blueprints, cascading breaks). Blockers require human approval to proceed.
 
@@ -134,7 +134,7 @@ Greps `git log` for `Topic:` and `Phase:` trailers, compares against cycle-state
 
 **Separate agent mandatory.** Peer review always runs in a launched agent with no access to the orchestrator's context. Self-review doesn't work -- the research rationale is in the context window.
 
-**Registered subagent_type** (`agents/peer-review.md`). Orchestrators (research-cycle, blueprint-cycle, architect) launch with `subagent_type: peer-review` and a one-sentence prompt naming the doc path. The harness loads the agent's instructions; the orchestrator does NOT inline `commands/lattice/peer-review.md` content into the prompt. (Retired 2026-04-27 after measuring ~10K wasted tokens per launch from the previous "Prompt: Full /lattice:peer-review skill instructions" pattern.)
+**Registered subagent_type** (`agents/peer-review.md`). Orchestrators (research-cycle, blueprint-cycle, build-cycle review, architect) launch with `subagent_type: peer-review` and a one-sentence prompt naming the doc path. The harness loads the agent's instructions; the orchestrator does NOT inline `commands/lattice/peer-review.md` content into the prompt. (Retired 2026-04-27 after measuring ~10K wasted tokens per launch from the previous "Prompt: Full /lattice:peer-review skill instructions" pattern. Hardened 2026-05-05 (D5/D6): `agents/peer-review.md` is now self-contained — independence invariant restored — and `commands/lattice/review.md` Agent D was changed from `general-purpose` with inline prompt to `subagent_type: peer-review` so all callers go through the same harness-load path.)
 
 **Maximum 2 rounds per artifact.** Each round is a full `/lattice:peer-review` pass.
 
@@ -228,7 +228,9 @@ Missing section = incomplete review.
 
 **ALGORITHM CHECK (rule 18, BUG-031 hardening).** When the diff modifies (or consumes the output of) an analytical algorithm — NOAEL / LOAEL / scoring / classification / syndrome detection / severity / onset — the review must (a) run the algorithm against PointCross + at least one other representative study using `backend/generated/{study}/unified_findings.json`, (b) record the actual output, and (c) answer in writing: *"Would a regulatory toxicologist agree this output represents the data?"* with a one-paragraph interpretation citing the actual pairwise/group values that drove the result. **A SCIENCE-FLAG raised by any review agent only clears via fix, data-grounded counter-evidence in this format, or explicit user defer with named dependency.** Plumbing-only rebuttals do NOT clear the flag. Algorithm paths default list: `frontend/src/lib/derive-summaries.ts`, `endpoint-confidence.ts`, `findings-rail-engine.ts`, `cross-domain-syndromes.ts`, `syndrome-rules.ts`, `backend/services/analysis/**`. Override per-project via `.lattice/algorithm-paths.txt`. (487797e)
 
-**Verdict persistence (SIMPLIFY-1).** Each review section that produces a verdict (architect-reviewer, decision-auditor, peer-review when algorithmic, spec-lint when run) writes a row to `attestations[]` in `.lattice/review-gate.json` via `scripts/append-attestation.sh`. `write-review-gate.sh` validates kind / target / verdict / rationale (≥10 chars, no `n/a`/`tbd`/`idk`); pre-commit consumes after a successful commit (single-use gate). See ENFORCEMENT.md §8 for the format. (829dc92)
+**Verdict persistence (SIMPLIFY-1).** Each review section that produces a verdict (architect-reviewer, decision-auditor, peer-review when algorithmic, spec-lint when run) writes a row to `attestations[]` in `.lattice/review-gate.json` via `scripts/append-attestation.sh`. `write-review-gate.sh` validates kind / target / verdict / rationale; pre-commit consumes after a successful commit (single-use gate). Rationale validation tightened 2026-05-05 (C4): rationale must be ≥40 chars (was 10), must mention at least one staged file by basename or relative path (regex intersected with `git diff --cached --name-only`), and must not contain trivial substrings (`n/a`, `idk`, `tbd`, `no real reason`, `trust me`, `obviously`) anywhere in the text — substring blacklist, not exact-match. See ENFORCEMENT.md §8 for the format. (829dc92, C4)
+
+**Mechanical 7-section anchor enforcement (D7).** The full review skill writes its 7 mandatory output sections (CHANGES, ARCHITECT REVIEW, DECISION AUDIT, REQUIREMENT TRACE, MECHANICAL CHECKS, DOCS UPDATE, VERDICT) to a side-channel file at `.lattice/last-review-output.md`. `write-review-gate.sh` greps for the seven `^## NAME` anchors; missing any → non-zero exit listing what's absent. The trivial-commit escape hatch (`bash scripts/write-review-gate.sh pass "..."` invocations that bypass the full review skill) skips the anchor check by virtue of the side-channel file's absence. Failure mode prevented: prose-only "all 7 sections required" was honor-system; DECISION AUDIT was the most-skipped (6 occurrences in `.lattice/decisions.log`).
 
 ## Session Management
 

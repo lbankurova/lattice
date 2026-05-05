@@ -1,0 +1,100 @@
+# Verdict Enum Registry — structured data
+#
+# Authoritative list of every gate-producing node's verdict set. Loaded by
+# executor/src/loader.ts at workflow validation time. A workflow's gate that
+# tests `{{nodes.<id>.output.verdict}} == 'X'` is checked against the producing
+# node's declared `verdict_enum`; an `'X'` not in the enum is a load-time error.
+#
+# Single source of truth. The human-readable include at
+# `docs/skills-includes/verdict-enums.md` cites this file by name. Skills cite
+# the include. This file is the data; the include is the prose.
+#
+# Invariant: every value here is a literal string the skill writes verbatim.
+# When the prose form drifts from the structured form (e.g., probe's prose
+# `SCIENCE-FLAG` vs `probe_outcome.verdict: SCIENCE_FLAG`), that drift is what
+# the loader's check is designed to surface — it does not mask the difference.
+
+version: 1
+
+enums:
+  # ── Architect-reviewer agent ─────────────────────────────────
+  # Source: agents/architect-reviewer.md §5 Verdict (gate / plan mode).
+  # Code-audit mode produces ACCIDENTAL/ESSENTIAL/MIXED per-hotspot, which is
+  # not a gate verdict and is not enumerated here.
+  architect:
+    members: [PASS, SIMPLIFY, REJECT, SCIENCE-FLAG]
+    description: Architect verdict on a build plan or synthesis.
+
+  # ── Peer-reviewer skill ──────────────────────────────────────
+  # Source: commands/lattice/peer-review.md §6 (overall) and §D (algorithmic).
+  peer-review:
+    members: [SOUND, CONDITIONAL, FLAWED, INSUFFICIENT]
+    description: >
+      Peer-review overall verdict. Algorithmic peer-review uses the same enum
+      but with stricter blocking semantics (CONDITIONAL/FLAWED/INSUFFICIENT all
+      block the parent gate; SOUND proceeds).
+
+  # ── Probe skill ──────────────────────────────────────────────
+  # Source: commands/lattice/probe.md §3 implication classification +
+  # §"Persist Findings" probe_outcome.verdict (highest severity wins).
+  # The prose-output verdict (consumed via {{nodes.probe.output.verdict}}) uses
+  # SCIENCE-FLAG (hyphen). The structured probe_outcome.verdict YAML field uses
+  # SCIENCE_FLAG (underscore). Both forms are listed; the loader matches on the
+  # exact literal the gate condition tests.
+  probe:
+    members: [SAFE, PROPAGATES, BREAKS, SCIENCE-FLAG, STALE, RECONSIDER-SURFACE]
+    description: >
+      Probe per-implication or aggregate verdict (highest severity wins). Used
+      by gates checking `{{nodes.probe.output.verdict}}` after probe runs.
+
+  probe-structured:
+    members: [SAFE, PROPAGATES, BREAKS, SCIENCE_FLAG]
+    description: >
+      Probe's structured `probe_outcome.verdict` field (cycle-state YAML). Note
+      underscore vs hyphen: the structured form is YAML-friendly; the prose
+      verdict uses the hyphen form because that's what review skills emit.
+
+  # ── Decision-auditor agent ───────────────────────────────────
+  # Source: agents/decision-auditor.md §"Verdict: PASS | FAIL".
+  # Per-decision (MERIT-SOUND/EFFORT-BIASED), per-deferral (VALID-DEFERRAL/
+  # UNPROMPTED-DEFERRAL), and per-silent-drop (SILENT-DROP) are findings inside
+  # the audit, not gate verdicts. Only the overall PASS/FAIL is enumerated as
+  # a gate verdict here. The blocking semantics in review.md route on the
+  # findings (has_silent_drop, has_unprompted_deferral, has_effort_biased)
+  # which are boolean fields, not verdict enums.
+  decision-auditor:
+    members: [PASS, FAIL]
+    description: Decision-audit overall verdict.
+
+  # ── Review skill ─────────────────────────────────────────────
+  # Source: commands/lattice/review.md §"VERDICT — pass/fail with evidence".
+  # A SCIENCE-FLAG raised inside review escalates via has_science_flag boolean
+  # rather than a SCIENCE-FLAG string verdict, so it is not in this enum.
+  review:
+    members: [PASS, FAIL]
+    description: Review skill final verdict.
+
+  # ── Ops:check skill (mechanical-fix-cycle) ───────────────────
+  # Source: workflows/mechanical-fix-cycle.yaml gate_check:
+  #   `output.contains('OPS_CHECK_VERDICT: PASS')`.
+  # Cited via the OPS_CHECK_VERDICT prefix; the bare value is one of these.
+  ops-check:
+    members: [PASS, FAIL]
+    description: Ops:check pass/fail.
+
+  # ── Knowledge-graph map review (peer-review --map mode) ──────
+  # Source: commands/lattice/peer-review.md §"Map review" — INSUFFICIENT not
+  # used here per skill prose ("rate the landscape as a whole: SOUND ...").
+  peer-review-map:
+    members: [SOUND, CONDITIONAL, FLAWED]
+    description: Knowledge-map peer-review verdict (no INSUFFICIENT — the map
+      is fully present or it's not).
+
+# Aliases — when a node naturally produces one of the above enums but is named
+# differently in the workflow (e.g., a SIMPLIFY-1-style attestation that walks
+# the architect set). Listed here so the loader resolves alias → canonical.
+aliases:
+  architect-reviewer: architect
+  architect-gate: architect
+  plan-review: peer-review
+  research-review: peer-review

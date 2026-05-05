@@ -29,6 +29,20 @@ The review MUST produce ALL of these named sections in its output. A missing sec
 
 If you catch yourself skipping a section or writing "N/A — not applicable" without justification, stop. That's the section that will contain the bug you missed.
 
+### Side-channel review-output file (D7 — mandatory side-effect)
+
+Before invoking `bash scripts/write-review-gate.sh ...` (Step 6), write the **structured review output** to:
+
+```
+.lattice/last-review-output.md
+```
+
+The file MUST be a markdown document containing the seven section anchors above as `## ` headings (exact strings: `## CHANGES`, `## ARCHITECT REVIEW`, `## DECISION AUDIT`, `## REQUIREMENT TRACE`, `## MECHANICAL CHECKS`, `## DOCS UPDATE`, `## VERDICT`). Mirror the actual review output you present to the user — same evidence, same verdicts.
+
+`write-review-gate.sh` greps the file for each anchor and exits non-zero with the missing list if any anchor is absent. The mechanical check replaces the prose-only enforcement that was honor-system before D7 (compare `design-mode-gate.sh` for the established pattern).
+
+The file is **single-use per gate write**: the gate consumes it; rewrite for the next review. If `.lattice/last-review-output.md` does not exist when `write-review-gate.sh` runs, the anchor check is SKIPPED — appropriate for trivial-fix invocations that bypass the full review skill (where the prose discipline still applies but no full structured output exists).
+
 ---
 
 ## Step 0: Detect context
@@ -102,8 +116,8 @@ When ANY trigger fires, run the architect agent. Pass the trigger reason ("new f
 
 **Trigger:** any staged file matches `.lattice/algorithm-paths.txt` (the same regex used by ALGORITHM and `write-review-gate.sh`'s `LATTICE_ALGORITHM_CHECK` enforcement). When the trigger does not fire, skip this agent entirely.
 
-- **Agent type:** `general-purpose` (no specialized agent needed; the peer-review skill prompt does the work)
-- **Prompt:** Use the prompt at `commands/lattice/peer-review.md`. Pass the diff + a one-line scope description ("review the algorithmic logic in {file} against domain truth"). Tell the agent to follow the **Algorithmic-Tightening Requirements** section: invoke `query-knowledge.py`, cite sources, return `SOUND` / `CONDITIONAL` / `FLAWED` / `INSUFFICIENT`.
+- **Agent type:** `peer-review` (harness-loaded — the agent definition at `agents/peer-review.md` is the complete protocol; do NOT inline `commands/lattice/peer-review.md` content into the prompt). This matches `commands/lattice/research-cycle.md:152` and the architect-side wiring at `commands/lattice/architect.md:77` — single contract for all peer-review subagent invocations.
+- **Prompt:** Pass the diff + a one-line scope description ("review the algorithmic logic in {file} against domain truth"). The agent's instructions already require it to follow the **Algorithmic-Tightening Requirements** (invoke `query-knowledge.py`, cite sources, return `SOUND` / `CONDITIONAL` / `FLAWED` / `INSUFFICIENT`); the parent skill does not need to repeat them.
 - **No implementation context.** Same discipline as the other parallel agents — do not feed the agent your synthesis or the rationale for the change.
 
 After the agent returns, persist the verdict via the SIMPLIFY-1 attestation path (one entry per peer-review run, AFTER the review's mechanical checks pass and BEFORE `write-review-gate.sh`):
@@ -124,6 +138,8 @@ This unblocks the pcc-side pre-commit kind-specific check (which verifies an alg
 **Trigger rule: `all_done`.** Wait for every launched agent to return before proceeding. Then evaluate verdicts under the single rule:
 
 > **Any blocking verdict from any agent stops the review.** Process all blocking verdicts together — present them as a batch, not one at a time.
+
+The verdict enums for each agent below are canonically defined in [`docs/skills-includes/verdict-enums.md`](../../docs/skills-includes/verdict-enums.md): `enums.architect`, `enums.decision-auditor`, `enums.peer-review`, `enums.review`. Workflow YAMLs that route on review's overall verdict declare `verdict_enum: review`; the loader rejects typos at validate time.
 
 Blocking verdicts (each is a STOP — fix, rebut per the SCIENCE-FLAG protocol below, or get explicit user defer):
 

@@ -7,7 +7,7 @@
  */
 
 import { readFileSync, existsSync, utimesSync } from 'node:fs';
-import { atomicWriteFileSync, safeAppendLineSync } from './state-io.js';
+import { atomicWriteFileSync, atomicWriteFileSyncCAS, safeAppendLineSync } from './state-io.js';
 import { execSync } from 'node:child_process';
 import yaml from 'js-yaml';
 import type {
@@ -163,6 +163,7 @@ export async function executeWorkflow(
     activeRoutes: new Set(),
     totalCost: { totalUSD: 0, totalInputTokens: 0, totalOutputTokens: 0, byNode: {} },
     expectedRevision: initialRevision,
+    visitCounts: {},
   };
 
   // Load budget config (optional)
@@ -331,6 +332,7 @@ export async function executeWorkflow(
     }
 
     // ── Post-layer route-target dispatch (CRITICAL-1 fix, 2026-05-04 audit) ──
+    // (max_iterations enforcement extracted to checkVisitLimit, exported for unit tests.)
     //
     // Parentless route-only targets (typically `release-lock`) are excluded
     // from the topological layer schedule by `getNodesExcludedFromLayers` so
@@ -341,11 +343,30 @@ export async function executeWorkflow(
     // Targets WITH depends_on still run via normal layer scheduling (their
     // depends_on places them in a later layer; shouldExecute already gates on
     // activeRoutes).
+    //
+    // A4 (Stream A item A4): per-node visit count is checked against
+    // `max_iterations` (default 1) before re-dispatch. The pre-A4 guard
+    // `if (run.nodeResults[targetId]) continue` silently dropped re-entry
+    // attempts; that matched the de-facto behavior but masked workflow
+    // authors' intent (e.g., "route back to incorporate-r1 for another
+    // iteration"). When `max_iterations` is set on the target, re-entry is
+    // permitted up to that many total executions and the (N+1)-th attempt
+    // throws a clear error rather than silently no-op'ing.
     for (const targetId of run.activeRoutes) {
-      if (run.nodeResults[targetId]) continue;             // already executed
       const targetNode = wf.nodes[targetId];
       if (!targetNode) continue;                            // dangling reference, ignore
       if (targetNode.depends_on && targetNode.depends_on.length > 0) continue; // not parentless
+
+      const decision = checkVisitLimit(
+        (run.visitCounts ??= {}),
+        targetId,
+        targetNode.max_iterations,
+      );
+      if (!decision.allow) {
+        if (decision.throwReason) throw new Error(decision.throwReason);
+        continue; // silent skip (no explicit limit)
+      }
+      run.visitCounts[targetId] = (run.visitCounts[targetId] ?? 0) + 1;
 
       await adapter.sendMessage(`  [${targetId}] ${targetNode.type} (route target) -- starting`);
       let routeResult: NodeResult;
@@ -395,6 +416,59 @@ export async function executeWorkflow(
     `${Object.keys(run.nodeResults).length} nodes, $${run.totalCost.totalUSD.toFixed(4)}`);
 
   return run;
+}
+
+// ── Visit-limit enforcement (A4) ────────────────────────────
+
+export interface VisitLimitDecision {
+  /** True when the node may enter (visit count is below the limit). */
+  allow: boolean;
+  /** When set, the caller MUST throw with this reason — explicit bound exceeded. */
+  throwReason?: string;
+}
+
+/**
+ * A4: enforce per-node max_iterations. Pure function — exposed so the loop
+ * logic in executeWorkflow's route-target dispatch is unit-testable without
+ * spinning up a full PlatformAdapter.
+ *
+ * Three outcomes:
+ *  - allow=true: visited < limit. Caller increments visitCounts[nodeId]
+ *    and executes the node.
+ *  - allow=false, throwReason set: visited >= limit AND max_iterations was
+ *    explicitly declared. The author opted in to a counter and exceeded
+ *    their declared bound — fail loud.
+ *  - allow=false, throwReason undefined: visited >= default limit (1) and
+ *    no explicit max_iterations. Pre-A4 silent-skip semantics for back-
+ *    compat with workflows that route to already-executed parentless
+ *    targets without intending a loop.
+ */
+export function checkVisitLimit(
+  visitCounts: Record<string, number>,
+  nodeId: string,
+  maxIterations: number | undefined,
+): VisitLimitDecision {
+  const visited = visitCounts[nodeId] ?? 0;
+  const limit = maxIterations ?? 1;
+  if (visited < limit) return { allow: true };
+  if (visited > limit) {
+    return {
+      allow: false,
+      throwReason:
+        `Node ${nodeId} exceeded max_iterations=${limit} (visited=${visited}). ` +
+        `Increase max_iterations or remove the back-route that re-drove the node.`,
+    };
+  }
+  // visited === limit
+  if (maxIterations !== undefined) {
+    return {
+      allow: false,
+      throwReason:
+        `Node ${nodeId} reached max_iterations=${limit}; route attempted to re-enter ` +
+        `for the ${visited + 1}-th time. Declared bound exceeded; aborting.`,
+    };
+  }
+  return { allow: false };
 }
 
 // ── Node filtering ──────────────────────────────────────────
@@ -642,7 +716,6 @@ export function writeCheckpoint(
   const revision = typeof data['revision'] === 'number' ? data['revision'] : 0;
   const newRev = (revision as number) + 1;
   data['revision'] = newRev;
-  if (run) run.expectedRevision = newRev;
 
   // Write checkpoint entry
   if (!data['checkpoints']) data['checkpoints'] = {};
@@ -652,7 +725,26 @@ export function writeCheckpoint(
     status: result.status,
   };
 
-  atomicWriteFileSync(path, yaml.dump(data, { lineWidth: -1 }));
+  // CAS-style write (B1 fix). When `revision_check` is on, two writers
+  // that both observed the file at revision N may both reach this point
+  // each computing newRev=N+1. The in-memory `expectedRevision` check
+  // above only compares the file's recorded revision against THIS run's
+  // expectation -- it doesn't prevent a sibling run from matching its OWN
+  // expectation against the same file state. The CAS path enforces
+  // destination-uniqueness atomically: only one writer's `link` syscall
+  // can claim the `path.tmp-rev-{N+1}` slot. The loser throws
+  // RevisionMismatchError -- same recovery path as the in-memory check.
+  if (wf.state?.revision_check) {
+    atomicWriteFileSyncCAS(path, yaml.dump(data, { lineWidth: -1 }), newRev);
+  } else {
+    atomicWriteFileSync(path, yaml.dump(data, { lineWidth: -1 }));
+  }
+  // Update run.expectedRevision AFTER the write succeeds. Pre-fix we
+  // bumped it before the write, so a thrown CAS failure would leave the
+  // in-memory expectation mis-aligned with the file. Post-write update
+  // keeps run.expectedRevision == file revision after every successful
+  // checkpoint.
+  if (run) run.expectedRevision = newRev;
 
   // Heartbeat: refresh the topic-lock meta mtime so long-running workflows
   // don't trip acquire-topic-lock.sh's stale threshold and lose their lock

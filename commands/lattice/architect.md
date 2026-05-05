@@ -42,7 +42,7 @@ If `docs/_internal/knowledge/code-quality-guardrails.md` exists, read it. This t
 Show the agent's report to the user. For each finding, indicate:
 - **Priority:** Critical (blocks commit) / High (should fix) / Low (nice-to-have)
 - **Effort:** One-liner / Small refactor / Significant restructure
-- **Risk:** None / SCIENCE-FLAG (resolves via decision memo with ≥3 literature citations — not an indefinite defer)
+- **Risk:** None / SCIENCE-FLAG (resolves per the [SCIENCE-FLAG resolution protocol](../../docs/skills-includes/science-flag-protocol.md) — fix, data-grounded counter-evidence, or named-dependency defer)
 
 Ask: **"Which items should I fix now?"**
 
@@ -143,12 +143,14 @@ A spec that can't answer audit questions 1-10 for every proposed feature should 
 
 ### Step 3: Handle verdict
 
+The architect verdict enum (`PASS` / `SIMPLIFY` / `REJECT` / `SCIENCE-FLAG`) is canonically defined in [`docs/skills-includes/verdict-enums.md`](../../docs/skills-includes/verdict-enums.md) (`enums.architect`); workflow YAMLs that test this verdict at gates declare `verdict_enum: architect` and the loader rejects typos at validate time.
+
 | Verdict | Action |
 |---------|--------|
 | **PASS** | Tell the user: "Architecture review passed. Ready for implementation." |
 | **SIMPLIFY** | Auto-apply the architect's simplification recommendations. Risk: None items (architect's classification) are by definition behavior-preserving — user approval would be rubber-stamp. Apply the cuts, log them in `decisions.log`, then re-gate. The user only enters the loop if the second-gate verdict is REJECT or surfaces SCIENCE-FLAG findings (which then resolve via the memo path below). If the second gate is again SIMPLIFY, that's a defect — the architect's recommendations didn't actually simplify the spec — escalate to user. |
 | **REJECT** | Present the alternative approach. Ask the user: "The plan is fundamentally overengineered. [Alternative]. Proceed with original, revise, or discuss?" |
-| **SCIENCE-FLAG** | For each flagged item: author a decision memo citing ≥3 sources (species profiles, methods-index, peer-reviewed research/) that justify either accepting the behavior change or keeping the current complexity. Log the decision in `decisions.log`. Proceed with the chosen path. Escalate to the user ONLY if supporting citations cannot be found after genuine search. Non-flagged items can proceed independently. |
+| **SCIENCE-FLAG** | For each flagged item, follow the [SCIENCE-FLAG resolution protocol](../../docs/skills-includes/science-flag-protocol.md). Three clearance paths: (1) fix, (2) data-grounded counter-evidence (on-data verification or ≥3-citation literature memo), or (3) named-dependency defer. Log the resolution in `decisions.log` with `Science-Flag:` trailer in the commit. Escalate to the user ONLY if no path can be taken after genuine search. Non-flagged items proceed independently. |
 
 ### Step 4: Re-gate if revised
 
@@ -214,6 +216,6 @@ The architect skill handles what requires judgment. Hooks and lint handle what c
 1. **"It looks clean enough."** Every audit must use the architect-reviewer agent. No self-review.
 2. **Simplifying domain logic because it "looks complicated."** Complexity in classification, statistics, or syndrome detection exists because the domain is complex. The test: "Does this change alter analytical output?"
 3. **Adding abstractions during cleanup.** The goal is fewer abstractions, not different ones. If a refactor introduces a new base class or strategy pattern, that's a finding, not a fix.
-4. **Ignoring SCIENCE-FLAG.** Science flags are not suggestions. They require a decision memo with ≥3 literature citations justifying the chosen behavior before proceeding — logged in `decisions.log`. Proceeding with no documented rationale is a process violation. Note: treating SCIENCE-FLAG as "wait for SME indefinitely" is ALSO a violation in the opposite direction — the gate exists to force the decision-with-rationale, not to park work.
+4. **Ignoring SCIENCE-FLAG.** Science flags are not suggestions. They clear via the [SCIENCE-FLAG resolution protocol](../../docs/skills-includes/science-flag-protocol.md) only — logged in `decisions.log` with `Science-Flag:` commit trailer. Proceeding without one of the three protocol paths is a process violation. Treating SCIENCE-FLAG as "wait for SME indefinitely" is ALSO a violation — the gate exists to force the decision-with-rationale, not to park work.
 5. **Treating the guardrails doc as optional.** If it exists, read it. If it doesn't exist after an audit, create it. It's the institutional memory of what's essential vs accidental.
 6. **Acting on findings without verifying the pain point.** Audit findings are hypotheses, not instructions. Before executing a refactoring recommendation: (a) read the actual code — a 1800-line file with well-extracted sub-components may be fine; (b) ask "what problem does this extraction solve?" — if the answer is "the metric gets smaller" that's not a reason; (c) quantify the payoff — 90 lines from 1800 is marginal, duplicated logic across modes is real; (d) check if the structure is already good enough. A finding that doesn't survive this verification should be downgraded or dropped, not executed.

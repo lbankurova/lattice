@@ -251,6 +251,104 @@ EOF
     cleanup_repo "$tmp"
 }
 
+# --- C4 cases: algorithm-defensibility rationale validation ---
+# These set up an algorithmic-code path in the staged set so write-review-gate.sh
+# triggers Check 2, then exercise LATTICE_ALGORITHM_CHECK with various inputs.
+
+setup_algo_repo() {
+    # Caller-managed temp repo with one staged algorithmic-code file.
+    local tmp resolved algopath
+    tmp="$(mktemp -d)"
+    git -C "$tmp" init -q
+    git -C "$tmp" config user.email "test@test"
+    git -C "$tmp" config user.name "test"
+    git -C "$tmp" config core.autocrlf false
+    resolved="$(cd "$tmp" && git rev-parse --show-toplevel)"
+    mkdir -p "$resolved/scripts" "$resolved/.lattice"
+    cp "$WRITE_GATE" "$resolved/scripts/write-review-gate.sh"
+    cp "$APPEND_ATTESTATION" "$resolved/scripts/append-attestation.sh"
+    chmod +x "$resolved/scripts/"*.sh
+    # Stage an algorithmic-code path -- use the default-list match
+    # `derive-summaries.ts` which lives wherever (we just need staging).
+    mkdir -p "$resolved/frontend/src/lib"
+    echo "// algorithmic source" > "$resolved/frontend/src/lib/derive-summaries.ts"
+    git -C "$resolved" add frontend/src/lib/derive-summaries.ts
+    echo "$resolved"
+}
+
+# C4-A: 10-char rationale fails (was the pre-fix passing case).
+run_case_c4_a() {
+    local tmp
+    tmp="$(setup_algo_repo)"
+    set +e
+    (cd "$tmp" && LATTICE_ALGORITHM_CHECK='pass:short text' bash scripts/write-review-gate.sh pass "c4 short" > /dev/null 2>&1)
+    local rc=$?
+    set -e
+    run_case "case C4-A: 10-char rationale rejected" "fail" "$rc"
+    cleanup_repo "$tmp"
+}
+
+# C4-B: 40-char rationale with NO file reference fails (length OK, path missing).
+run_case_c4_b() {
+    local tmp
+    tmp="$(setup_algo_repo)"
+    set +e
+    # 40+ chars but no file-path substring with a recognised extension.
+    (cd "$tmp" && LATTICE_ALGORITHM_CHECK='pass:plenty of words but no file reference at all here' bash scripts/write-review-gate.sh pass "c4 nofile" > /dev/null 2>&1)
+    local rc=$?
+    set -e
+    run_case "case C4-B: 40-char rationale without staged file rejected" "fail" "$rc"
+    cleanup_repo "$tmp"
+}
+
+# C4-C: substring trivial-blacklist catches "n/a really".
+run_case_c4_c() {
+    local tmp
+    tmp="$(setup_algo_repo)"
+    set +e
+    (cd "$tmp" && LATTICE_ALGORITHM_CHECK='pass:n/a really there is no derive-summaries.ts evidence' bash scripts/write-review-gate.sh pass "c4 trivial" > /dev/null 2>&1)
+    local rc=$?
+    set -e
+    run_case "case C4-C: 'n/a really' substring rejected" "fail" "$rc"
+    cleanup_repo "$tmp"
+}
+
+# C4-D: valid -- 40+ chars + cites staged file basename.
+run_case_c4_d() {
+    local tmp gate
+    tmp="$(setup_algo_repo)"
+    gate="$tmp/.lattice/review-gate.json"
+    set +e
+    (cd "$tmp" && LATTICE_ALGORITHM_CHECK='pass:NOAEL=200 mg/kg on PointCross BW; derive-summaries.ts unchanged for control-arm path' \
+        bash scripts/write-review-gate.sh pass "c4 valid" > /dev/null 2>&1)
+    local rc=$?
+    set -e
+    if [ "$rc" -eq 0 ] && [ -f "$gate" ]; then
+        run_case "case C4-D: valid rationale citing staged file accepted" "pass" 0
+    else
+        run_case "case C4-D: valid rationale citing staged file accepted" "pass" "$rc"
+    fi
+    cleanup_repo "$tmp"
+}
+
+# C4-E: valid -- 40+ chars + cites staged file by full relative path.
+run_case_c4_e() {
+    local tmp gate
+    tmp="$(setup_algo_repo)"
+    gate="$tmp/.lattice/review-gate.json"
+    set +e
+    (cd "$tmp" && LATTICE_ALGORITHM_CHECK='pass:Verified frontend/src/lib/derive-summaries.ts produces NOAEL=200 mg/kg on PointCross BW' \
+        bash scripts/write-review-gate.sh pass "c4 fullpath" > /dev/null 2>&1)
+    local rc=$?
+    set -e
+    if [ "$rc" -eq 0 ] && [ -f "$gate" ]; then
+        run_case "case C4-E: valid full-path citation accepted" "pass" 0
+    else
+        run_case "case C4-E: valid full-path citation accepted" "pass" "$rc"
+    fi
+    cleanup_repo "$tmp"
+}
+
 # --- Case 10: append-attestation.sh composes two entries; gate captures both
 run_case_10() {
     local tmp gate
@@ -295,6 +393,11 @@ run_case_7
 run_case_8
 run_case_9
 run_case_10
+run_case_c4_a
+run_case_c4_b
+run_case_c4_c
+run_case_c4_d
+run_case_c4_e
 
 echo ""
 echo "========================================"

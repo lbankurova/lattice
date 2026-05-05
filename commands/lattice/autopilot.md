@@ -129,7 +129,7 @@ Topic: {topic-or-todo-id}
 Phase: {phase-completed-or-"mechanical"}
 ```
 
-**SCIENCE-FLAG resolution during autopilot.** If a cycle emits a SCIENCE-FLAG, the resolution contract is NOT "wait for SME." Autopilot authors a decision memo with ≥3 literature citations (species profiles, methods-index, or peer-reviewed sources from research/) and proceeds. The flag is logged in `decisions.log` and the memo path is cited in the commit message. This keeps the gate doing its job — forcing the decision to be documented — without converting it into an indefinite defer. If Claude cannot find ≥3 citations that support a defensible position, THAT is the escalation trigger (write to ESCALATION.md).
+**SCIENCE-FLAG resolution during autopilot.** Follows the canonical [SCIENCE-FLAG resolution protocol](../../docs/skills-includes/science-flag-protocol.md). Under autopilot autonomous mode, the default clearance paths are (2a) on-data verification or (2b) literature memo with ≥3 citations. Cannot find citations AND cannot run on-data verification → row to `ESCALATION.md`. The gate's job is to force the decision-with-rationale, not to park work for an absent SME.
 
 ### Step 4: Escalation
 
@@ -152,7 +152,7 @@ Collect pending decisions:
 - Zombie topics
 - TODO items tagged `needs-user`
 - TODO items with no `autopilot:` field at all (untagged items)
-- SCIENCE-FLAGs where Claude could not find ≥3 supporting citations
+- SCIENCE-FLAGs that cannot clear via the [SCIENCE-FLAG resolution protocol](../../docs/skills-includes/science-flag-protocol.md) (no on-data verification and no citable literature grounding)
 
 Append to `ESCALATION.md`:
 
@@ -189,7 +189,7 @@ Queue remaining: {topics: N, todo-ready: N}
 
 These halt the current item and get written to ESCALATION.md, but autopilot continues with the next queue item:
 
-- **SCIENCE-FLAG with <3 supporting citations** — Claude could not find literature grounding to resolve the flag. Document the flag + what citations were sought + what failed.
+- **SCIENCE-FLAG that cannot clear the [resolution protocol](../../docs/skills-includes/science-flag-protocol.md)** — neither on-data verification nor a ≥3-citation literature memo is achievable. Document the flag + which paths were attempted + what failed.
 - **Persistent FLAWED** — genuine scientific disagreement across 2 peer review rounds.
 - **BREAKS** — system integrity at risk. Auto-revert the branch; escalate.
 - **Architect REJECT** — fundamental approach wrong. Revert; escalate.
@@ -204,7 +204,7 @@ These halt the current item and get written to ESCALATION.md, but autopilot cont
 - Architect SIMPLIFY (auto-apply)
 - Bikeshed detection (auto-side with R1)
 - Commit (auto when review passes)
-- **SCIENCE-FLAG resolution when ≥3 literature citations support a defensible position** — author the decision memo, cite, ship. The gate's job is to force the decision-with-rationale, not to pause forever.
+- **SCIENCE-FLAG resolution via the [protocol](../../docs/skills-includes/science-flag-protocol.md) Path 2a (on-data verification) or 2b (≥3-citation literature memo)** — author the rationale, cite, ship. The gate's job is to force the decision-with-rationale, not to pause forever.
 
 ## Anti-patterns
 

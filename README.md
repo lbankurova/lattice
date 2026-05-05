@@ -1,306 +1,333 @@
 # Lattice
 
-LLM-assisted development framework for exploratory development of scientific apps on the Datagrok platform.
+> A harness for LLM-assisted software development.
 
-## Product Thesis
+Lattice is a set of skills, sub-agents, workflow definitions, hooks, durable state files, and audits that constrain LLM behavior during multi-week development work. It runs inside Claude Code today; workflow definitions are platform-neutral YAML executed by a small TypeScript engine in `executor/`.
 
-1. **Every insight that can be auto-generated MUST be auto-generated.** Users review conclusions, not raw data.
-2. **The primary audience is always scientists.** Design for daily analytical workflows first.
-3. **Analytical use > regulatory use.** Go/No-Go decisions happen daily; submissions happen once per milestone.
-4. **At small N, the value is honest uncertainty.** Surface fragile estimates, not hide them.
+The harness addresses a class of LLM failure modes that prose-only instructions don't catch: self-review with contaminated context, context-window degradation, cross-session memory loss, rule-drift under task pressure, scope creep, runaway loops, fabrication, concurrency conflicts, and substitution of checkable proxies for the actual question. Each section below names a failure mode, the mechanism Lattice uses, and the artifact that implements it.
 
-## Three Layers
+This README covers:
+1. what the harness contains
+1. what each part does, and
+1. how to map the pattern onto another platform. The worked translation example is Datagrok plugin development, using artifacts already present in the public Datagrok repo.
 
-| Layer | What | Applies to |
-|-------|------|------------|
-| **Platform** | Datagrok design system, UX patterns, visual conventions | All Datagrok plugins |
-| **Scientific** | Knowledge scaffolding, field contracts, methods registry | Data analysis / scientific plugins |
-| **Process** | Dev workflow, commit gates, doc lifecycle, backlog | All projects using this framework |
+---
 
-## Architecture
+## Scope
 
-```
-lattice/
-  CLAUDE.md                     # Framework rules (19) + operational docs
-  WORKFLOW.md                   # Pipeline diagram, phase transitions, skill list
-  WORKFLOW-INTERNALS.md         # Executor, autopilot, coherence, peer-review protocol
-  ENFORCEMENT.md                # Review gate, ratchet, hooks, structural gates
-  commands/lattice/             # 28 skills (AI agent prompts, .md)
-  commands/ops/                 #  6 ops commands
-  agents/                       #  4 independent reviewer agents
-  workflows/                    #  8 YAML DAG definitions
-  workflows/_includes/          #  Shared sub-workflow fragments (e.g. science-flag-resolution.yaml)
-  executor/src/                 # 14 TypeScript modules (DAG engine)
-  scripts/                      # 16+ shell + Python scripts (locking, sync, validation, audits, design-gate)
-  scaffold/                     # Project templates (docs, hooks, rules, config)
-  docs/decisions/               # Framework decision memos (TDD scope, framework-audit-2026-04-28, etc.)
-  docs/skills-includes/         # Skill partner files referenced by-path (sync'd to consumers)
-  .claude/rules/                # Session-loaded rules (design decisions)
-```
+**In scope today:** greenfield development of scientific apps. Built and exercised over four months on a single project. Lattice's process spine could be adapted for or merged into other projects.
 
-### Executor (`executor/src/`)
+**Out of scope today:** Lattice is not a Datagrok plugin SDK. It does not extend deployed Datagrok instances, port existing apps into Datagrok packages, or work against the Datagrok JS API as a first-class consumer.
 
-TypeScript DAG engine that runs workflow YAML files. Resolves topological layers, dispatches nodes in parallel, handles routing/approval, writes checkpoints.
+**Framework vs project.** The framework owns process-level artifacts (skills, agent definitions, workflow DAGs, the executor, hooks, locks, the verdict-enum registry, the review-gate format). The project owns its domain knowledge (typed fact graph, design decision tables, component reuse maps, the script that queries the typed graph). The framework enforces requirements *about* project artifacts (e.g., "algorithmic peer-review must invoke a query against the typed graph and cite the result, or re-launch") without supplying the artifacts themselves.
 
-| Module | Purpose |
-|--------|---------|
-| `engine.ts` | Core execution loop — layers, filtering, full-map checkpoint resume, un-substituted state-path detection, cost aggregation |
-| `nodes.ts` | Node executors (bash, skill, gate, approval) + Claude CLI JSON parser. Surfaces `is_error: true` and error-shaped text output as failed nodes. Condition parser honors `\|\|`/`&&` precedence and respects single-quoted literals. Skill prompts pass via `spawnSync` argv-form (no shell quoting). |
-| `cli.ts` | CLI entry point — 9 commands. Argument parsing via `node:util.parseArgs`. |
-| `dag.ts` | Kahn's algorithm for topological sort |
-| `loader.ts` | YAML workflow parser + validator |
-| `template.ts` | `{{}}` expression resolver. Throws on output substitution against a dry-run sentinel result; planning fields (`status`, `route`) still resolve. |
-| `coherence.ts` | Portfolio-level conflict detection (4 conflict types). Subsystem references matched by anchored regex `\bS\d{2}\b`. |
-| `reconcile.ts` | Derive topic state truth from git `Topic:` trailers. Lookback configurable via `LATTICE_RECONCILE_LOOKBACK_DAYS` (default 90). |
-| `autopilot.ts` | Continuous portfolio advancement loop. Loop-local portfolio cache invalidated on state-mutating calls (reconcile, auto-resolve, workflow returns). |
-| `auto-resolve.ts` | Resolve coherence conflicts via targeted distill analysis |
-| `budget.ts` | Cost tracking, budget limits, alerting |
-| `e2e.ts` | Branch-comparison E2E testing gate |
-| `types.ts` | Type definitions (workflow, nodes, cost, budget) |
-| `index.ts` | Public API exports |
+---
 
-### Workflow DAGs (`workflows/`)
+## What "the harness" contains
 
-Development cycles defined as executable YAML DAGs. Node types: `bash`, `skill`, `gate`, `approval`, `parallel`.
+| Piece | Purpose | Where |
+|---|---|---|
+| **Skills** | Markdown prompt files. One per task type (synthesize, implement, review, etc.). Define how the model performs one operation. | `commands/lattice/*.md`, `commands/ops/*.md` |
+| **Sub-agents** | Independently spawned model instances with their own context window. Used wherever the orchestrator's reasoning would contaminate the answer. Four registered: peer-review, architect-reviewer, decision-auditor, post-impl-reviewer. | `agents/*.md`; spawned via `context: fresh` on a workflow skill node |
+| **Workflows** | YAML DAGs defining what runs when. Reference skills by name; executor resolves topological order and dispatches. Five node types: `bash`, `skill`, `gate`, `approval`, `parallel`. | `workflows/*.yaml`, schema in `workflows/schema.md` |
+| **Verdict-enum registry** | Authoritative declared verdict set per gate-producing node. Workflow loader rejects gates that test a verdict literal not in the producer's enum at validate time — typo enforcement before any node runs. | `workflows/verdict-enums.yaml`, loaded by `executor/src/loader.ts` |
+| **Hooks** | Pre/post-commit and Claude Code PreToolUse / PostToolUse scripts. Block defective actions mechanically. | `hooks/pre-commit`, `hooks/post-commit`, `hooks/claude-hooks.json` |
+| **Durable state** | Append-only `.lattice/decisions.log`, per-topic `.lattice/cycle-state/{topic}.yaml`, lock files (`.lattice/commit.lock/`, `.lattice/cycle-lock/{topic}/`), telemetry (`.lattice/context-telemetry.jsonl`). All state writes go through `atomicWriteFileSync` (temp+rename). | `executor/src/state-io.ts` |
+| **Reconciler** | Greps git log for `Topic:` trailers, derives topic state truth, corrects state-file drift. | `executor/src/reconcile.ts`, surfaced via `lattice status` (read-only by default; `--reconcile` to mutate) |
+| **Coherence engine** | Portfolio-level conflict detection across topics: subsystem overlap, stale blueprint, prerequisite violation, science-flag propagation, cascades. Some conflict types auto-resolve via targeted distill analysis. | `executor/src/coherence.ts`, `executor/src/auto-resolve.ts` |
+| **Audits** | Periodic scans for silent drift not visible at commit time (citation drift, dead code, knowledge-graph contradictions, contract straggler enums). | `scripts/audit-*.py` |
+| **Knowledge artifacts** | Project-authored typed facts, registries, design tables. Live in the consumer project, not the framework. | (consumer-side, e.g., `docs/_internal/knowledge/`) |
 
-| File | Cycle | Nodes |
-|------|-------|-------|
-| `cycle.yaml` | Meta-orchestrator — classify, detect phase, dispatch | 16 |
-| `research-cycle.yaml` | Research — produce, peer review (2 rounds), distill, probe | 17 |
-| `blueprint-cycle.yaml` | Blueprint — synthesize, architect gate, probe, plan review | 20 |
-| `build-cycle.yaml` | Build — implement, E2E gate, review, commit | 6 |
-| `spike-cycle.yaml` | Spike — explore, generate spec, review | 8 |
-| `bug-fix-cycle.yaml` | Bug fix — classify, investigate, fix, stress, E2E gate, review | 19 |
-| `mechanical-fix-cycle.yaml` | Mechanical TODO — `implement-todo` + commit-intent + `ops:check` + commit. No research/blueprint/peer-review ceremony. | 6 |
-| `autopilot.yaml` | Autopilot loop orchestration | — |
+---
 
-**Schema:** `workflows/schema.md` — node properties, template expressions, execution rules.
+## The spine
 
-### Agents (`agents/`)
-
-Independent reviewer agents launched by skills via the Agent tool's `subagent_type`. Separate context window prevents self-assessment; harness loads the agent definition once per launch instead of the orchestrator inlining the agent's instructions.
-
-| Agent | Launched by | Purpose |
-|-------|-------------|---------|
-| `architect-reviewer.md` | `/lattice:architect`, `/lattice:review`, `/lattice:blueprint-cycle` | Architecture quality, overengineering, science preservation |
-| `decision-auditor.md` | `/lattice:review` | Merit-driven rationale (rule 12), unprompted deferrals (rule 13) |
-| `peer-review.md` | `/lattice:research-cycle`, `/lattice:blueprint-cycle`, `/lattice:architect` | Blind scientific challenge — domain expert, no project context. Includes F3 algorithmic-tightening requirements (mandatory `query-knowledge.py`, mandatory citation, blocking semantics on `CONDITIONAL`/`FLAWED`) when the input is algorithmic code or an algorithmic spec. |
-| `post-impl-reviewer.md` | `/lattice:review` | Spec-vs-code evidence trace |
-
-## Executor CLI
+The pieces above stack into a layered runtime. Each layer has a conventional analogue on the right — read it as "if you already know X, this layer behaves like X."
 
 ```
-lattice run <workflow> --topic <topic> [--dry-run] [--mode <mode>]
-lattice validate [workflow]           Validate workflow YAML
-lattice list                          List available workflows
-lattice inspect <workflow>            Show execution plan (layers, nodes, deps)
-lattice status                        Portfolio overview + coherence summary + cost
-lattice coherence [topic]             Full conflict analysis across all topics
-lattice autopilot [--dry-run] [--loop] [--max N] [--filter PATTERN]
-                                      Advance safe topics, batch human decisions
-lattice e2e run [--base main]         Branch-comparison E2E testing gate
-lattice e2e classify [--base main]    Testability classification
-lattice cost [topic]                  Per-topic cost report
+┌──────────────────────────────────────────────────────────────────┐
+│  User invocation                                                  │
+│    /lattice:cycle <topic>          ~ kicking off a job             │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │
+┌────────────────────────────▼─────────────────────────────────────┐
+│  Orchestration                                                    │
+│    workflows/*.yaml                ~ schema + queries (DAGs)      │
+│    verdict-enums.yaml              ~ typed enum columns           │
+└────────────────────────────┬─────────────────────────────────────┘
+                             │ loaded + executed by
+┌────────────────────────────▼─────────────────────────────────────┐
+│  Executor (TypeScript)                                            │
+│    topological dispatch            ~ a query planner              │
+│    revision-checked writes         ~ optimistic concurrency       │
+│    per-call telemetry, loop cap    ~ rate-limit + circuit-breaker │
+│    cost / budget                   ~ billing meter                │
+└──┬───────────────────────────────────────────┬───────────────────┘
+   │ launches                                   │ dispatches
+   ▼                                            ▼
+┌──────────────────────────┐    ┌─────────────────────────────────┐
+│  Skills (.md)            │    │  Sub-agents (.md, fresh context) │
+│   ~ stored procedures    │    │   ~ isolated worker / sidecar    │
+│   (run in main context)  │    │   (separate context window)      │
+└────────────┬─────────────┘    └─────────────────┬───────────────┘
+             │                                    │
+             └────────────────┬───────────────────┘
+                              │ reads / writes
+┌─────────────────────────────▼────────────────────────────────────┐
+│  Durable state                                                    │
+│    .lattice/decisions.log          ~ append-only event log (WAL)  │
+│    .lattice/cycle-state/*.yaml     ~ session / checkpoint state   │
+│    .lattice/review-gate.json       ~ single-use auth token        │
+│    .lattice/*.lock/                ~ advisory locks               │
+│    .lattice/context-telemetry.jsonl ~ metrics stream              │
+│  · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · · │
+│  consumer-side, read-only at runtime:                              │
+│    knowledge-graph.md (typed YAML)  ~ typed registry / lookup     │
+│    untyped registries + design     ~ reference data / config      │
+│    research/*.md                    ~ document corpus             │
+└─────────────────────────────┬────────────────────────────────────┘
+                              │ consulted by
+┌─────────────────────────────▼────────────────────────────────────┐
+│  Hooks (mechanical gates)                                         │
+│    git pre-commit                  ~ constraint check on COMMIT   │
+│    git post-commit                 ~ AFTER INSERT trigger         │
+│    Claude Code PreToolUse          ~ row-level security check     │
+│    Claude Code PostToolUse         ~ AFTER UPDATE trigger         │
+└─────────────────────────────┬────────────────────────────────────┘
+                              │
+┌─────────────────────────────▼────────────────────────────────────┐
+│  Git (truth)                                                      │
+│    commit + Topic: trailer         ~ COMMIT TRANSACTION           │
+│    reconciler greps `git log`      ~ rebuild index from log       │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
-## Skills
+Two reading rules:
+- **Direction matters.** The arrows are top-down at runtime (a cycle invocation flows down to git), but truth flows back up: the reconciler reads `git log` and corrects state-file drift on the way up. Anything below the executor is rebuildable from git; anything above it is configuration.
+- **Hooks gate the boundary.** The hooks layer is the only place where mechanical *blocking* happens. Everything above hooks is recoverable; once a commit lands, it's part of git, and the only way to unwind is another commit.
 
-### Strategic
-| Skill | Purpose |
-|-------|---------|
-| `/lattice:prioritize` | Read all project state, recommend next actions ranked by scientist value |
-| `/lattice:autopilot` | In-session equivalent of `lattice autopilot` CLI — reconcile, advance, batch. **`--discover`** runs `scripts/discovery-scan.py` pre-loop and folds safe gaps into the queue (LIT-03). **`--consolidate`** scans recent knowledge/research clusters and surfaces synthesize suggestions (LIT-04, Ahrens emergence) |
-| `/lattice:daily-update` | Generate Slack-formatted update from recent commits |
+### Knowledge layer
 
-### Knowledge
-| Skill | Purpose |
-|-------|---------|
-| `/lattice:distill` | Corpus-level reasoning — thesis construction, domain adaptation, doc coherence audit, grounded Q&A. **Knowledge Promotion step (LIT-05):** novel cross-subsystem connections surfaced during the run get prompted for promotion to `docs/_internal/knowledge/`; declined candidates persist via a `Distill-Insight:` trailer in `decisions.log` so future corpus loads can reference them |
-| `/lattice:extract-learnings` | At spec-archive, extract durable knowledge from the implemented spec into `knowledge/` + `architecture/`. Enforces CLAUDE.md rule 6 — fires per spec-archive event, not per cycle-close |
-| `/lattice:lint-knowledge` | Lint the knowledge corpus — generic ID/citation linter plus all typed-schema audits (knowledge-graph, contract-triangles, etc.). Persists findings to TODO.md |
-| `/lattice:lit-triage` | Triage orphan PDFs in `research/literature/` — extract text via PyMuPDF, assess relevance against load-bearing knowledge surfaces, append verdict to `PDF-TRIAGE.md`. Promotes to literature notes only on human confirmation |
+The "consumer-side, read-only at runtime" rows in the durable-state box cover four distinct shapes. They share a topological role (project files read by skills/agents during work, never written back during a cycle) but differ in access pattern and scaling story.
 
-### Cycles (orchestrators)
-| Skill | Purpose |
-|-------|---------|
-| `/lattice:cycle` | **Meta-orchestrator** — auto-detects phase from state, dispatches to right sub-cycle |
-| `/lattice:research-cycle` | **Research phase** — produce + peer review (2 rounds) + distill + probe |
-| `/lattice:blueprint-cycle` | **Blueprint phase** — synthesize + architect gate + probe + plan review (2 rounds) |
-| `/lattice:build-cycle` | **Build phase** — design + implement + E2E gate + review + commit |
+| Shape | Where | Access pattern | Scaling today |
+|---|---|---|---|
+| **Typed knowledge graph** | `knowledge-graph.md` — atomic YAML facts with `value`, `confidence`, `scope`, `derives_from`, `contradicts` | `query-knowledge.py --scope X --kind Y` (exact match); `audit-knowledge-graph.py` checks for contradictions across `contradicts` edges | Linear scan of YAML. Free-text and embedding queries deferred. |
+| **Untyped registries** | `methods-index.md`, `species-profiles.md`, `vehicle-profiles.md`, `contract-triangles.md` | Loaded in-prompt when `domain-knowledge-map.md` routes a topic to them. Cite typed facts by ID rather than restate values (rule 19 / 22). | Title routing; no index. |
+| **Design decision tables** | `.claude/rules/design-decisions.md`, `frontend-ui-gate.md`, `domain-knowledge-map.md` | Loaded automatically every Claude Code session. | Always-loaded; bounded by file size. |
+| **Research corpus** | `research/*.md` + `research/INDEX.md` | Selected by title scan against `INDEX.md` during corpus loads. | Calibrated for ~150 files / single maintainer. Vector search (DuckDB + Voyage AI or equivalent) is the planned upgrade past the threshold; deferred today. |
 
-### Research & Validation
-| Skill | Purpose |
-|-------|---------|
-| `/lattice:research` | First-principles gap analysis — landscape (Tier 1) + deep dive (Tier 2) |
-| `/lattice:peer-review` | Blind scientific challenge (separate agent) — standard + `--novel` mode |
-| `/lattice:synthesize` | Ground research in codebase — Build Plan + Reuse Inventory + Simplicity Rationale + Test Strategy + Gaps |
-| `/lattice:probe` | Cross-impact analysis — trace implications through system manifest (targeted, `--integrity`, `--safety`) |
+The framework owns the *enforcement* — algorithmic peer-review must invoke `query-knowledge.py` and cite returned facts (or re-launch); `--novel` mode requires VERIFIED / BLOCKED / NOT-FOUND on every novel source. The framework does not own the artifacts. They live in the consumer project, scoped to the consumer's domain.
 
-### Build & Quality
-| Skill | Purpose |
-|-------|---------|
-| `/lattice:architect` | Architecture quality gate — audit code, gate specs, enforce science preservation |
-| `/lattice:design` | UI/UX design step — placement, technology, layout decisions between synthesize and implement |
-| `/lattice:implement` | Autonomous spec implementation — phase-by-phase conductor with design gates and final audit |
-| `/lattice:spike` | Exploratory implementation with pre-write discipline (no spec ceremony) |
-| `/lattice:spec-from-code` | Reverse-engineer spec from successful spike |
-| `/lattice:review` | Quality gate — architect review + decision audit + deferral litmus test + four-dimension trace |
-| `/lattice:implement-todo` | Apply a single TODO.md mechanical fix end-to-end — read, locate, edit, declare commit intent. The skill `mechanical-fix-cycle.yaml` invokes. Effort is not a gate; correctness is |
-| `/lattice:ux-designer` | Datagrok design system compliance audit |
-| `/lattice:ux-audit-walk` | Stage 1 of UX-audit pipeline. Playwright walk of a persona × workflow that produces a candidate audit README. Output is hypotheses, not findings |
-| `/lattice:ux-audit-validate` | Stage 2 of UX-audit pipeline. Filters walk-time GAP candidates against rule files + code via the 5-step Grep checklist + pre-approved conventions. Required before any candidate becomes a TODO entry |
-| `/lattice:ux-audit-file` | Stage 3 of UX-audit pipeline. Promotes validated findings into TODO.md GAP entries with the correct recommendation form, then closes out the audit's INDEX status |
+**What scales today:** typed-graph exact-match queries, in-prompt loading of always-on rule files, title-based research selection. **What does not yet scale:** semantic queries against the typed graph, embedding-based corpus search. Both are planned upgrades held until empirical pressure (corpus past ~150 files, query patterns the exact-match interface can't serve) — the title-scan and exact-match approaches were chosen as floors, not ceilings.
 
-### Ops
-| Skill | Purpose |
-|-------|---------|
-| `/ops:check` | Lightweight "did I break anything?" — build + validation without full review |
-| `/ops:impact` | Analyze what breaks if a function/file/module is modified |
-| `/ops:bug` | Log a bug into BUG-SWEEP.md during manual QA |
-| `/ops:bug-stress` | Post-fix: classify pattern, search downstream, grow oracle |
-| `/ops:explore-data` | Answer questions about what the engine actually produces for a study |
-| `/ops:sweep` | Garbage collection — validate TODO.md, ROADMAP.md, MANIFEST.md, decisions.log |
+---
 
-### Session
-| Skill | Purpose |
-|-------|---------|
-| `/lattice:pause-work` | Context handoff for next session |
-| `/lattice:resume-work` | Restore context from handoff |
+## Failure modes and mechanisms
 
-## Enforcement Layer
+### 1. Self-review
 
-The framework enforces quality through constraints, not just instructions:
+The decisions and rationale a model just produced sit in its own context window. Asking the same context to review the artifact produces approval near-uniformly regardless of artifact quality.
 
-| Mechanism | What it does | How it enforces |
-|-----------|-------------|-----------------|
-| **Review gate** | Every commit requires `/lattice:review` or `write-review-gate.sh` | PreToolUse hook + pre-commit hook both block; gate is single-use |
-| **Unified attestations** (SIMPLIFY-1) | Peer-review, architect, spec-lint, bug-pattern verdicts all funnel through one `attestations[]` format in `review-gate.json` | `append-attestation.sh` writes; `write-review-gate.sh` validates kind, target, verdict, rationale (≥10 chars, no `n/a`/`tbd`/`idk`); pre-commit consumes |
-| **Algorithmic peer-review** (F3) | Algorithmic specs and edits to algorithm-paths funnel through `peer-review` subagent with mandatory `query-knowledge.py` + citation | `CONDITIONAL`/`FLAWED` verdicts BLOCK the parent gate (architect Step 1.25, build review). Algorithm paths default list in `.lattice/algorithm-paths.txt`, project-overridable. |
-| **Spec lint** (F5) | 4-criterion check on `incoming/` specs: empirical claims cite data, behavioral requirements have tests, multi-feature → SPEC-VALUE-AUDIT, algorithmic specs cite domain truth | `/lattice:architect` Step 1.4 runs `scripts/lint-spec.py --strict`; defects block until fixed or waived via attestation in `decisions.log` |
-| **Bug-pattern registry** (F6) | Every `fix:` commit must register or update a `bug-patterns.md` entry naming the pattern, applies-to glob, and prevention class | `/ops:bug-stress` Step 7.5 emits the entry; pcc pre-commit Step 0d enforces a `kind=bug-pattern` attestation when staged paths match any registered glob |
-| **Bug retro disposition** (F7) | The 5-question retrospective on every fix routes to a typed disposition (rule N tightened, hook added, registry update, etc.) — not free-form prose | `/ops:bug-stress` Step 8 records the disposition; pre-commit BLOCKS `fix:` commits where the BUG-SWEEP entry lacks the 5 retro fields |
-| **Design-mode preamble gate** | Hook-enforced 4-block preamble (1.1 Workflow audits, 1.2 Existing surfaces, 1.3 First-principles, 1.4 Convention check) before any UI edit | `scripts/design-mode-gate.sh` (PreToolUse Write\|Edit) BLOCKS in-scope `.tsx`/`.html`/`.ts` edits when `.lattice/design-mode.lock` is `preamble=pending`; `design-session.sh preamble-done <evidence>` flips it to `complete`. Failure mode prevented: port-mode redesign. |
-| **SCIENCE-FLAG memo path** | When a SCIENCE-FLAG fires, autopilot authors a decision memo with ≥3 literature citations and proceeds (per CLAUDE.md rule 14 + autopilot.md anti-pattern table); only escalates if it can't find citations | Wired into `workflows/research-cycle.yaml` and `workflows/blueprint-cycle.yaml` as a memo-required gate; memo path cited in commit message |
-| **Algorithm defensibility check** (BUG-031 hardening, rule 18) | Review agents must run the algorithm on PointCross + one other study and record the data-grounded interpretation; SCIENCE-FLAG only clears via fix, data-grounded counter-evidence, or named-dependency defer | `/lattice:review` ALGORITHM CHECK section (487797e); plumbing-only rebuttals are explicitly insufficient |
-| **Validation ratchet** | Compares analytical scores before/after changes | Pre-commit hook blocks if engine changed without ratchet |
-| **Coherence engine** | Detects cross-topic conflicts (subsystem overlap, stale blueprints, cascades) | `lattice coherence`, `lattice status`, and engine pre-run check |
-| **State reconciliation** | Derives topic state truth from git `Topic:` commit trailers | `lattice status` auto-corrects stale cycle-state files |
-| **Token tracker / budget** | Per-node cost tracking, budget limits per workflow/topic/node, **per-call context-rot telemetry (LIT-09)** | Warns at threshold (default 80%); context-rot blocks workflow with reason `CONTEXT_ROT` in `decisions.log`; `lattice context [--last N]` reads `.lattice/context-telemetry.jsonl` |
-| **Autopilot loop cap** (LIT-10) | `--max-loops N` (default 50) caps the outer `while (madeProgress)` loop; named force-stop on auto-resolve / phase-routing oscillation | `lattice autopilot --max-loops N` flag wired through |
-| **E2E testing gate** | Branch-comparison behavioral verification (3 modes) | Build-cycle and bug-fix-cycle workflow nodes |
-| **Decision log** | Persistent experiment memory across sessions | Prevents re-trying failed approaches |
-| **Structural quality gates** | Checks peer review depth, synthesis sections, probe results | Orchestrator re-launches skill on gate failure |
-| **Independent agents** | Peer review, architect review, decision audit, requirement trace | Separate context window via `subagent_type` — prevents self-assessment; the harness loads agent definitions, orchestrator does NOT inline skill content into prompts |
-| **Claude Code hooks** | Review gate, commit lock, topic trailer, co-author block, build check, design-mode preamble, lattice→project sync, pcc-mirror edit block | Mechanical — agent cannot skip |
-| **Outer-held commit lock** | Autopilot and `/lattice:review` acquire `.lattice/commit.lock` BEFORE `git add` to prevent staging-drift conflation when concurrent commits land in the same window | `LATTICE_LOCK_HOLDER` env tells pre-commit Step -1 to honor the outer hold rather than re-acquire (922cf24, 20f2eb4) |
-| **Autopilot auto-resolve** | Targeted distill analysis for coherence conflicts | Resolves subsystem-overlap, stale-blueprint, SF-propagation |
-| **Commit/topic locking** | Prevents concurrent commits and concurrent work on same topic | Atomic mkdir locks with stale recovery |
-| **SIMPLIFY auto-apply** | Architect SIMPLIFY findings on `Risk: None` cuts auto-apply without user rubber-stamp; non-trivial risk still routes to user | Drops decision overhead on mechanical cleanups (ffbbb0f) |
-| **Autonomous execution** | Cycles run without human until critical decisions | Stops on: SCIENCE-FLAG (without ≥3 citations), REJECT, BREAKS, persistent FLAWED with verifiable contradiction |
+**Mechanism:**
+- Four sub-agents launched with `context: fresh` on a workflow skill node receive a fresh context window with no prior session state. Agent definitions in `agents/*.md` declare "no project context" / "no implementation rationale" — the agent receives only the artifact path and a brief prompt.
+- The build-cycle review step (`workflows/build-cycle.yaml:103-119`) launches three agents in parallel (architect-reviewer, decision-auditor, post-impl-reviewer) and aggregates their verdicts.
+- Verdicts persist as `attestations[]` in `.lattice/review-gate.json`. Each entry must have `kind`, `ref`, `verdict`, and a `rationale` ≥10 chars. Trivial values (`n/a`, `tbd`, `idk`, etc.) and duplicate `(kind, ref)` pairs are rejected by `scripts/write-review-gate.sh` — the gate cannot be hollowed out by a perfunctory rationale.
+- The full review skill writes its 7 mandatory sections (CHANGES, ARCHITECT REVIEW, DECISION AUDIT, REQUIREMENT TRACE, MECHANICAL CHECKS, DOCS UPDATE, VERDICT) to a side-channel file (`.lattice/last-review-output.md`). `scripts/write-review-gate.sh` greps for the seven `^## NAME` anchors; missing any → non-zero exit. Trivial-commit escape hatch (`bash scripts/write-review-gate.sh pass "..."`) skips the anchor check.
+- The workflow loader runs validate-time checks on every YAML before any node executes: gate conditions that test a verdict literal not in the producer's `verdict_enum` are rejected (`workflows/verdict-enums.yaml`); approval options without a `route` field are rejected; nodes with `max_iterations` not a positive integer are rejected; orphan nodes are warned. Typo enforcement and structural validation before runtime, not at runtime.
 
-See [WORKFLOW.md](WORKFLOW.md) for the pipeline and skill list, [WORKFLOW-INTERNALS.md](WORKFLOW-INTERNALS.md) for protocol depth (peer-review rounds, autopilot stops, coherence conflict types), and [ENFORCEMENT.md](ENFORCEMENT.md) for the guardrail mechanisms.
+### 2. Context-window degradation
 
-## Hard Rules (CLAUDE.md)
+Sustained sessions accumulate tokens (prior steps, peer-review rounds, intermediate outputs). Retrieval fidelity degrades and the model contradicts earlier decisions well before the model's declared context window is exhausted.
 
-19 process rules that apply to every task:
+**Mechanism:**
+- Every skill node in a cycle YAML writes a deterministic state file at `state_key`. State carries `phase` (e.g., `research`, `research-complete`, `blueprint`, `blueprint-complete`, `build`, `complete`), `current_step`, captured outputs, and a monotonic `revision` counter. State writes use `atomicWriteFileSync` (`executor/src/state-io.ts:36-45`) — temp+rename, so concurrent readers never see partial state.
+- Within a cycle, phases run sequentially. Between cycles (`workflows/cycle.yaml:85-108`), the dispatcher routes by reading the `phase` field from the state file: `research-complete` → dispatch-blueprint, `blueprint-complete` → dispatch-build. Manual invocation requires explicit re-invocation; autopilot auto-chains. Either way, the next phase reads the prior phase's state file rather than its conversation.
+- `executor/src/budget.ts:196-256` records per-skill-call telemetry to `.lattice/context-telemetry.jsonl`. `checkContextUtilization` emits `warn` (default 0.6 of declared context window) and `block` (default 0.8) alerts. CLI: `lattice context [--last N]`.
 
-| # | Rule | Why |
-|---|------|-----|
-| 1-3 | Design system approval gates | Prevent agent drift on visual design |
-| 4 | No Claude co-author in commits | Clean git history |
-| 5 | Reuse before reinventing | Search existing code before writing new |
-| 6 | Doc lifecycle (specs are disposable, system docs are durable) | Knowledge extraction after implementation |
-| 7 | Circuit breaker (5 failures = stop) | Prevent runaway agent loops |
-| 8 | No directory sprawl | Keep repo structure clean |
-| 9 | Bug fix protocol (read before patching, stress after fixing, escalate after 2) | Prevent blind patching |
-| 10 | Pre-write protocol (read, search, plan, then write) | Prevent inconsistent implementations |
-| 11 | New spec -> ROADMAP intake | No orphaned specs |
-| 12 | **Merit-driven architectural decisions** | Choose scientifically correct approach, not easiest |
-| 13 | **No unprompted deferrals** | Never defer without real dependency or explicit user decision |
-| 14 | **Science preservation gate** | Cleanup that changes analytical behavior requires scientist review |
-| 15 | Impact analysis before touching shared code | Know what breaks before you edit |
-| 16 | Verify empirical claims against actual data | Don't infer from code -- read the output |
-| 17 | **Spec value audit before build** | Catch featuritis: per-feature frequency, workaround, and impact required before architect review signs off |
-| 18 | **Algorithm defensibility on real data** | When the diff modifies (or consumes the output of) NOAEL / scoring / classification / syndrome detection / severity / onset code, review must run the algorithm on PointCross + one other study, record the actual output, and answer "would a regulatory toxicologist agree this represents the data?" with citation to the driving values. Spec-vs-code consistency is not enough. SCIENCE-FLAG raised by any review agent only clears via fix, data-grounded counter-evidence in this format, or explicit user defer with named dependency — plumbing-only rebuttals do NOT clear it. Exemplar: BUG-031 (2026-04-26). |
-| 19 | **Atomic facts must live in the typed knowledge graph** | Numeric thresholds, species-specific baselines, route/vehicle constraints, regulatory cutoffs, mechanistic disable-markers MUST live in `docs/_internal/knowledge/knowledge-graph.md` as typed YAML facts (with `value`, `confidence`, `scope`, `derives_from`, `contradicts`). Un-typed registries cite the fact ID rather than restating the value. Why: only the typed graph audits contradictions mechanically; the same claim authored as prose in two un-typed files can silently disagree. Architect Step 1.4 (spec lint) and peer-review (synthesis tier) ask the placement question on algorithmic specs. |
+### 3. Cross-session memory loss
 
-## Research Quality Controls
+A new session starts cold. Without external memory, the model retries failed approaches, re-litigates settled decisions, and rediscovers known constraints.
 
-Built into `/lattice:research`:
+**Mechanism, in order of authoritativeness:**
+- `Topic:` trailers on every commit. `executor/src/reconcile.ts` greps git log (default lookback 90 days, `LATTICE_RECONCILE_LOOKBACK_DAYS`) and derives topic state from the trailers. Truth lives in git.
+- Append-only `.lattice/decisions.log` records every skill outcome with timestamp.
+- Per-topic `.lattice/cycle-state/{topic}.yaml` stores checkpoints, key decisions, costs, subsystems touched.
+- Project-side typed knowledge files (e.g., `knowledge-graph.md`) hold atomic, contradictable facts.
 
-- **Tier system** — landscape first (broad coverage scan), deep dive only on user-selected branches. Prevents boiling the ocean.
-- **Phase 2b: Uniformity assumptions check** — "What varies across instances that this analysis assumes is constant?" Catches hidden heterogeneity.
-- **Phase 3b: Audience bias check** — "Who are ALL the users?" Scientists doing daily analysis > milestone deliverables > non-scientist consumers.
+`lattice status` and `lattice coherence` are read-only by default; `--reconcile` opts into state-file mutation.
 
-Built into `/lattice:peer-review`:
+### 4. Rule-drift under task pressure
 
-- **2-round protocol** — Round 1 challenges, author incorporates. Round 2 checks revisions. No Round 3 (escalate to user).
-- **`--novel` mode** — forces different sources than Round 1. Recent, niche, underindexed work. Low-citation is a feature.
-- **Tier-aware** — auto-detects landscape vs deep dive vs implementation plan and adapts review structure.
+Given many process rules, the model honors a subset reliably and forgets the rest under task pressure ("just fix the bug").
 
-Built into `/lattice:distill`:
+**Mechanism:** rules that have shipped a defect are wired to a hook. The pre-commit hook runs five blocking steps and three advisory steps:
 
-- **Evidence tiering** — every claim tagged: decided (strongest), peer-reviewed (strong), unreviewed (provisional), or cross-document inference (flagged).
-- **Contradiction detection** — when corpus documents disagree, both positions presented with evidence. No silent resolution.
-- **Freshness check** — checks REGISTRY for research stream status before citing conclusions.
+| Step | Behavior | Source |
+|---|---|---|
+| -1: Commit lock acquisition | BLOCKS — atomic mkdir lock with poll/30s/10min timeout. Honors `LATTICE_LOCK_HOLDER` env for outer-held locks (autopilot, `/lattice:review`). Releases on EXIT trap. | `hooks/pre-commit:27-87` |
+| 0a: Shared-state merge | ADVISORY — runs `scripts/merge-shared-state.sh` to refresh shared files (TODO.md, REGISTRY.md, decisions.log, ROADMAP.md, MANIFEST.md) from HEAD before this commit, preventing concurrent agents from overwriting each other's just-committed appends. Soft-fails if script absent. | `hooks/pre-commit` Step 0a |
+| 0: Review gate check | BLOCKS — `.lattice/review-gate.json` must exist and be ≤30 min old. Surfaces attestations. Consumed (deleted) after success — single-use. | `hooks/pre-commit:89-146` |
+| 1: Executor TypeScript build | BLOCKS if `executor/` files staged and `tsc --noEmit` fails. | `hooks/pre-commit:148-168` |
+| 2: Index freshness | ADVISORY — TODO.md / README / WORKFLOW etc. not updated. | `hooks/pre-commit:170-199` |
+| 2.5: Bug-retro check | BLOCKS `fix:` commits without 5-question retrospective in BUG-SWEEP.md (Root cause / Genesis / Detection gap / Prevention class / Lattice change). | `hooks/pre-commit:201-273` |
+| 3: Complexity advisories | ADVISORY — file size warnings. | `hooks/pre-commit:275-305` |
+| 4: Staging-drift check | BLOCKS if files were added to the index DURING the hook run — catches concurrent autopilot interleaving. | `hooks/pre-commit:307-336` |
 
-**Scale note (corpus load):** Step 0 Layer 3 currently selects deep-read targets by title-scanning `INDEX.md`. This works for a single-maintainer corpus up to ~150 files. **At ~200+ research files, or when multiple contributors share the corpus**, swap to semantic vector search (DuckDB + Voyage AI embeddings, or equivalent) — title-based selection misses semantically related files with different terminology. Re-author the prior `ENH-01` entry (archived in `docs/decisions/todo-pruned-2026-04-28.md`) with the current dependency landscape when the threshold is hit.
+Claude Code hooks (PreToolUse on `Bash(git commit*)`, PostToolUse on `Write|Edit`) add: commit-lock check (BLOCKS, manual recovery only post-2026-05-04 audit), pipeline test-first (BLOCKS), validation-ratchet check (BLOCKS), co-author block (BLOCKS), engine-change marker (sets `.lattice/engine-changed` consumed by pre-commit). Source: `hooks/claude-hooks.json`.
 
-## Scripts (`scripts/`)
+### 5. Scope creep
 
-| Script | Purpose |
-|--------|---------|
-| `install-hooks.sh` | Install git hooks from `hooks/` to `.git/hooks/` (copy + marker, cross-platform) |
-| `sync-skills.sh` | Sync `commands/lattice/`, `commands/ops/`, `agents/`, `docs/skills-includes/`, and `scripts/` (`*.sh` + `*.py`) from lattice to a consumer project. **Runs automatically on lattice edits via the optional PostToolUse hook described below.** Partner files at `docs/skills-includes/` propagate so skills referencing them (e.g. `review.md → review-protocols.md`) don't hit broken pointers in the consumer. |
-| `sync-workflow-includes.{sh,py}` | Synthesize each consumer workflow's marker-delimited region from `workflows/_includes/*.yaml` (e.g. `science-flag-resolution.yaml`). Replaces ~150 × 3 lines of duplicated science-memo protocol that previously lived inline in `blueprint-cycle`, `research-cycle`, `bug-fix-cycle`. `--check` mode for CI; non-zero exit when consumers drift from the include. |
-| `write-review-gate.sh` | Mechanical checks before writing review gate file |
-| `validation-ratchet.sh` | Capture/compare analytical validation scores |
-| `acquire-lock.sh` / `release-lock.sh` | Atomic commit lock (polls, stale recovery). Autopilot acquires before staging (outer-held lock pattern, 922cf24); pre-commit Step -1 also acquires (20f2eb4) when no outer holder is set. |
-| `acquire-topic-lock.sh` / `release-topic-lock.sh` | Per-topic WIP lock — prevents concurrent work on the same topic, 30-min stale threshold |
-| `append-attestation.sh` / `test-attestation-format.sh` | SIMPLIFY-1 unified `attestations[]` format for `review-gate.json` — peer-review verdicts, architect verdicts, spec-lint waivers all funnel through one format that `write-review-gate.sh` validates |
-| `design-session.sh` / `design-mode-gate.sh` | Design-mode preamble gate. `design-session.sh begin <trigger>` writes `.lattice/design-mode.lock`; `preamble-done <evidence>` validates the four `/lattice:design` Step 1 blocks were authored; `design-mode-gate.sh` is a PreToolUse Write\|Edit hook that BLOCKS in-scope UI edits when the lock is `pending`. Mechanical enforcement of the prompt-level gate (port-mode redesign was the failure mode). |
-| `discovery-scan.py` | Discovery-scan template — runs corpus-wide pattern checks |
-| `audit-corpus-citations.py` / `audit-peer-review-citations.py` / `audit-novel-source-discovery.py` | LIT-DS literature trail audits — corpus-wide cite extractor + load-bearing classifier, retroactive peer-review citation extractor, novel-source discovery audit. Wired into `/lattice:peer-review` verify-before-citing gate |
-| `extract-pdf-text.py` | PyMuPDF text-extract wrapper used by `/lattice:lit-triage` |
-| `merge-shared-state.sh` | Refresh shared files (TODO.md, ROADMAP.md, etc.) from HEAD during concurrent sessions |
-| `context-meter.sh` | Measure conversation context usage |
+The model defaults toward more capable rather than more minimal. A spec for one capability expands into multiple panes, toggles, and override surfaces during implementation.
 
-## Scaffold (`scaffold/`)
+**Mechanism:**
+- Architect-reviewer agent (`agents/architect-reviewer.md`) has dual mandate: kill accidental complexity AND protect essential complexity. Per-pattern tables in the agent definition name the canonical accidental patterns (1-consumer abstraction, config for fixed behavior, premature generalization, etc.) and the canonical essential patterns (multi-branch classification, threshold cascades, statistical method selection, species-specific branching).
+- Architect verdicts: `[PASS, SIMPLIFY, REJECT, SCIENCE-FLAG]` (`workflows/verdict-enums.yaml:24-26`). Workflow gates route on these literals; the loader rejects typos.
+- SIMPLIFY findings tagged `Risk: None` (dead code, unused exports) auto-apply without user rubber-stamp; non-trivial routes to user.
+- Spec value audit (project-side checklist; framework-side enforcement at `commands/lattice/architect.md` Step 1.4 spec lint) requires multi-feature specs to answer per-feature: frequency, current workaround, downstream impact. Categorical justifications fail the audit.
 
-Templates for new projects:
+### 6. Runaway loops
 
-- `.claude/settings.json` — commit hooks (review gate, commit lock, topic trailer, co-author block)
-- `.claude/rules/design-decisions.md` — project-specific design decisions (Layer 2)
-- `.lattice/budget.yaml` — per-workflow and per-topic cost limits
-- `.lattice/e2e.yaml` — E2E testing gate suite configuration
-- `scripts/write-review-gate.sh` — mechanical checks before writing review gate
-- `hooks/pre-commit` — pre-commit hook template (review gate + project-specific checks)
-- `complexity-check.sh` + `eslint-complexity-rules.js` + `ruff.toml` — code complexity guardrails
-- `docs/_internal/` — full directory structure with:
-  - `TODO.md`, `ROADMAP.md`, `MANIFEST.md` — backlog and tracking
-  - `checklists/` — commit checklist, post-impl review
-  - `knowledge/` — methods registry, field contracts, conventions, code quality guardrails
-  - `research/` — research file inventory
-  - `reference/` — UI casing, interactivity rule, Datagrok patterns
-  - `design-system/` — Datagrok platform design system (5 docs)
-  - `scaffold/spec-template.md` — feature spec template
+Two reviewers disagree on phrasing → orchestrator escalates → user resolves a stylistic question that should not have escalated. Auto-resolution oscillates between two routings indefinitely.
 
-## Setup
+**Mechanism:**
+- Two-round peer review maximum. `workflows/research-cycle.yaml:78-143` defines `peer-review-r1`, `incorporate-r1`, `peer-review-r2` — no R3 node exists. R2 runs in `context: fresh` and can take a `--novel` flag that biases toward sources R1 missed.
+- Bikeshed arbiter (`workflows/research-cycle.yaml:171-212`, `context: fresh`) classifies R2-only findings on R1-SOUND material into PRESENTATION_ONLY / FACTUAL_DISPUTE / FACTUAL_UNSUPPORTED. Auto-sides with R1 unless FACTUAL_DISPUTE with testable evidence (source quote, file:line, data reference).
+- Persistent-FLAWED arbiter (`workflows/research-cycle.yaml:252-300`, `context: fresh`) handles findings where R1 and R2 both flag the same material. Marks each evidence item VERIFIABLE / UNVERIFIABLE; resolves to one side, auto-synthesizes both, or escalates only on direct contradictions between verifiable items.
+- Outer autopilot loop capped at default 50 iterations (`executor/src/autopilot.ts:269,318`) with named force-stop on cap reach.
 
-### New project
-1. Copy `CLAUDE.md` to project root -- adapt paths, add project-specific rules
-2. Copy `commands/lattice/` and `commands/ops/` to `.claude/commands/`
-3. Copy `agents/` to `.claude/agents/`
-4. Copy `scaffold/docs/` to your project's `docs/`
-5. Copy `scaffold/.claude/` to `.claude/` -- settings.json (hooks) + rules/design-decisions.md
-6. Copy `scaffold/scripts/write-review-gate.sh` to `scripts/` -- adapt checks for your stack
-7. Copy `scripts/validation-ratchet.sh` to `scripts/` -- adapt for your validation suite
-8. Copy `scaffold/.lattice/budget.yaml` to `.lattice/budget.yaml` -- set cost limits per workflow and topic
-9. Copy `scaffold/.lattice/e2e.yaml` to `.lattice/e2e.yaml` -- configure test suites
-10. Install pre-commit hook: `bash scripts/install-hooks.sh` (copies from `hooks/` to `.git/hooks/`, re-run after pulling updates)
-11. Run `bash scripts/sync-skills.sh` to sync skills to the project (re-run after lattice updates)
-12. In `.claude/settings.json`: replace placeholder patterns (PIPELINE_MODULES, ENGINE_FILES) with your project's regexes
-13. Create `.claude/rules/domain-knowledge-map.md` -- topic-to-file lookup for your domain
+### 7. Fabrication
 
-### Existing project
-Cherry-pick what you need. CLAUDE.md rules are the foundation -- everything else builds on them.
+Asked for a literature reference, the model produces a plausible-looking DOI that does not exist. Asked whether a regulatory threshold applies, it asserts one without consulting any source.
+
+**Mechanism:** require the *tool call* as proof of consultation, not the claim.
+- `commands/lattice/peer-review.md:73-88`: every algorithmic claim under review must invoke `python scripts/query-knowledge.py` against the typed fact graph at the relevant scope. "A peer-review that does not invoke `query-knowledge.py` for at least one fact in an algorithmic review is incomplete — re-launch."
+- `commands/lattice/peer-review.md:110`: claims unsupported by a regulatory standard, peer-reviewed reference, or knowledge-graph fact are downgraded to `OPINION` and excluded from findings.
+- When no fact matches, the script emits an explicit "no fact found, falling back to LLM judgment with caveat" stub. That stub is acceptable in citations; "generally accepted" is not.
+- `--novel` mode (peer-review R2): every novel source must show VERIFIED / BLOCKED / NOT-FOUND in a Verification column. Rows missing the cell trigger orchestrator re-launch. NOT-FOUND sources MUST be removed.
+
+The `query-knowledge.py` script and the typed fact graph it queries are project-side artifacts. Lattice enforces the requirement to call them.
+
+### 8. Concurrency conflicts
+
+Two parallel sessions stage files; one commits and sweeps the other's work into the wrong commit. Two sessions edit the same state file; the later writer overwrites the earlier writer's changes silently.
+
+**Mechanism:**
+- Per-topic WIP lock (`scripts/acquire-topic-lock.sh`): mkdir-atomic on `.lattice/cycle-lock/{topic}/`, 60-min stale threshold, re-entrant for same holder, force-clears logged to `.lattice/decisions.log` for audit. Acquired at sub-cycle entry, released at completion. Held cycles refresh metadata mtime via engine heartbeat after each checkpoint write.
+- Per-repo commit lock (`scripts/acquire-lock.sh`): `.lattice/commit.lock/`. Outer-held variant — autopilot and `/lattice:review` set `LATTICE_LOCK_HOLDER` env after acquiring, and the pre-commit hook honors that and skips re-acquire / release.
+- Lock liveness (`scripts/acquire-{lock,topic-lock}.sh`): when the lock metadata records a PID via `LATTICE_LOCK_PID` (workflows that bracket acquire/release with a long-lived process opt in), staleness checks the PID with `kill -0` (or `tasklist /FI` on Windows) before the wall-clock check. Dead PID → immediate force-clear; live PID → skip the clock-based stale path entirely (so a long-running peer-review pass is never reaped). Locks acquired without `LATTICE_LOCK_PID` (default 0) fall back to clock-based stale only.
+- No-metadata race: the `mkdir` succeeds atomically but the metadata write happens immediately after. A second acquirer that observes the lock dir without metadata waits 2 seconds before force-clearing — covers microsecond-scale legitimate races; genuine mid-acquire death still clears after the grace window.
+- CAS-style state writes: every cycle YAML declares `revision_check: true` in its `state` block. `atomicWriteFileSyncCAS` (`executor/src/state-io.ts`) encodes the expected new revision in the temp filename (`<path>.tmp-rev-{N+1}`) and uses `linkSync` as a filesystem-atomic create-or-fail primitive. Two writers racing for revision N+1 collide on `EEXIST`; the loser throws `RevisionMismatchError`. Closes the lost-update race where two writers each observed revision N and both reached the in-memory expectedRevision check independently.
+- Atomic state writes for everything else: `atomicWriteFileSync` writes to `<path>.tmp`, then renames. Concurrent readers see prior or new content, never partial.
+- Staging-drift check in pre-commit: re-snapshots staged file set at hook exit; BLOCKS if files were added during the hook run (typically caused by concurrent autopilot `git add` interleaving with a manual commit).
+- Claude Code PreToolUse on `Bash(git commit*)` BLOCKS unconditionally if commit lock is held (no auto-clear of stale locks since 2026-05-04 audit — auto-clear destroyed legitimate long-running locks; manual recovery only).
+
+### 9. Wrong-question substitution
+
+When a reviewer flags incorrect output, the model frequently responds with pipeline-correctness arguments ("the toggle still flows through, the cache invalidates") instead of output-correctness evidence.
+
+**Mechanism:**
+- `scripts/write-review-gate.sh` requires `LATTICE_ALGORITHM_CHECK` env when any staged file matches an entry in `.lattice/algorithm-paths.txt` (project-overridable list). Accepted forms: `pass:<rationale>`, `fail:<reason>` (blocks the gate, escalates), `skipped:<rationale>` (recorded). Without the env set, gate write is refused.
+- For `pass:` and `skipped:`, the rationale must be ≥40 chars (was 10), must mention at least one staged file by basename or relative path (regex intersected with `git diff --cached --name-only`), and must not contain trivial substrings (`n/a`, `idk`, `tbd`, `no real reason`, `trust me`, `obviously`) anywhere in the text. The 40-char floor and staged-file requirement force the rationale to be grounded in the actual diff, not free-text hand-waving.
+- SCIENCE-FLAG resolution memo path is shared across all four cycle workflows (research-cycle, blueprint-cycle, build-cycle, bug-fix-cycle) via `workflows/_includes/science-flag-resolution.yaml`, synced into each consumer cycle by `scripts/sync-workflow-includes.py`. When a flag fires, a fresh-context sub-agent attempts to author a decision memo with ≥3 verifiable literature citations from permitted sources (project knowledge files, research streams, prior validated decisions). Auto-resolution before user escalation; only escalates if citations cannot be found after genuine search.
+
+The verdict format demands evidence ("NOAEL on PointCross BW = below-lowest, defensible because all 3 driver hits in derive-summaries.ts are p<0.05 with consistent direction"), not pipeline-correctness assertions. The staged-file requirement makes the rationale auditable against the diff under review.
+
+---
+
+## Other capabilities
+
+A few mechanisms outside the failure-mode framing that the harness ships:
+
+- **Structural gate_check on skill outputs.** Skill nodes declare assertions (`min_findings`, `min_dimensions`, `has_evidence`, etc.) with `on_fail: retry`. The orchestrator re-launches the skill if its output doesn't meet the structural contract. Catches "skill produced something, but it's perfunctory."
+- **`auto_decision` tables on skill nodes.** `SOUND: proceed`, `CONDITIONAL: accept`, `FLAWED: accept` map verdicts to routing without orchestrator reasoning. Reduces user escalations on boring outcomes.
+- **Branch-comparison E2E gate** (`executor/src/e2e.ts`). Three modes (branch / uncommitted / last-commit) auto-detected from git state. Classifies testability from changed files, runs configured suites on both states, diffs results. Build-cycle and bug-fix-cycle wire it in.
+- **Pre-implement gate on direct spec entry** (`workflows/build-cycle.yaml`). When build-cycle is entered with `spec_path` directly (skipping the topic-with-blueprint prerequisite), a Layer 0.5 `pre-implement-gate` runs `lattice/architect` in gate mode — F5 spec lint, F3 algorithmic peer-review (BLOCKING for algorithmic specs), SPEC-VALUE-AUDIT, architect-reviewer. Routes by verdict: PASS → implement, REJECT/SIMPLIFY/SCIENCE-FLAG → per-verdict stop with revise/override/abort options. Closes the gap where a spec landing in `incoming/` and built directly bypassed the gates that blueprint-cycle would have run.
+- **Validation ratchet** (`scripts/validation-ratchet.sh`). Compares analytical scores against a `.lattice/validation-baseline.json` baseline. Degradation routes to research, not rollback. Improvement no longer auto-advances the baseline — emits `BASELINE-ADVANCE-PROPOSED` (exit 3) with the diff logged to decisions.log; advancement requires `LATTICE_RATCHET_CONFIRM_ADVANCE=1` opt-in, which then prints the exact `git add` + `git commit` commands so the bump is audit-traceable. Closes the stealth bypass where a cherry-picked improvement could silently raise the baseline so the next regression rode under it.
+- **Coherence engine** (`executor/src/coherence.ts`). Portfolio-level conflict detection across active topics: subsystem overlap, stale blueprint, prerequisite violation, science-flag propagation, cascades. Auto-resolves three of five via targeted distill analysis (`executor/src/auto-resolve.ts`); prerequisite and BREAKS always escalate.
+- **TODO queue advancement** (`executor/src/todo-queue.ts`). Autopilot advances both topics and TODO items marked `autopilot: ready`.
+- **Spec-refresh post-ship** (`workflows/build-cycle.yaml:121-139`). After build commits, scan `incoming/` synthesis docs for assumptions invalidated by the new code (renamed fields, moved modules) and update them.
+- **Bug-stress** (`commands/ops/bug-stress.md`). After every bug fix: classify the bug into a pattern family (10 named families), identify direct + 2-hop blast-radius consumers from the system manifest, search for the same pattern across consumers and sibling subsystems, write tests for "SAME PATTERN FOUND" instances, run a coverage-density check on changed modules (calibrated <35% / >65% bands), update `bug-patterns.md`, write the 5-question retrospective.
+
+---
+
+## Translating to another platform
+
+The harness has two parts: the framework (transferable) and the substance (project-specific knowledge that must be authored).
+
+### Transferable as-is
+
+- The seven-piece taxonomy (skills / sub-agents / workflows / hooks / state / audits / knowledge).
+- Cycle structure (research / blueprint / build, plus spike, bug-fix, mechanical-fix variants), with deterministic state-file checkpoints at every step.
+- Sub-agent set (peer-review, architect-reviewer, decision-auditor, post-impl-reviewer) with the two-round peer-review protocol, bikeshed arbiter, persistent-FLAWED arbiter.
+- Verdict-enum registry pattern + structural validate-time DAG checks (typed verdicts, approval-route presence, max-iteration bounds, orphan-node detection — all rejected before any node runs).
+- Enforcement layer: review-gate file consumed after use, attestation-format with rationale-quality validation (length floor + staged-file reference + substring blacklist), locks with PID-liveness + stale recovery, CAS-style atomic state writes, staging-drift detection, side-channel anchor enforcement on review output.
+- Decision log + commit-trailer reconciler. Truth derived from git, not stored.
+- Coherence engine, auto-resolve, autopilot loop cap.
+- Branch-comparison E2E gate.
+
+### Authored per project
+
+- Domain knowledge in typed form (facts, registries, contracts).
+- The script that queries the typed graph (e.g., `query-knowledge.py`).
+- Component / API maps naming the canonical class for each common pattern.
+- Design decision tables (color, typography, spacing, casing, layout) with file:line citations.
+- Contract triangles (declaration / enforcement / consumption sites) for every contract-level field.
+- Algorithm-paths list (`.lattice/algorithm-paths.txt`) defining what counts as algorithmic code for the algorithm-defensibility gate.
+- Project-shaped audit scripts; what counts as drift is domain-dependent.
+
+### Worked translation: Datagrok plugin development
+
+Mapping each harness piece onto artifacts already present in the Datagrok public repo (`C:/datagrok/public/`):
+
+| Harness piece | Already in Datagrok | To author |
+|---|---|---|
+| **Component / API map** | Three import namespaces (`grok`, `ui`, `dg`); 76+ reference packages | Canonical "for X, use `grok.shell.Y` not raw HTML" table; named viewer/dialog/grid for each common pattern with file:line anchors |
+| **Mechanical hooks** | `grok check` validates package signatures, imports, `package.json`, changelog. Webpack externals list. `grok api` regenerates wrappers from JSDoc metadata | Wire `grok check` into pre-commit instead of dev-time only; add hooks for rules `grok check` does not cover (reuse anchors into `@datagrok-libraries/*`, no edits to `.g.ts` auto-generated files) |
+| **Contract triangles** | Function metadata pattern (`//name:`, `//input:`, `//output:` JSDoc) is already a contract triangle: declared in source comments, enforced by `grok check`, consumed by `grok api` for wrapper generation and by the platform runtime | Document the triangle explicitly with declaration / enforcement / consumption sites; add audits that flag drift across releases |
+| **Verdict-enum registry equivalent** | None | Typed registry of viewer-property types, column-semantic types (`DG.SEMTYPE.*`), package-metadata roles. Load at workflow-validate time so gate conditions can fail before runtime |
+| **Knowledge artifacts** | `help/develop/` documentation tree; `CONTRIB.md`; per-package `README.md` | Lift load-bearing constraints (semver rules, dataframe column-type semantics, viewer-event contracts) into a typed-fact graph that audits can query, separate from the prose docs that explain them |
+| **Skills** | None | Minimum set: `create-package`, `add-viewer`, `add-function`, `wire-detector`, `prepare-release`. Each is a markdown prompt that drives the existing `grok` CLI verbs |
+| **Workflows** | None | Three cycles (research / blueprint / build); the build cycle wraps `grok check` + `grok publish --release` as gates |
+| **Sub-agents** | None | Same set: peer review (challenges domain claims), architect review (overengineering, package layout), post-implementation review (does the published package implement the spec) |
+| **Cost / budget** | None | Per-workflow / per-topic budget mechanism — applies regardless of platform |
+
+Several harness pieces ship in the Datagrok repo today without being labeled as such (function metadata is a contract triangle; `grok check` is a hook; webpack externals list is a reuse-anchor enforcement). A development harness for plugin authors is mostly (a) recognizing what exists, (b) authoring the project-side knowledge currently held in source-reading and Slack threads, and (c) wiring existing platform tools into the cycle spine the framework provides.
+
+The same exercise applies to any sufficiently complex platform: identify what is already mechanical, what is prose-only, what is tribal knowledge.
+
+---
+
+## Three layers
+
+| Layer | Content | Applies to |
+|---|---|---|
+| **Process** (most transferable) | Cycle structure, sub-agent protocol, locks, decision log, commit trailers, two-round peer review with arbitration, mechanical enforcement, verdict-enum registry, coherence engine | Any project using LLM-assisted development |
+| **Platform** | Datagrok design system, UX conventions, component reuse map | Datagrok plugins or apps |
+| **Scientific** | Typed knowledge graph for atomic facts, algorithm-defensibility gate, validation ratchet against ground truth | High-stakes analytical or regulated domains |
+
+Minimum viable harness for a new project: skills + reviewer sub-agents + three cycles + pre-commit review gate + decision log. Other capabilities are added when a corresponding failure mode appears.
+
+---
+
+## Document map
+
+| For | Read |
+|---|---|
+| Pipeline overview, phase transitions, skill list | [WORKFLOW.md](WORKFLOW.md) |
+| Executor engine, autopilot loop, peer-review and synthesis protocols, coherence detection | [WORKFLOW-INTERNALS.md](WORKFLOW-INTERNALS.md) |
+| Gates, hooks, locks, audit scripts | [ENFORCEMENT.md](ENFORCEMENT.md) |
+| Hard rules and rationale | [CLAUDE.md](CLAUDE.md) |
+| Skill catalog, executor module reference, scripts catalog, project setup | [REFERENCE.md](REFERENCE.md) (proposed — relocates current README catalog content) |
+
+---
+
+## Origin
+
+Lattice was built alongside one application — a web tool for exploring pre-clinical regulatory study data — over four months by a single developer working with Claude. Each capability traces to an observed failure mode in that work:
+
+- Self-review without independent context produced false approvals → four sub-agents launched with `context: fresh`, attestation format with rationale-quality validation.
+- Bug fixes did not prevent recurrence in the same pattern family → `/ops:bug-stress` flow with pattern-family classification, blast-radius search, oracle growth, and 5-question retrospective enforced by pre-commit.
+- Prose rules failed silently under task pressure → mechanical hooks at pre-commit, pre-tool-use, post-tool-use; verdict-enum registry validated at workflow load time.
+- Parallel sessions conflated commits → outer-held commit lock, per-topic WIP lock with re-entrancy and audited force-clears, revision-checked atomic state writes, staging-drift detection at hook exit.
+- Build-pass and test-pass did not imply behavioral equivalence → branch-comparison E2E gate plus validation ratchet against ground truth.

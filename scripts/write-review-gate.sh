@@ -53,6 +53,22 @@ EXECUTOR_DIR="$REPO_ROOT/executor"
 ALGO_PATHS_FILE="$REPO_ROOT/.lattice/algorithm-paths.txt"
 PENDING_ATTESTATIONS_FILE="$REPO_ROOT/.lattice/pending-attestations.json"
 
+# D7 (2026-05-05): mandatory 7-section anchor enforcement.
+# The review skill (commands/lattice/review.md:18-30) declares 7 mandatory
+# output sections (CHANGES, ARCHITECT REVIEW, DECISION AUDIT, REQUIREMENT
+# TRACE, MECHANICAL CHECKS, DOCS UPDATE, VERDICT). Pre-D7 enforcement was
+# prose only; design-mode-gate.sh has a real lock script as the comparison
+# template. Side-channel file: review.md writes the structured review
+# output to LAST_REVIEW_OUTPUT_FILE before invoking write-review-gate.sh;
+# the gate greps for the seven anchors. Missing any -> non-zero exit with
+# the missing list.
+#
+# The check is OPT-IN by file presence: if .lattice/last-review-output.md
+# does not exist (e.g., a skip-review trivial-fix invocation), the check
+# is SKIPPED. When the file exists, the check is ENFORCED. Skill prose
+# discipline still requires the side-channel file for full reviews.
+LAST_REVIEW_OUTPUT_FILE="$REPO_ROOT/.lattice/last-review-output.md"
+
 VERDICT="${1:-pass}"
 SUMMARY="${2:-Review passed}"
 
@@ -138,7 +154,83 @@ if [ "$STAGED_ALGO" -gt 0 ]; then
             exit 1
             ;;
         pass:*|skipped:*)
+            # C4 (2026-05-05): tighten rationale validation -- pre-fix the
+            # only floor was "any 10+ char string after pass:". Real rule-19
+            # rationales must (a) be substantive (>=40 chars), (b) reference
+            # at least one staged file path so the rationale is grounded in
+            # the diff under review, (c) not contain trivial substrings
+            # like "n/a really" / "no real reason" that previously slipped
+            # past exact-match-lowercase blacklist.
+            export _ALGO_RATIONALE="$ALGO_VERDICT"
+            export _ALGO_STAGED="$STAGED_FILES"
+            ALGO_VALIDATION=$(PYTHONIOENCODING=utf-8 python << 'PYEOF'
+import os
+import re
+import sys
+
+verdict = os.environ["_ALGO_RATIONALE"]
+staged_raw = os.environ["_ALGO_STAGED"]
+
+prefix, _, rationale = verdict.partition(":")
+rationale_stripped = rationale.strip()
+normalized = rationale_stripped.lower()
+
+MIN_LEN = 40
+TRIVIAL_SUBSTRINGS = (
+    "n/a", "na ", " na", "idk", "tbd", "todo",
+    "no real reason", "same as before", "no rationale",
+    "ok", "fine", "done", "trust me", "obviously",
+)
+
+# C4 step 1: minimum length.
+if len(rationale_stripped) < MIN_LEN:
+    print("FAIL:LEN:rationale too short (%d chars; minimum %d)" %
+          (len(rationale_stripped), MIN_LEN))
+    sys.exit(1)
+
+# C4 step 3 (substring blacklist). "n/a really" used to pass because the
+# exact-match-lowercase check did not match the prefix; substring catches it.
+for token in TRIVIAL_SUBSTRINGS:
+    if token in normalized:
+        print("FAIL:TRIVIAL:rationale contains trivial substring %r" % token)
+        sys.exit(1)
+
+# C4 step 2: must reference at least one staged file path.
+# Tokenise the rationale on a permissive file-path regex; intersect with the
+# staged-file set. Match by basename OR full relative path -- toxicologists
+# tend to write either "derive-summaries.ts" or
+# "frontend/src/lib/derive-summaries.ts" depending on context.
+PATH_RE = re.compile(r"\b[a-zA-Z0-9_./-]+\.(ts|tsx|py|md|yaml|sh)\b")
+mentions = set(m.group(0) for m in PATH_RE.finditer(rationale_stripped))
+staged_files = set(p.strip() for p in staged_raw.splitlines() if p.strip())
+staged_basenames = set(p.rsplit("/", 1)[-1] for p in staged_files)
+
+intersect = (mentions & staged_files) | (mentions & staged_basenames)
+if not intersect:
+    print("FAIL:PATH:rationale references no staged file. Found tokens: %s; "
+          "staged files (basenames): %s"
+          % (sorted(mentions) or "(none)", sorted(staged_basenames)))
+    sys.exit(1)
+
+print("OK:matched %s" % ",".join(sorted(intersect)))
+sys.exit(0)
+PYEOF
+            )
+            ALGO_VC=$?
+            unset _ALGO_RATIONALE _ALGO_STAGED
+            if [ "$ALGO_VC" -ne 0 ]; then
+                echo "  FAIL: $ALGO_VALIDATION"
+                echo ""
+                echo "  CLAUDE.md rule 19 requires a substantive, file-grounded rationale."
+                echo "  Floor: >= 40 chars, no trivial substrings (n/a, idk, tbd, ...),"
+                echo "  must mention at least one staged file by basename or full path."
+                echo ""
+                echo "  Example that passes:"
+                echo '    export LATTICE_ALGORITHM_CHECK="pass:NOAEL=200 mg/kg on PointCross BW; derive-summaries.ts unchanged for control-arm path"'
+                exit 1
+            fi
             echo "  PASS: $ALGO_VERDICT"
+            echo "  ($ALGO_VALIDATION)"
             CHECKS_PASSED=$((CHECKS_PASSED + 1))
             ;;
         *)
@@ -147,6 +239,51 @@ if [ "$STAGED_ALGO" -gt 0 ]; then
             exit 1
             ;;
     esac
+fi
+
+# --- Check 2.5: 7-section anchor enforcement (D7) ---
+# When the side-channel review-output file exists, grep for the seven
+# mandatory section anchors declared by commands/lattice/review.md:18-30.
+# Missing anchors -> non-zero exit with the missing list.
+if [ -f "$LAST_REVIEW_OUTPUT_FILE" ]; then
+    CHECKS_RUN=$((CHECKS_RUN + 1))
+    echo "--- Check: Review output 7-section anchors (D7) ---"
+
+    REQUIRED_ANCHORS=(
+        "^## CHANGES"
+        "^## ARCHITECT REVIEW"
+        "^## DECISION AUDIT"
+        "^## REQUIREMENT TRACE"
+        "^## MECHANICAL CHECKS"
+        "^## DOCS UPDATE"
+        "^## VERDICT"
+    )
+
+    MISSING_ANCHORS=()
+    for anchor in "${REQUIRED_ANCHORS[@]}"; do
+        if ! grep -qE "$anchor" "$LAST_REVIEW_OUTPUT_FILE"; then
+            # Strip the leading ^## for the user-facing missing list
+            display="${anchor#^## }"
+            MISSING_ANCHORS+=("$display")
+        fi
+    done
+
+    if [ "${#MISSING_ANCHORS[@]}" -gt 0 ]; then
+        echo "  FAIL: review output is missing ${#MISSING_ANCHORS[@]} mandatory section(s):"
+        for missing in "${MISSING_ANCHORS[@]}"; do
+            echo "    - ## $missing"
+        done
+        echo ""
+        echo "  Side-channel file: $LAST_REVIEW_OUTPUT_FILE"
+        echo "  See commands/lattice/review.md \"Mandatory Output Sections\" for the contract."
+        echo ""
+        echo "  Resolution: edit the file to include each missing section anchor (a"
+        echo "  markdown ## heading with the exact name), then re-run this script."
+        exit 1
+    fi
+
+    echo "  PASS: all 7 mandatory section anchors present."
+    CHECKS_PASSED=$((CHECKS_PASSED + 1))
 fi
 
 # --- Check 3: Attestations (SIMPLIFY-1 unified format) ---

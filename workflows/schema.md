@@ -92,7 +92,13 @@ workflow:
   options:                     # Named choices
     - id: string
       label: string
-      route: <node-id>        # Optional: route to specific node
+      route: <node-id>        # REQUIRED: route to specific node (A4).
+                              # An option without `route` silently stalls
+                              # the workflow when selected — the executor
+                              # accepts the choice but has nowhere to go.
+                              # If the option terminates the workflow,
+                              # route to an explicit terminal node
+                              # (e.g., `release-lock`, `cycle-aborted`).
   timeout: integer             # Optional: auto-approve after N seconds
   default: string              # Option ID to use on timeout
 ```
@@ -131,6 +137,26 @@ These properties are available on all node types:
     <check-name>: <expression>    # e.g., min_findings: "count(output.findings) >= 1"
     on_fail: retry | stop | route_to(<node-id>)
   log: boolean                    # Log to decisions.log (default: true for skills)
+  verdict_enum: string            # Optional. Names the verdict enum this node
+                                  # emits as `output.verdict`. Loaded from
+                                  # `workflows/verdict-enums.yaml` and used by
+                                  # the loader to validate gate conditions of
+                                  # the form `{{nodes.<id>.output.verdict}} == 'X'`
+                                  # at workflow-load time. See
+                                  # docs/skills-includes/verdict-enums.md.
+  max_iterations: integer         # Optional. Maximum number of times this node
+                                  # may be entered. Default: 1 (no re-entry).
+                                  # When N > 1, a route may re-drive the node
+                                  # up to N total times; the (N+1)-th attempt
+                                  # throws a runtime error rather than silently
+                                  # no-op'ing. Use to bound intentional loops
+                                  # (research-cycle accept-r2 → incorporate-r1,
+                                  # blueprint-cycle approval → synthesize,
+                                  # bug-fix-cycle revise → fix). Pre-existing
+                                  # workflows without the field keep the legacy
+                                  # silent-skip-on-re-entry semantics for back-
+                                  # compat. Loader rejects values that are not
+                                  # positive integers.
 ```
 
 ## Template Expressions
@@ -174,6 +200,15 @@ Conditions support:
 7. **Failure propagation.** A failed node blocks all downstream dependents. `on_failure: skip` allows downstream nodes with `depends_on` the failed node to evaluate their own conditions.
 
 8. **WIP checkpoint commits.** When uncommitted file count exceeds 15 during a workflow run, the engine creates a `wip: {topic} checkpoint {step}` commit with `--no-verify` (skips hooks). These get squashed in the final review commit.
+
+9. **Validate-time DAG checks (A4).** The loader rejects workflow YAMLs that:
+   - Have any approval option missing a `route` (silent-stall guard).
+   - Have any gate `route` or approval `route` that names a non-existent node.
+   - Declare a `max_iterations` value that is not a positive integer.
+
+   The loader also emits a non-fatal **warning** to stderr for orphan nodes — nodes that have `depends_on` but every dep is a gate/approval whose routes do not include them, AND nothing else references them via `depends_on`, route, or parallel-group. Such nodes are unreachable in the static topology (`engine.ts::isAlwaysReachable` returns false at runtime). Strict callers can promote the warning to an error by intercepting the `setWarnSink` hook.
+
+10. **Re-entry bound (A4).** Each parentless route target may execute up to `max_iterations` total times (default 1). The post-layer route-target dispatch increments a per-node visit counter and throws if a route would push the counter past the declared bound. Pre-A4 silent-skip semantics (route to already-executed parentless target = no-op) are preserved when `max_iterations` is unset.
 
 ## Cycle-State Lifecycle
 
