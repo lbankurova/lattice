@@ -318,7 +318,6 @@ Minimum viable harness for a new project: skills + reviewer sub-agents + three c
 | Executor engine, autopilot loop, peer-review and synthesis protocols, coherence detection | [WORKFLOW-INTERNALS.md](WORKFLOW-INTERNALS.md) |
 | Gates, hooks, locks, audit scripts | [ENFORCEMENT.md](ENFORCEMENT.md) |
 | Hard rules and rationale | [CLAUDE.md](CLAUDE.md) |
-| The harness pattern framed for an outside platform team | [docs/harness-for-datagrok.md](docs/harness-for-datagrok.md) |
 | Skill catalog, executor module reference, scripts catalog, project setup | [REFERENCE.md](REFERENCE.md) (proposed — relocates current README catalog content) |
 
 ---
