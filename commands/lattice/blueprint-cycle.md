@@ -34,20 +34,7 @@ Everything else proceeds automatically:
 
 ## Topic Lock
 
-**Acquire the WIP lock before doing any work:**
-
-```bash
-bash scripts/acquire-topic-lock.sh {topic} "blueprint-cycle"
-```
-
-If exit code 1 (lock held by another agent), **STOP immediately** — show the lock holder info and tell the user. Do not proceed.
-
-**Release the lock** when the blueprint phase completes (end of Step 7).
-
-**Heartbeat:** After every state file update (`current_step` change), refresh the lock:
-```bash
-touch .lattice/cycle-lock/{topic}/meta 2>/dev/null
-```
+Acquire at Step 0, release at end of Step 7, heartbeat on every `current_step` update. Cycle-name passed to acquire script: `blueprint-cycle`. Full protocol (commands, STOP-on-contention, anti-patterns) at the canonical [topic-lock protocol](../../docs/skills-includes/topic-lock.md).
 
 ---
 
@@ -57,10 +44,7 @@ Continues the state file from research-cycle: `.lattice/cycle-state/{topic}.yaml
 
 **Prerequisite check:** Before starting, verify `phase` is `research-complete` (or `current_step` >= `blueprint.0`). If research hasn't been validated, tell the user: "Research phase not complete. Run `/lattice:research-cycle {topic}` first."
 
-**Revision-checked writes.** The state file has a `revision: N` field. Before every write:
-1. Re-read the file, check `revision` matches what you last read
-2. If match: write with `revision: N+1`
-3. If mismatch: **STOP** — "State file modified by another agent (expected revision {N}, found {M})."
+**Revision-checked writes.** See the canonical [revision-checked writes protocol](../../docs/skills-includes/revision-checked-writes.md) — read → work → re-read → write-with-incremented-revision; STOP on mismatch.
 
 **Context discipline — disk is storage, context is RAM.** Before EVERY step:
 1. Re-read the state file and decisions log for this topic
