@@ -138,7 +138,83 @@ if [ "$STAGED_ALGO" -gt 0 ]; then
             exit 1
             ;;
         pass:*|skipped:*)
+            # C4 (2026-05-05): tighten rationale validation -- pre-fix the
+            # only floor was "any 10+ char string after pass:". Real rule-19
+            # rationales must (a) be substantive (>=40 chars), (b) reference
+            # at least one staged file path so the rationale is grounded in
+            # the diff under review, (c) not contain trivial substrings
+            # like "n/a really" / "no real reason" that previously slipped
+            # past exact-match-lowercase blacklist.
+            export _ALGO_RATIONALE="$ALGO_VERDICT"
+            export _ALGO_STAGED="$STAGED_FILES"
+            ALGO_VALIDATION=$(PYTHONIOENCODING=utf-8 python << 'PYEOF'
+import os
+import re
+import sys
+
+verdict = os.environ["_ALGO_RATIONALE"]
+staged_raw = os.environ["_ALGO_STAGED"]
+
+prefix, _, rationale = verdict.partition(":")
+rationale_stripped = rationale.strip()
+normalized = rationale_stripped.lower()
+
+MIN_LEN = 40
+TRIVIAL_SUBSTRINGS = (
+    "n/a", "na ", " na", "idk", "tbd", "todo",
+    "no real reason", "same as before", "no rationale",
+    "ok", "fine", "done", "trust me", "obviously",
+)
+
+# C4 step 1: minimum length.
+if len(rationale_stripped) < MIN_LEN:
+    print("FAIL:LEN:rationale too short (%d chars; minimum %d)" %
+          (len(rationale_stripped), MIN_LEN))
+    sys.exit(1)
+
+# C4 step 3 (substring blacklist). "n/a really" used to pass because the
+# exact-match-lowercase check did not match the prefix; substring catches it.
+for token in TRIVIAL_SUBSTRINGS:
+    if token in normalized:
+        print("FAIL:TRIVIAL:rationale contains trivial substring %r" % token)
+        sys.exit(1)
+
+# C4 step 2: must reference at least one staged file path.
+# Tokenise the rationale on a permissive file-path regex; intersect with the
+# staged-file set. Match by basename OR full relative path -- toxicologists
+# tend to write either "derive-summaries.ts" or
+# "frontend/src/lib/derive-summaries.ts" depending on context.
+PATH_RE = re.compile(r"\b[a-zA-Z0-9_./-]+\.(ts|tsx|py|md|yaml|sh)\b")
+mentions = set(m.group(0) for m in PATH_RE.finditer(rationale_stripped))
+staged_files = set(p.strip() for p in staged_raw.splitlines() if p.strip())
+staged_basenames = set(p.rsplit("/", 1)[-1] for p in staged_files)
+
+intersect = (mentions & staged_files) | (mentions & staged_basenames)
+if not intersect:
+    print("FAIL:PATH:rationale references no staged file. Found tokens: %s; "
+          "staged files (basenames): %s"
+          % (sorted(mentions) or "(none)", sorted(staged_basenames)))
+    sys.exit(1)
+
+print("OK:matched %s" % ",".join(sorted(intersect)))
+sys.exit(0)
+PYEOF
+            )
+            ALGO_VC=$?
+            unset _ALGO_RATIONALE _ALGO_STAGED
+            if [ "$ALGO_VC" -ne 0 ]; then
+                echo "  FAIL: $ALGO_VALIDATION"
+                echo ""
+                echo "  CLAUDE.md rule 19 requires a substantive, file-grounded rationale."
+                echo "  Floor: >= 40 chars, no trivial substrings (n/a, idk, tbd, ...),"
+                echo "  must mention at least one staged file by basename or full path."
+                echo ""
+                echo "  Example that passes:"
+                echo '    export LATTICE_ALGORITHM_CHECK="pass:NOAEL=200 mg/kg on PointCross BW; derive-summaries.ts unchanged for control-arm path"'
+                exit 1
+            fi
             echo "  PASS: $ALGO_VERDICT"
+            echo "  ($ALGO_VALIDATION)"
             CHECKS_PASSED=$((CHECKS_PASSED + 1))
             ;;
         *)

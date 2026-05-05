@@ -186,9 +186,47 @@ cmd_compare() {
     else
         echo "  Status: $status"
         if [ "$c_sig" -gt "$b_sig" ] || [ "$c_des" -gt "$b_des" ] || [ "$c_ast" -gt "$b_ast" ]; then
-            echo "  Validation scores IMPROVED. Updating baseline."
-            echo "$current" > "$BASELINE_FILE"
-            echo "$(date -Iseconds)	validation-ratchet	IMPROVED	$b_commit->$c_commit	signals:$b_sig/$b_sig_t->$c_sig/$c_sig_t design:$b_des/$b_des_t->$c_des/$c_des_t asserts:$b_ast/$b_ast_t->$c_ast/$c_ast_t" >> "$DECISIONS_LOG"
+            # C6 (2026-05-05): baseline advancement is no longer silent.
+            # Pre-fix the script overwrote the baseline file in place on
+            # any improvement, which enabled a stealth bypass: ship a
+            # cherry-picked improvement to advance the baseline, then ship
+            # a regression -- the bumped baseline tolerates the regression.
+            # New protocol:
+            #   - If LATTICE_RATCHET_CONFIRM_ADVANCE=1, advance and
+            #     instruct caller to commit the file.
+            #   - Otherwise emit BASELINE-ADVANCE-PROPOSED with the diff
+            #     and exit 3 (distinct from 0/2 used above).
+            # The baseline file is expected to live in git so its history
+            # is auditable via `git log -- $BASELINE_FILE`.
+            echo "  Validation scores IMPROVED. Baseline advancement requires confirmation."
+            echo ""
+            echo "  Proposed new baseline:"
+            echo "    Signals: $b_sig/$b_sig_t -> $c_sig/$c_sig_t"
+            echo "    Design : $b_des/$b_des_t -> $c_des/$c_des_t"
+            echo "    Asserts: $b_ast/$b_ast_t -> $c_ast/$c_ast_t"
+            echo ""
+            if [ "${LATTICE_RATCHET_CONFIRM_ADVANCE:-}" = "1" ]; then
+                echo "$current" > "$BASELINE_FILE"
+                echo "  Baseline ADVANCED (LATTICE_RATCHET_CONFIRM_ADVANCE=1)."
+                echo "  Commit the new baseline so the advancement is auditable:"
+                echo "    git add $BASELINE_FILE"
+                echo "    git commit -m \"chore(validation): advance baseline ${b_commit:0:7} -> ${c_commit:0:7}\""
+                echo "$(date -Iseconds)	validation-ratchet	BASELINE-ADVANCED	$b_commit->$c_commit	signals:$b_sig/$b_sig_t->$c_sig/$c_sig_t design:$b_des/$b_des_t->$c_des/$c_des_t asserts:$b_ast/$b_ast_t->$c_ast/$c_ast_t" >> "$DECISIONS_LOG"
+                touch "$LATTICE_DIR/validation-compared"
+                rm -f "$LATTICE_DIR/engine-changed" 2>/dev/null
+                exit 0
+            else
+                echo "  Status: BASELINE-ADVANCE-PROPOSED"
+                echo "  Re-run with LATTICE_RATCHET_CONFIRM_ADVANCE=1 to advance the baseline,"
+                echo "  then commit $BASELINE_FILE so the change is auditable in git history."
+                echo "  No advancement is performed silently -- this prevents stealth-bypass"
+                echo "  workflows where an improvement is used to mask a later regression."
+                echo "$(date -Iseconds)	validation-ratchet	BASELINE-ADVANCE-PROPOSED	$b_commit->$c_commit	signals:$b_sig/$b_sig_t->$c_sig/$c_sig_t design:$b_des/$b_des_t->$c_des/$c_des_t asserts:$b_ast/$b_ast_t->$c_ast/$c_ast_t" >> "$DECISIONS_LOG"
+                # Mark validation as compared (the comparison ran cleanly;
+                # the proposal is non-blocking for SAME-or-better runs).
+                touch "$LATTICE_DIR/validation-compared"
+                exit 3
+            fi
         else
             echo "$(date -Iseconds)	validation-ratchet	SAME	$b_commit->$c_commit	signals:$b_sig/$b_sig_t design:$b_des/$b_des_t asserts:$b_ast/$b_ast_t" >> "$DECISIONS_LOG"
         fi
@@ -231,7 +269,12 @@ case "${1:-}" in
         echo "Usage: validation-ratchet.sh {baseline|compare|auto}"
         echo ""
         echo "  baseline  — capture current validation scores"
-        echo "  compare   — compare current vs baseline (exit 0=ok, 2=degraded)"
+        echo "  compare   — compare current vs baseline"
+        echo "              exit 0 = same-or-no-change-vs-baseline"
+        echo "              exit 2 = DEGRADED (analytical drift; route to research)"
+        echo "              exit 3 = BASELINE-ADVANCE-PROPOSED (improvement detected;"
+        echo "                       re-run with LATTICE_RATCHET_CONFIRM_ADVANCE=1 to"
+        echo "                       commit the new baseline)"
         echo "  auto      — baseline (if needed) + regenerate + compare"
         exit 1
         ;;
