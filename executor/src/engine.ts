@@ -6,8 +6,8 @@
  * Integrates with .lattice/cycle-state/ files.
  */
 
-import { readFileSync, existsSync, appendFileSync, utimesSync } from 'node:fs';
-import { atomicWriteFileSync } from './state-io.js';
+import { readFileSync, existsSync, utimesSync } from 'node:fs';
+import { atomicWriteFileSync, safeAppendLineSync } from './state-io.js';
 import { execSync } from 'node:child_process';
 import yaml from 'js-yaml';
 import type {
@@ -63,6 +63,26 @@ export async function executeWorkflow(
   for (const [name, spec] of Object.entries(wf.inputs)) {
     if (!(name in inputs) && spec.default !== undefined) {
       inputs[name] = spec.default;
+    }
+  }
+
+  // HIGH-6 (full fix, 2026-05-05). Sanitize string-typed inputs against the
+  // shell-injection allowlist BEFORE any bash node sees them. The pre-fix
+  // validation lived only in cli.ts::cmdRun; autopilot dispatches workflows
+  // through this function programmatically, so a topic ID sourced from a
+  // TODO.md entry or a cycle-state YAML filename (both writable by any
+  // skill) bypassed the CLI gate. Validating here covers every dispatch
+  // path: CLI, autopilot, route-target dispatch, future API, etc.
+  const SAFE_INPUT_RE = /^[A-Za-z0-9_./-]+$/;
+  for (const [name, value] of Object.entries(inputs)) {
+    if (typeof value === 'string' && !SAFE_INPUT_RE.test(value)) {
+      throw new Error(
+        `Workflow input '${name}' contains characters outside the safe set ` +
+        `(allowlist: alphanumerics, _, -, ., /). Value: ${JSON.stringify(value)}. ` +
+        `Refusing to run -- the value would be substituted into bash node ` +
+        `commands without escaping. Sanitize the value at its source ` +
+        `(rename the topic, or sanitize the TODO.md entry) and retry.`,
+      );
     }
   }
 
@@ -286,8 +306,8 @@ export async function executeWorkflow(
           const node = wf.nodes[result.nodeId];
           if (node.checkpoint) {
             writeCheckpoint(wf, inputs, cwd, node.checkpoint.state_key, node.checkpoint.phase, result, run);
-            // WIP commit if too many uncommitted files accumulate
-            await maybeWipCommit(cwd, topicName, node.checkpoint.state_key, adapter);
+            // Advisory message if too many uncommitted files accumulate.
+            await maybeWarnUncommitted(cwd, topicName, node.checkpoint.state_key, adapter);
           }
         }
 
@@ -743,25 +763,24 @@ function writeCostToState(
 const WIP_UNCOMMITTED_THRESHOLD = 15;
 
 /**
- * Warn (no auto-commit) when the uncommitted file count exceeds the
+ * Emit an advisory message when the uncommitted file count exceeds the
  * threshold.
  *
- * CRITICAL-4 fix from the 2026-05-04 audit. Before this commit, the
- * function ran `git add -A` + `git commit` whenever 15+ files were dirty.
- * Same defect class as the seed bug -- foreign state (parallel session,
+ * Renamed from `maybeWipCommit` on 2026-05-05 (decision-auditor finding
+ * during the audit-response review). The pre-2026-05-04 implementation
+ * ran `git add -A` + `git commit` whenever 15+ files were dirty -- same
+ * defect class as the seed bug, where foreign state (parallel session,
  * manual edits) got swept into a commit labeled with the workflow's
- * topic. Recovery required `git reset --soft HEAD^` and re-staging,
- * hard if subsequent commits had landed.
+ * topic. CRITICAL-4 fix removed the auto-commit; this rename brings the
+ * function name in line with the new behavior so call sites don't carry
+ * a misleading `WipCommit` label for code that no longer commits.
  *
- * The non-destructive replacement: emit an advisory line. The agent
- * orchestrating the workflow (or the operator) decides when to commit
- * via the project's commit-intent protocol -- which already enforces
- * staged-set declaration before staging (CLAUDE.md rule 23).
- *
- * The function name is kept (`maybeWipCommit`) so call sites don't
- * need to change in this commit; rename can come in a follow-up.
+ * Decision: the agent orchestrating the workflow (or the operator)
+ * decides when to commit via the project's commit-intent protocol --
+ * which already enforces staged-set declaration before staging
+ * (CLAUDE.md rule 23). The advisory just nudges them.
  */
-async function maybeWipCommit(
+async function maybeWarnUncommitted(
   cwd: string,
   topicName: string,
   stateKey: string,
@@ -798,11 +817,9 @@ function logDecision(
   const logPath = `${cwd}/.lattice/decisions.log`;
   const timestamp = new Date().toISOString();
   const topic = inputs['topic'] ?? workflowName;
-  const entry = `${timestamp}\t${workflowName}\t${outcome}\t${topic}\t${summary}\n`;
-
-  try {
-    appendFileSync(logPath, entry, 'utf-8');
-  } catch {
-    // Log directory may not exist -- non-fatal
-  }
+  const entry = `${timestamp}\t${workflowName}\t${outcome}\t${topic}\t${summary}`;
+  // safeAppendLineSync caps line length so the write fits in a single
+  // O_APPEND syscall and remains atomic vs. concurrent appenders.
+  // MEDIUM-4 fix (2026-05-05 decision-audit follow-up).
+  safeAppendLineSync(logPath, entry);
 }

@@ -30,6 +30,18 @@ export interface WorkflowState {
   prerequisite?: Record<string, string>;
 }
 
+/**
+ * Forward-reserved schema. The `lock:` block was removed from every shipped
+ * cycle YAML on 2026-05-04 (audit MEDIUM-7) because the engine never read
+ * it -- locks are acquired and released via explicit `acquire-lock` /
+ * `release-lock` bash nodes, with ownership checks delivered in the same
+ * audit. The TypeScript type is retained so a future commit can wire the
+ * engine to consume the field declaratively (engine-managed lock lifecycle
+ * removes the need for explicit nodes). It has zero current consumers in
+ * `executor/src/`. Removing it now would be a churning code edit; leaving
+ * it un-annotated created a SILENT-DROP per the 2026-05-05 decision-audit
+ * follow-up. This comment is the annotation that closes that finding.
+ */
 export interface WorkflowLock {
   type: 'topic' | 'commit';
   key: string;

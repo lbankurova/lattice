@@ -135,35 +135,15 @@ function rootCausePrefix(message: string | undefined): string {
     .slice(0, 120);
 }
 
-/**
- * Snapshot the current dirty-tree path set via `git status --porcelain -z -uall`.
- *
- * Used by the per-item cleanup to compute the workflow's OWN dirty-tree
- * delta. Paths present in the pre-workflow snapshot are foreign state
- * (parallel session, manual edits, residue from prior items) and must not
- * be stashed -- that's the data-loss bug from 2026-05-04 where ~2300 LOC
- * of a parallel agent's work was swept into a stash labelled with
- * autopilot's failing topic, with no ownership check.
- */
-export function captureDirtyPaths(cwd: string): Set<string> {
-  try {
-    const out = execSync('git status --porcelain -z -uall', {
-      cwd, encoding: 'utf-8', timeout: 10_000,
-    });
-    if (!out) return new Set();
-    const files = new Set<string>();
-    for (const part of out.split('\x00')) {
-      // Porcelain -z entries: "XY filename" (XY = 2-char status, then space).
-      // Renames split as "XY new\0old", but for ownership tracking we only
-      // care about path identity -- treating both halves as dirty is safe
-      // (both would be excluded if either was pre-dirty).
-      if (part.length > 3) files.add(part.slice(3));
-    }
-    return files;
-  } catch {
-    return new Set();
-  }
-}
+// captureDirtyPaths moved to state-io.ts (2026-05-05 architect-review fix
+// from the safety-audit follow-up review). e2e.ts had a duplicate copy
+// with the comment "Mirrors autopilot.ts's captureDirtyPaths" -- the
+// architect agent flagged that as a rule-5 violation. The function now
+// lives in state-io.ts (which already owns shared safe-I/O primitives in
+// the presence of concurrent sessions). Re-export here to preserve the
+// public import surface used by autopilot-stash.test.ts.
+import { captureDirtyPaths } from './state-io.js';
+export { captureDirtyPaths };
 
 /**
  * After a workflow run, stash ONLY paths the workflow itself made dirty,

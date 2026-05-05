@@ -11,7 +11,8 @@
  * module surfaces it as a first-class alert.
  */
 
-import { readFileSync, existsSync, appendFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
+import { safeAppendLineSync } from './state-io.js';
 import { resolve } from 'node:path';
 import yaml from 'js-yaml';
 import type {
@@ -245,11 +246,10 @@ export function checkContextUtilization(
  */
 export function appendContextTelemetry(cwd: string, entry: ContextTelemetryEntry): void {
   const path = resolve(cwd, TELEMETRY_PATH);
-  try {
-    appendFileSync(path, JSON.stringify(entry) + '\n', 'utf-8');
-  } catch {
-    // Telemetry is best-effort — never fail a workflow because we couldn't write a log line.
-  }
+  // safeAppendLineSync caps line length so the write fits in a single
+  // O_APPEND syscall and remains atomic vs. concurrent appenders. MEDIUM-4
+  // fix from the 2026-05-04 audit (decision-audit follow-up 2026-05-05).
+  safeAppendLineSync(path, JSON.stringify(entry));
 }
 
 /**

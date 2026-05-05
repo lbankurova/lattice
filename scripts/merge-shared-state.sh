@@ -33,6 +33,14 @@ SHARED_FILES=(
 refresh_count=0
 skip_count=0
 
+# Cleanup trap (MEDIUM-3 fix, 2026-05-04 audit + 2026-05-05 follow-up). On
+# any unexpected exit (Ctrl-C, kill, mid-loop error), remove leftover
+# .local/.head/.base/.merged temp files for any of the SHARED_FILES so
+# they don't accumulate. Registered BEFORE the loop so it covers
+# interrupts during the loop too -- the prior placement was after the
+# loop and only protected normal-exit paths.
+trap 'for f in "${SHARED_FILES[@]}"; do rm -f "$f.local" "$f.head" "$f.base" "$f.merged" 2>/dev/null; done' EXIT
+
 for file in "${SHARED_FILES[@]}"; do
     # Skip if file doesn't exist in working tree
     if [ ! -f "$file" ]; then
@@ -98,11 +106,8 @@ for file in "${SHARED_FILES[@]}"; do
     rm -f "$file.local" "$file.head" "$file.base"  # .merged already mv'd
     refresh_count=$((refresh_count + 1))
 done
-
-# Cleanup trap (MEDIUM-3 fix). On any unexpected exit, remove leftover
-# .local/.head/.base/.merged temp files so they don't accumulate. Set late
-# so the loop's normal cleanup runs first; this is the safety net.
-trap 'for f in "${SHARED_FILES[@]}"; do rm -f "$f.local" "$f.head" "$f.base" "$f.merged" 2>/dev/null; done' EXIT
+# (The cleanup trap registered before the loop also fires here on normal
+# exit and removes any residual temp files.)
 
 echo ""
 echo "SHARED STATE MERGE: $refresh_count files merged, $skip_count unchanged"

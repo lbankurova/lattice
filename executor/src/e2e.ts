@@ -12,6 +12,7 @@ import { execSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import yaml from 'js-yaml';
+import { captureDirtyPaths } from './state-io.js';
 
 // ── Types ───────────────────────────────────────────────────
 
@@ -85,27 +86,6 @@ export interface E2EResult {
 // ── Config Loading ──────────────────────────────────────────
 
 const DEFAULT_TIMEOUTS = { per_suite: 120_000, total: 600_000 };
-
-/**
- * Snapshot the current dirty-tree path set. Mirrors autopilot.ts's
- * `captureDirtyPaths`. Used by the foreign-state guard in
- * `runBranchComparison`.
- */
-function captureDirtyPaths(cwd: string): Set<string> {
-  try {
-    const out = execSync('git status --porcelain -z -uall', {
-      cwd, encoding: 'utf-8', timeout: 10_000,
-    });
-    if (!out) return new Set();
-    const files = new Set<string>();
-    for (const part of out.split('\x00')) {
-      if (part.length > 3) files.add(part.slice(3));
-    }
-    return files;
-  } catch {
-    return new Set();
-  }
-}
 
 /**
  * Detect the repository's default branch via `git symbolic-ref refs/remotes/origin/HEAD`.
