@@ -65,6 +65,12 @@ map_to_dst() {
                 echo "scripts/$base"
             fi
             ;;
+        scripts/tests/*.sh|scripts/tests/*.py)
+            # Stream C (2026-05-05) introduced scripts/tests/ as the
+            # convention for hook/script test suites. Propagate so
+            # consumers can run the same regression coverage locally.
+            echo "scripts/tests/$base"
+            ;;
         *) echo "" ;;  # not a synced path
     esac
 }
@@ -178,12 +184,15 @@ run_full_sync "ops     " "$FRAMEWORK_ROOT/commands/ops"
 [ -d "$FRAMEWORK_ROOT/docs/skills-includes" ] && run_full_sync "partners" "$FRAMEWORK_ROOT/docs/skills-includes"
 
 # Scripts: walk both .sh and .py, defer to copy_one's mapping for
-# sync-skills.sh exclusion.
+# sync-skills.sh exclusion. Also walks scripts/tests/ (Stream C added
+# this convention 2026-05-05; map_to_dst routes scripts/tests/X to
+# consumer's scripts/tests/X).
 SCRIPTS_DIR="$TARGET/scripts"
-mkdir -p "$SCRIPTS_DIR"
+mkdir -p "$SCRIPTS_DIR" "$SCRIPTS_DIR/tests"
 script_count=0; script_skipped=0; rc=0
 shopt -s nullglob
-for f in "$FRAMEWORK_ROOT"/scripts/*.sh "$FRAMEWORK_ROOT"/scripts/*.py; do
+for f in "$FRAMEWORK_ROOT"/scripts/*.sh "$FRAMEWORK_ROOT"/scripts/*.py \
+         "$FRAMEWORK_ROOT"/scripts/tests/*.sh "$FRAMEWORK_ROOT"/scripts/tests/*.py; do
     src_rel="${f#$FRAMEWORK_ROOT/}"
     copy_one "$src_rel" && rc=0 || rc=$?
     case $rc in
