@@ -57,6 +57,112 @@ export async function executeNode(
 
 // ── Bash executor ───────────────────────────────────────────
 
+/**
+ * Tokenize a command string into argv form using POSIX-style shell
+ * quoting:
+ *   - whitespace separates tokens
+ *   - single quotes group verbatim (no escape inside)
+ *   - double quotes group with backslash-escape for `\` and `"`
+ *   - bare backslash escapes the next character outside quotes
+ *
+ * Shell metacharacters (`|`, `>`, `<`, `;`, `&&`, `$VAR`, `$(...)`,
+ * backticks) are NOT interpreted -- they survive into argv as-is. That
+ * is the entire point of argv mode: prior-skill output substituted
+ * into a command lands as a literal argv element, not as code.
+ *
+ * If a workflow needs shell features, set `shell: true` on the node.
+ *
+ * Throws on unterminated quote / dangling backslash.
+ */
+export function tokenizeArgv(command: string): string[] {
+  const argv: string[] = [];
+  let cur = '';
+  let inSingle = false;
+  let inDouble = false;
+  let i = 0;
+  let started = false; // distinguish empty token vs no-token
+
+  while (i < command.length) {
+    const ch = command[i];
+
+    if (inSingle) {
+      if (ch === "'") {
+        inSingle = false;
+        i++;
+        continue;
+      }
+      cur += ch;
+      started = true;
+      i++;
+      continue;
+    }
+
+    if (inDouble) {
+      if (ch === '"') {
+        inDouble = false;
+        i++;
+        continue;
+      }
+      if (ch === '\\' && i + 1 < command.length) {
+        const next = command[i + 1];
+        // In double quotes, only `\\`, `\"`, and `\$` (we don't expand
+        // $VAR here so `\$` just yields `$`) and `\\` itself escape;
+        // others pass through with the backslash retained.
+        if (next === '\\' || next === '"' || next === '$' || next === '`') {
+          cur += next;
+          i += 2;
+          continue;
+        }
+        cur += ch;
+        i++;
+        continue;
+      }
+      cur += ch;
+      started = true;
+      i++;
+      continue;
+    }
+
+    // Outside any quotes
+    if (ch === "'") {
+      inSingle = true;
+      started = true;
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      started = true;
+      i++;
+      continue;
+    }
+    if (ch === '\\' && i + 1 < command.length) {
+      cur += command[i + 1];
+      started = true;
+      i += 2;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (started) {
+        argv.push(cur);
+        cur = '';
+        started = false;
+      }
+      i++;
+      continue;
+    }
+    cur += ch;
+    started = true;
+    i++;
+  }
+
+  if (inSingle || inDouble) {
+    throw new Error(`tokenizeArgv: unterminated ${inSingle ? 'single' : 'double'} quote in: ${command}`);
+  }
+  if (started) argv.push(cur);
+  return argv;
+}
+
 async function executeBash(
   nodeId: string,
   node: BashNode,
@@ -67,15 +173,62 @@ async function executeBash(
   const command = resolveTemplate(node.command, ctx);
   const timeout = node.timeout ?? 120_000;
 
-  const opts: ExecSyncOptionsWithStringEncoding = {
-    cwd,
-    encoding: 'utf-8',
-    timeout,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  };
+  // B2 fix: default to argv-mode (no shell). `shell: true` is the
+  // explicit opt-in for nodes that need pipes / redirects / && / etc.
+  // See BashNode.shell docstring for the security rationale -- the
+  // short version: prior-skill output via {{nodes.X.output.field}}
+  // is shell-injectable in shell mode but inert as an argv element.
+  const useShell = node.shell === true;
 
   try {
-    const stdout = execSync(command, opts);
+    let stdout: string;
+    if (useShell) {
+      // Legacy shell path -- /bin/sh -c on POSIX, cmd.exe on Win32.
+      // Workflows that opt in must be aware of cross-platform quoting
+      // differences and the injection surface for prior-skill output.
+      const opts: ExecSyncOptionsWithStringEncoding = {
+        cwd,
+        encoding: 'utf-8',
+        timeout,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      };
+      stdout = execSync(command, opts);
+    } else {
+      // Argv path. Tokenize, then spawn directly. spawnSync without
+      // `shell: true` does NOT invoke a shell; argv0 is the program,
+      // argv1+ are literal arguments (no globbing, no expansion, no
+      // metacharacter interpretation).
+      const argv = tokenizeArgv(command);
+      if (argv.length === 0) {
+        throw new Error(`Empty command after tokenization: ${command}`);
+      }
+      const result = spawnSync(argv[0], argv.slice(1), {
+        cwd,
+        encoding: 'utf-8',
+        timeout,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        // `shell: false` is the default but make it explicit for
+        // future readers; this is the entire point of B2.
+        shell: false,
+      });
+      // spawnSync surfaces errors via `error` (e.g., ENOENT) AND via
+      // non-zero `status`. Match execSync's throw-on-nonzero contract
+      // so the existing catch-block logic upstream handles both modes
+      // identically.
+      if (result.error) {
+        throw result.error;
+      }
+      if (result.status !== 0) {
+        const err = new Error(
+          `Command failed: ${argv[0]}${argv.length > 1 ? ' ' + argv.slice(1).join(' ') : ''}`,
+        );
+        (err as Error & { status: number; stdout: string; stderr: string }).status = result.status ?? 1;
+        (err as Error & { status: number; stdout: string; stderr: string }).stdout = result.stdout ?? '';
+        (err as Error & { status: number; stdout: string; stderr: string }).stderr = result.stderr ?? '';
+        throw err;
+      }
+      stdout = result.stdout ?? '';
+    }
     return {
       nodeId,
       status: 'completed',
