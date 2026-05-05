@@ -100,7 +100,17 @@ workflow:
       options:
         - id: resolve
           label: "Resolve selected conflicts (run distill/probe)"
+          route: autopilot-done
         - id: override
           label: "Override selected — proceed despite conflicts"
+          route: autopilot-done
         - id: defer
           label: "Defer all — stop autopilot"
+          route: autopilot-done
+
+    # Terminal node. autopilot.ts owns the actual decision-handling logic
+    # outside this YAML; this node serves as the explicit routing target so
+    # every approval option is wired and the workflow load-validates clean.
+    autopilot-done:
+      type: bash
+      command: echo "Autopilot batch complete; downstream actions delegated to autopilot.ts."

@@ -71,6 +71,11 @@ workflow:
           route: detect-phase
         - id: no
           label: "No, abort"
+          route: cycle-aborted
+
+    cycle-aborted:
+      type: bash
+      command: echo "Cycle aborted by user for {{inputs.topic}}."
 
     # ── Layer 1: Phase Detection ─────────────────────────────
     #
@@ -206,19 +211,6 @@ workflow:
           route: dispatch-research
         - id: build-only
           label: "Build only (have a spec already)"
-          route: dispatch-build
-
-    # ── Layer 1c: File-based fallback detection ──────────────
-
-    detect-from-files:
-      type: gate
-      depends_on: [detect-phase]
-      evaluate:
-        - condition: "!exists('docs/_internal/research/{{inputs.topic}}.md')"
-          route: dispatch-research
-        - condition: "!exists('docs/_internal/incoming/{{inputs.topic}}-synthesis.md')"
-          route: dispatch-blueprint
-        - condition: default
           route: dispatch-build
 
     # ── Layer 2: Phase transitions ───────────────────────────

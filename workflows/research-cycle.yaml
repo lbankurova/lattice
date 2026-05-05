@@ -65,8 +65,10 @@ workflow:
       options:
         - id: selected
           label: "Branches selected -- proceed to peer review"
+          route: peer-review-r1
         - id: all
           label: "Deep dive all branches"
+          route: peer-review-r1
         - id: abort
           label: "Abort -- rethink scope"
           route: release-lock

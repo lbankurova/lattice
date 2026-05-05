@@ -75,6 +75,16 @@ export interface BaseNode {
    * Optional — when unset, no validation runs (legacy / no-emit nodes).
    */
   verdict_enum?: string;
+  /**
+   * Maximum number of times this node may be entered (Stream A item A4).
+   * Default: 1 (no re-entry). Set to N > 1 to permit a route to re-enter
+   * the node up to N total times — the (N+1)th attempt raises a runtime
+   * error. Used to bound intentional loops (research-cycle bikeshed
+   * accept-r2 → incorporate-r1, blueprint-cycle approval → synthesize,
+   * bug-fix-cycle revise → fix). Pre-existing workflows without the field
+   * keep the legacy single-execution semantics.
+   */
+  max_iterations?: number;
 }
 
 export interface BashNode extends BaseNode {
@@ -200,6 +210,13 @@ export interface WorkflowRun {
    * has clobbered the state file.
    */
   expectedRevision?: number;
+  /**
+   * Per-node visit count (Stream A item A4). Incremented on each execution
+   * attempt for a node. Compared against the node's `max_iterations` (default
+   * 1) before entering — a route that would exceed the limit raises a runtime
+   * error rather than silently looping or silently dropping the route.
+   */
+  visitCounts?: Record<string, number>;
 }
 
 export interface WorkflowCost {

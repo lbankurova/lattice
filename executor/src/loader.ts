@@ -123,6 +123,19 @@ function extractVerdictReferences(expr: string): VerdictReference[] {
 }
 
 /**
+ * Optional sink for validate-time warnings (A4: orphan nodes). Tests inject
+ * a recorder; in production this defaults to stderr.
+ */
+export type WarnSink = (message: string) => void;
+let warnSink: WarnSink = (msg) => process.stderr.write(`${msg}\n`);
+
+export function setWarnSink(sink: WarnSink): WarnSink {
+  const prev = warnSink;
+  warnSink = sink;
+  return prev;
+}
+
+/**
  * Load and validate a workflow YAML file.
  */
 export function loadWorkflow(filePath: string): Workflow {
@@ -150,6 +163,12 @@ export function loadWorkflow(filePath: string): Workflow {
 
   // Check for cycles
   detectCycles(wf, filePath);
+
+  // A4: max_iterations type check (additional shape validation beyond TS).
+  validateMaxIterations(wf, filePath);
+
+  // A4: orphan-node detection (warning, not error).
+  warnOrphanNodes(wf, filePath);
 
   // A2: verdict-enum validation. No-op when registry is absent (consumer
   // projects without verdict-enums.yaml).
@@ -239,11 +258,24 @@ function validateReferences(wf: Workflow, file: string): void {
       }
     }
 
-    // approval routes
+    // approval routes — A4: every option must declare a route.
+    // Pre-A4, an option without `route` was a silent stall: the executor
+    // accepted the option, recorded the selection, then had nowhere to go.
+    // (cycle.yaml:73-74 abort-option, blueprint-cycle.yaml:486-490 reject-r2
+    // both shipped the bug. Documented in lattice-self-fix-2026-05-05.md A4.)
     if (node.type === 'approval') {
       for (const opt of (node as ApprovalNode).options ?? []) {
-        if (opt.route && !nodeIds.has(opt.route)) {
-          errors.push(`${id}.options.route references "${opt.route}" (not found)`);
+        if (!opt.route) {
+          errors.push(
+            `${id}.options[id="${opt.id}"] is missing required 'route' field — ` +
+            `approval options without a route silently stall the workflow when selected. ` +
+            `If the option is meant to terminate the workflow, route to an explicit ` +
+            `terminal node (e.g., 'release-lock' or a no-op bash node).`
+          );
+          continue;
+        }
+        if (!nodeIds.has(opt.route)) {
+          errors.push(`${id}.options[id="${opt.id}"].route references "${opt.route}" (not found)`);
         }
       }
     }
@@ -262,6 +294,120 @@ function validateReferences(wf: Workflow, file: string): void {
     throw new WorkflowLoadError(
       `Broken references:\n  ${errors.join('\n  ')}`,
       file
+    );
+  }
+}
+
+/**
+ * A4: validate `max_iterations` shape — when present it must be a positive
+ * integer. The runtime defaults missing values to 1; a value of 0 or
+ * negative would trap the executor before it could enter the node.
+ */
+function validateMaxIterations(wf: Workflow, file: string): void {
+  const errors: string[] = [];
+  for (const [id, node] of Object.entries(wf.nodes)) {
+    if (node.max_iterations === undefined) continue;
+    const v = node.max_iterations;
+    if (!Number.isInteger(v) || v < 1) {
+      errors.push(
+        `${id}.max_iterations must be a positive integer (>= 1); got ${JSON.stringify(v)}`
+      );
+    }
+  }
+  if (errors.length > 0) {
+    throw new WorkflowLoadError(
+      `Invalid max_iterations:\n  ${errors.join('\n  ')}`,
+      file,
+    );
+  }
+}
+
+/**
+ * A4: orphan-node detection (validate-time warning). A node is "orphan" when
+ * the workflow's static topology guarantees it will never run:
+ *
+ * - It has `depends_on` (so it is not an entry node), AND
+ * - No other node references it via `depends_on`, gate `route`, approval `route`,
+ *   or parallel-group membership (so no successor pulls it forward and no
+ *   gate/approval routes the live execution path to it), AND
+ * - **Every** dep of the node is a gate or approval that does not route to it
+ *   (so the dep's "completion path" — `result.route` — never includes this node;
+ *   `engine.ts::isAlwaysReachable` returns false at runtime).
+ *
+ * This third clause distinguishes a true orphan from a *terminal* node like
+ * the `complete` cleanup node in spike-cycle.yaml: that node has `depends_on:
+ * [review]` and nothing references it, but `review` is a skill (not a gate),
+ * so when `review` completes `complete` runs naturally.
+ *
+ * Exemplar: `cycle.yaml:213-222` `detect-from-files` ships with `depends_on:
+ * [detect-phase]` but `detect-phase` is a gate whose routes are dispatch-*
+ * + already-complete + classify — none of which is `detect-from-files`.
+ * The TODO comment calls it "fallback detection"; a fallback that the static
+ * routing can never select is a documentation defect.
+ *
+ * Emits to the warn sink (default: stderr). NOT a load error: there are
+ * legitimate intermediate-development states where a node lands before its
+ * routing edge does. Strict callers can promote the warning to an error
+ * by intercepting the sink.
+ */
+function warnOrphanNodes(wf: Workflow, file: string): void {
+  // Pass 1: build reverse-reference set. A node id is in `pointedTo` when
+  // some other node references it via depends_on, gate route, approval
+  // route, or parallel-group membership.
+  const pointedTo = new Set<string>();
+  for (const node of Object.values(wf.nodes)) {
+    for (const dep of node.depends_on ?? []) pointedTo.add(dep);
+    if (node.type === 'gate') {
+      for (const cond of (node as GateNode).evaluate ?? []) {
+        if (cond.route) pointedTo.add(cond.route);
+      }
+    }
+    if (node.type === 'approval') {
+      for (const opt of (node as ApprovalNode).options ?? []) {
+        if (opt.route) pointedTo.add(opt.route);
+      }
+    }
+    if (node.type === 'parallel') {
+      for (const child of (node as ParallelNode).nodes ?? []) pointedTo.add(child);
+    }
+  }
+
+  const orphans: string[] = [];
+  for (const [id, node] of Object.entries(wf.nodes)) {
+    // Entry node — always reachable.
+    if (!node.depends_on || node.depends_on.length === 0) continue;
+    // Something points to this node — reachable through that reference.
+    if (pointedTo.has(id)) continue;
+    // No reference. Reachable only if at least one dep is a non-routing node
+    // (skill / bash / parallel) — those complete with no `result.route` and
+    // pull this node forward via the topological schedule.
+    const deps = node.depends_on;
+    const allDepsAreRoutingButDontRouteHere = deps.every(depId => {
+      const dep = wf.nodes[depId];
+      if (!dep) return true; // Broken reference — already caught by validateReferences; treat as routing-but-doesnt-route-here.
+      if (dep.type !== 'gate' && dep.type !== 'approval') return false;
+      // dep is gate/approval. Check if it routes to `id`.
+      if (dep.type === 'gate') {
+        for (const cond of (dep as GateNode).evaluate ?? []) {
+          if (cond.route === id) return false;
+        }
+      }
+      if (dep.type === 'approval') {
+        for (const opt of (dep as ApprovalNode).options ?? []) {
+          if (opt.route === id) return false;
+        }
+      }
+      return true;
+    });
+    if (allDepsAreRoutingButDontRouteHere) orphans.push(id);
+  }
+
+  if (orphans.length > 0) {
+    warnSink(
+      `${file}: WARNING — orphan node(s): ${orphans.join(', ')}. ` +
+      `Each has depends_on but every dep is a gate/approval whose routes do not include it, ` +
+      `and no other node references it via depends_on, route, or parallel. ` +
+      `Either route to it from one of its gate/approval deps, or remove the declaration.`
     );
   }
 }
