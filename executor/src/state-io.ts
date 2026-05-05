@@ -18,7 +18,7 @@
  *    porcelain parsing.
  */
 
-import { writeFileSync, renameSync, mkdirSync, appendFileSync } from 'node:fs';
+import { writeFileSync, renameSync, mkdirSync, appendFileSync, openSync, closeSync, writeSync, unlinkSync, linkSync } from 'node:fs';
 import { dirname } from 'node:path';
 import { execSync } from 'node:child_process';
 
@@ -42,6 +42,115 @@ export function atomicWriteFileSync(path: string, content: string | Buffer): voi
   mkdirSync(dirname(path), { recursive: true });
   writeFileSync(tmpPath, content, typeof content === 'string' ? 'utf-8' : undefined);
   renameSync(tmpPath, path);
+}
+
+/**
+ * Error thrown by `atomicWriteFileSyncCAS` when another writer has already
+ * claimed the target revision slot. Callers that perform optimistic
+ * read-compare-write loops on state files MUST catch this and abort their
+ * own write (the standard CAS-fail pattern).
+ *
+ * Recognizable both by `instanceof RevisionMismatchError` and by the
+ * literal "Revision mismatch" prefix on the message (matches the existing
+ * `writeCheckpoint` error for symmetry with the engine's pre-existing
+ * revision-check throw).
+ */
+export class RevisionMismatchError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RevisionMismatchError';
+  }
+}
+
+/**
+ * Compare-and-swap state write — encodes the *expected new revision* in
+ * the temp filename so concurrent writers attempting the same revision
+ * collide on filesystem-atomic create-or-fail.
+ *
+ * Closes the residual race in the read → compare → write loop in
+ * `engine.writeCheckpoint`. The pre-fix `atomicWriteFileSync` path is
+ * atomic-replace (a partial-write reader is impossible), but two writers
+ * that both observed `revision = N` and computed `N+1` would each call
+ * `atomicWriteFileSync` and silently last-writer-wins (the in-memory
+ * revision check happens BEFORE the write; both pass it independently).
+ *
+ * The CAS protocol:
+ *
+ *   1. Write to a uniquely-named scratch path (pid + nanos disambiguates
+ *      this writer from concurrent ones).
+ *   2. Try `link(scratch, path.tmp-rev-{N+1})`. `link` is the POSIX/Win32
+ *      atomic-create primitive — fails with `EEXIST` if a competing
+ *      writer already claimed revision `N+1`. This is the CAS step.
+ *   3. On link success, `rename(path.tmp-rev-{N+1}, path)` to publish.
+ *      `rename` is atomic-replace, so the destination flips from old to
+ *      new content with no partial-read window.
+ *   4. Cleanup: unlink the scratch link.
+ *
+ * On link failure (EEXIST): unlink the scratch and throw
+ * `RevisionMismatchError`. Callers retry from the read step or escalate.
+ *
+ * Why `link` instead of `O_EXCL`-open: Node's `'wx'` open flag is
+ * available, but `link` carries the same atomicity guarantee on both
+ * POSIX (`link(2)`) and Win32 (`CreateHardLink`) and reuses the same
+ * inode for the scratch file (one syscall to publish, one to clean up).
+ * `'wx'` would require a second `writeFileSync(... 'wx')` on a separate
+ * path, which is one more disk round-trip for no extra safety.
+ */
+export function atomicWriteFileSyncCAS(
+  path: string,
+  content: string | Buffer,
+  expectedNewRevision: number,
+): void {
+  mkdirSync(dirname(path), { recursive: true });
+
+  // Unique scratch — pid + monotonic-ish counter via Date.now()+random.
+  // Process restarts within the same ms with same pid would collide on a
+  // pure pid+now scratch; the random suffix removes that edge.
+  const scratchPath = `${path}.tmp-scratch-${process.pid}-${Date.now()}-${Math.floor(Math.random() * 1e9)}`;
+  const claimPath = `${path}.tmp-rev-${expectedNewRevision}`;
+
+  // Step 1: write content to scratch via `wx` (create-or-fail). The pid +
+  // nanos suffix should make collisions vanishingly unlikely, but `wx`
+  // refuses to overwrite if one happens, so we surface the error rather
+  // than silently clobber a sibling writer's scratch.
+  const fd = openSync(scratchPath, 'wx');
+  try {
+    const buf = typeof content === 'string' ? Buffer.from(content, 'utf-8') : content;
+    writeSync(fd, buf, 0, buf.length, 0);
+  } finally {
+    closeSync(fd);
+  }
+
+  // Step 2: atomic-claim the revision slot via `link`. `link` fails
+  // EEXIST if `claimPath` already exists -- THIS is the CAS.
+  try {
+    linkSync(scratchPath, claimPath);
+  } catch (err: unknown) {
+    // EEXIST means another writer claimed the slot first -- abort.
+    // Any other error (EPERM on link-restricted filesystems, ENOSPC) is
+    // surfaced to the caller as-is after best-effort cleanup.
+    try { unlinkSync(scratchPath); } catch { /* best-effort */ }
+    const code = (err as { code?: string })?.code;
+    if (code === 'EEXIST') {
+      throw new RevisionMismatchError(
+        `Revision mismatch on ${path}: another writer already claimed revision ${expectedNewRevision}. ` +
+        `A concurrent writer raced us to this state-file update. Aborting to avoid clobbering. ` +
+        `Caller should re-read the state file and retry from the latest revision.`,
+      );
+    }
+    throw err;
+  }
+
+  // Step 3: publish — rename the claimed tmp file over `path`. `rename`
+  // is atomic-replace; concurrent readers see either the prior content
+  // or the new content, never a partial mix.
+  try {
+    renameSync(claimPath, path);
+  } finally {
+    // Step 4: cleanup the scratch link. `claimPath` was renamed away by
+    // step 3, so only `scratchPath` remains as a dangling hard link.
+    try { unlinkSync(scratchPath); } catch { /* best-effort */ }
+  }
 }
 
 /**

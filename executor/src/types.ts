@@ -93,6 +93,28 @@ export interface BashNode extends BaseNode {
   timeout?: number;
   on_failure?: 'stop' | 'skip' | 'continue';
   capture?: 'stdout' | 'exit_code' | 'both';
+  /**
+   * When true, run the command through `/bin/sh -c <command>`. Pipes,
+   * redirects, `&&`, `||`, glob expansion, and other shell features
+   * are available -- but prior-skill output substituted into the
+   * command via `{{nodes.X.output.field}}` is interpreted by the shell
+   * and CAN be a code-execution vector if the producing skill is
+   * adversarial or malformed.
+   *
+   * Default `false` (B2 fix): the executor tokenizes the command into
+   * argv and runs `spawnSync(argv0, argv1+)` directly, no shell. Prior
+   * outputs land as literal argv elements -- shell metacharacters in
+   * them are inert. Workflows that rely on shell features must opt in
+   * explicitly. The migration audit at the time of this fix found ~20
+   * bash nodes in shipped workflows; manual review tagged each as
+   * shell-required or argv-safe.
+   *
+   * Pre-fix all bash nodes ran in `execSync(command, ...)` which is
+   * shell-mode by default. extractJsonField (template.ts:118-139)
+   * returned prior-skill output unescaped, so a downstream consumer
+   * of `{{nodes.X.output.field}}` was injection-prone.
+   */
+  shell?: boolean;
 }
 
 export interface SkillNode extends BaseNode {

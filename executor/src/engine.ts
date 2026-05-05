@@ -7,7 +7,7 @@
  */
 
 import { readFileSync, existsSync, utimesSync } from 'node:fs';
-import { atomicWriteFileSync, safeAppendLineSync } from './state-io.js';
+import { atomicWriteFileSync, atomicWriteFileSyncCAS, safeAppendLineSync } from './state-io.js';
 import { execSync } from 'node:child_process';
 import yaml from 'js-yaml';
 import type {
@@ -716,7 +716,6 @@ export function writeCheckpoint(
   const revision = typeof data['revision'] === 'number' ? data['revision'] : 0;
   const newRev = (revision as number) + 1;
   data['revision'] = newRev;
-  if (run) run.expectedRevision = newRev;
 
   // Write checkpoint entry
   if (!data['checkpoints']) data['checkpoints'] = {};
@@ -726,7 +725,26 @@ export function writeCheckpoint(
     status: result.status,
   };
 
-  atomicWriteFileSync(path, yaml.dump(data, { lineWidth: -1 }));
+  // CAS-style write (B1 fix). When `revision_check` is on, two writers
+  // that both observed the file at revision N may both reach this point
+  // each computing newRev=N+1. The in-memory `expectedRevision` check
+  // above only compares the file's recorded revision against THIS run's
+  // expectation -- it doesn't prevent a sibling run from matching its OWN
+  // expectation against the same file state. The CAS path enforces
+  // destination-uniqueness atomically: only one writer's `link` syscall
+  // can claim the `path.tmp-rev-{N+1}` slot. The loser throws
+  // RevisionMismatchError -- same recovery path as the in-memory check.
+  if (wf.state?.revision_check) {
+    atomicWriteFileSyncCAS(path, yaml.dump(data, { lineWidth: -1 }), newRev);
+  } else {
+    atomicWriteFileSync(path, yaml.dump(data, { lineWidth: -1 }));
+  }
+  // Update run.expectedRevision AFTER the write succeeds. Pre-fix we
+  // bumped it before the write, so a thrown CAS failure would leave the
+  // in-memory expectation mis-aligned with the file. Post-write update
+  // keeps run.expectedRevision == file revision after every successful
+  // checkpoint.
+  if (run) run.expectedRevision = newRev;
 
   // Heartbeat: refresh the topic-lock meta mtime so long-running workflows
   // don't trip acquire-topic-lock.sh's stale threshold and lose their lock

@@ -7,6 +7,7 @@
  */
 
 import { execSync, spawnSync, type ExecSyncOptionsWithStringEncoding } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import type {
   WorkflowNode, BashNode, SkillNode, GateNode, ApprovalNode, ParallelNode,
@@ -34,7 +35,7 @@ export async function executeNode(
       case 'skill':
         return await executeSkill(nodeId, node, ctx, cwd, adapter, startedAt);
       case 'gate':
-        return executeGate(nodeId, node, ctx, startedAt);
+        return executeGate(nodeId, node, ctx, cwd, startedAt);
       case 'approval':
         return await executeApproval(nodeId, node, ctx, adapter, startedAt);
       case 'parallel':
@@ -57,6 +58,112 @@ export async function executeNode(
 
 // ── Bash executor ───────────────────────────────────────────
 
+/**
+ * Tokenize a command string into argv form using POSIX-style shell
+ * quoting:
+ *   - whitespace separates tokens
+ *   - single quotes group verbatim (no escape inside)
+ *   - double quotes group with backslash-escape for `\` and `"`
+ *   - bare backslash escapes the next character outside quotes
+ *
+ * Shell metacharacters (`|`, `>`, `<`, `;`, `&&`, `$VAR`, `$(...)`,
+ * backticks) are NOT interpreted -- they survive into argv as-is. That
+ * is the entire point of argv mode: prior-skill output substituted
+ * into a command lands as a literal argv element, not as code.
+ *
+ * If a workflow needs shell features, set `shell: true` on the node.
+ *
+ * Throws on unterminated quote / dangling backslash.
+ */
+export function tokenizeArgv(command: string): string[] {
+  const argv: string[] = [];
+  let cur = '';
+  let inSingle = false;
+  let inDouble = false;
+  let i = 0;
+  let started = false; // distinguish empty token vs no-token
+
+  while (i < command.length) {
+    const ch = command[i];
+
+    if (inSingle) {
+      if (ch === "'") {
+        inSingle = false;
+        i++;
+        continue;
+      }
+      cur += ch;
+      started = true;
+      i++;
+      continue;
+    }
+
+    if (inDouble) {
+      if (ch === '"') {
+        inDouble = false;
+        i++;
+        continue;
+      }
+      if (ch === '\\' && i + 1 < command.length) {
+        const next = command[i + 1];
+        // In double quotes, only `\\`, `\"`, and `\$` (we don't expand
+        // $VAR here so `\$` just yields `$`) and `\\` itself escape;
+        // others pass through with the backslash retained.
+        if (next === '\\' || next === '"' || next === '$' || next === '`') {
+          cur += next;
+          i += 2;
+          continue;
+        }
+        cur += ch;
+        i++;
+        continue;
+      }
+      cur += ch;
+      started = true;
+      i++;
+      continue;
+    }
+
+    // Outside any quotes
+    if (ch === "'") {
+      inSingle = true;
+      started = true;
+      i++;
+      continue;
+    }
+    if (ch === '"') {
+      inDouble = true;
+      started = true;
+      i++;
+      continue;
+    }
+    if (ch === '\\' && i + 1 < command.length) {
+      cur += command[i + 1];
+      started = true;
+      i += 2;
+      continue;
+    }
+    if (/\s/.test(ch)) {
+      if (started) {
+        argv.push(cur);
+        cur = '';
+        started = false;
+      }
+      i++;
+      continue;
+    }
+    cur += ch;
+    started = true;
+    i++;
+  }
+
+  if (inSingle || inDouble) {
+    throw new Error(`tokenizeArgv: unterminated ${inSingle ? 'single' : 'double'} quote in: ${command}`);
+  }
+  if (started) argv.push(cur);
+  return argv;
+}
+
 async function executeBash(
   nodeId: string,
   node: BashNode,
@@ -67,15 +174,62 @@ async function executeBash(
   const command = resolveTemplate(node.command, ctx);
   const timeout = node.timeout ?? 120_000;
 
-  const opts: ExecSyncOptionsWithStringEncoding = {
-    cwd,
-    encoding: 'utf-8',
-    timeout,
-    stdio: ['pipe', 'pipe', 'pipe'],
-  };
+  // B2 fix: default to argv-mode (no shell). `shell: true` is the
+  // explicit opt-in for nodes that need pipes / redirects / && / etc.
+  // See BashNode.shell docstring for the security rationale -- the
+  // short version: prior-skill output via {{nodes.X.output.field}}
+  // is shell-injectable in shell mode but inert as an argv element.
+  const useShell = node.shell === true;
 
   try {
-    const stdout = execSync(command, opts);
+    let stdout: string;
+    if (useShell) {
+      // Legacy shell path -- /bin/sh -c on POSIX, cmd.exe on Win32.
+      // Workflows that opt in must be aware of cross-platform quoting
+      // differences and the injection surface for prior-skill output.
+      const opts: ExecSyncOptionsWithStringEncoding = {
+        cwd,
+        encoding: 'utf-8',
+        timeout,
+        stdio: ['pipe', 'pipe', 'pipe'],
+      };
+      stdout = execSync(command, opts);
+    } else {
+      // Argv path. Tokenize, then spawn directly. spawnSync without
+      // `shell: true` does NOT invoke a shell; argv0 is the program,
+      // argv1+ are literal arguments (no globbing, no expansion, no
+      // metacharacter interpretation).
+      const argv = tokenizeArgv(command);
+      if (argv.length === 0) {
+        throw new Error(`Empty command after tokenization: ${command}`);
+      }
+      const result = spawnSync(argv[0], argv.slice(1), {
+        cwd,
+        encoding: 'utf-8',
+        timeout,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        // `shell: false` is the default but make it explicit for
+        // future readers; this is the entire point of B2.
+        shell: false,
+      });
+      // spawnSync surfaces errors via `error` (e.g., ENOENT) AND via
+      // non-zero `status`. Match execSync's throw-on-nonzero contract
+      // so the existing catch-block logic upstream handles both modes
+      // identically.
+      if (result.error) {
+        throw result.error;
+      }
+      if (result.status !== 0) {
+        const err = new Error(
+          `Command failed: ${argv[0]}${argv.length > 1 ? ' ' + argv.slice(1).join(' ') : ''}`,
+        );
+        (err as Error & { status: number; stdout: string; stderr: string }).status = result.status ?? 1;
+        (err as Error & { status: number; stdout: string; stderr: string }).stdout = result.stdout ?? '';
+        (err as Error & { status: number; stdout: string; stderr: string }).stderr = result.stderr ?? '';
+        throw err;
+      }
+      stdout = result.stdout ?? '';
+    }
     return {
       nodeId,
       status: 'completed',
@@ -234,6 +388,7 @@ function executeGate(
   nodeId: string,
   node: GateNode,
   ctx: TemplateContext,
+  cwd: string,
   startedAt: string,
 ): NodeResult {
   for (const cond of node.evaluate) {
@@ -249,7 +404,7 @@ function executeGate(
     }
 
     const resolved = resolveTemplate(cond.condition, ctx);
-    if (evaluateCondition(resolved)) {
+    if (evaluateCondition(resolved, cwd)) {
       return {
         nodeId,
         status: 'completed',
@@ -344,8 +499,15 @@ function splitTopLevel(expr: string, delim: string): string[] {
  * Precedence: || binds looser than && (standard). Splits respect single-
  * quoted string literals so `inputs.x == 'a && b'` is not mis-split at the
  * `&&` inside the literal.
+ *
+ * `cwd` is required for `exists(...)` / `!exists(...)` filesystem checks.
+ * Paths in the literal are resolved relative to cwd. The pre-fix version
+ * unconditionally returned `false` for `!exists(...)` (with the comment
+ * "Would need filesystem check") and fell through to the truthy-string
+ * branch for `exists(...)` -- both produced silently wrong gate routing
+ * for any workflow that depended on the predicate.
  */
-function evaluateCondition(expr: string): boolean {
+export function evaluateCondition(expr: string, cwd: string = process.cwd()): boolean {
   const trimmed = expr.trim();
 
   // Boolean literals
@@ -356,13 +518,13 @@ function evaluateCondition(expr: string): boolean {
   // Splits ignore occurrences inside single-quoted string literals.
   const orParts = splitTopLevel(trimmed, '||');
   if (orParts.length > 1) {
-    return orParts.some(part => evaluateCondition(part));
+    return orParts.some(part => evaluateCondition(part, cwd));
   }
 
   // && has higher precedence than ||.
   const andParts = splitTopLevel(trimmed, '&&');
   if (andParts.length > 1) {
-    return andParts.every(part => evaluateCondition(part));
+    return andParts.every(part => evaluateCondition(part, cwd));
   }
 
   // == comparison
@@ -383,10 +545,23 @@ function evaluateCondition(expr: string): boolean {
     return containsMatch[1].trim().includes(containsMatch[2]);
   }
 
-  // !exists()
-  if (trimmed.startsWith("!exists('")) {
-    // Would need filesystem check -- for now treat as false
-    return false;
+  // !exists('path') -- B3 fix. Pre-fix returned false unconditionally.
+  // Now performs a real fs.existsSync check against `path` resolved
+  // relative to cwd. Absolute paths pass through unchanged. Template
+  // substitution happens upstream in resolveTemplate, so by the time
+  // we land here the literal is already concrete.
+  const notExistsMatch = trimmed.match(/^!exists\('([^']*)'\)$/);
+  if (notExistsMatch) {
+    return !pathExists(notExistsMatch[1], cwd);
+  }
+
+  // exists('path') -- positive form. Pre-fix this fell through to the
+  // truthy-string branch and incorrectly returned `true` because the
+  // literal "exists('foo')" is non-empty. Add the explicit handler so
+  // both forms have correct semantics.
+  const existsMatch = trimmed.match(/^exists\('([^']*)'\)$/);
+  if (existsMatch) {
+    return pathExists(existsMatch[1], cwd);
   }
 
   // Null/empty check
@@ -396,6 +571,32 @@ function evaluateCondition(expr: string): boolean {
 
   // Non-empty string is truthy
   return trimmed.length > 0 && trimmed !== 'false' && trimmed !== '0';
+}
+
+/**
+ * Resolve a path literal from a workflow condition against `cwd` and
+ * report whether it exists. Absolute paths pass through; relative paths
+ * are resolved against `cwd` (the workflow's working directory). Errors
+ * fall through as "does not exist" -- a permission error on a probe
+ * path is indistinguishable from absence for routing purposes.
+ *
+ * Exported for direct testing in nodes.test.ts.
+ */
+export function pathExists(literal: string, cwd: string): boolean {
+  try {
+    const resolved = isAbsolutePath(literal) ? literal : `${cwd}/${literal}`;
+    // existsSync is the right primitive here: we don't need to read,
+    // and stat-then-check would just duplicate its work.
+    return existsSync(resolved);
+  } catch {
+    return false;
+  }
+}
+
+function isAbsolutePath(p: string): boolean {
+  // POSIX absolute or Windows drive-letter absolute. Avoid pulling in
+  // path.isAbsolute to keep the helper self-contained for testing.
+  return p.startsWith('/') || /^[A-Za-z]:[\\/]/.test(p);
 }
 
 // ── Trigger rule evaluator ──────────────────────────────────

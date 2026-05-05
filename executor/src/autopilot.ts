@@ -35,8 +35,8 @@
  */
 
 import { resolve } from 'node:path';
-import { existsSync, readdirSync, readFileSync } from 'node:fs';
-import { execSync } from 'node:child_process';
+import { existsSync, readdirSync, readFileSync, mkdirSync, appendFileSync } from 'node:fs';
+import { spawnSync } from 'node:child_process';
 import yaml from 'js-yaml';
 import type { PlatformAdapter, WorkflowRun } from './types.js';
 import { loadPortfolioState, checkCoherence, isTopicSafe, formatReport } from './coherence.js';
@@ -186,14 +186,17 @@ export function stashWorkflowOutput(
     const ts = new Date().toISOString().replace(/[:.]/g, '-');
     const safeId = id.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60);
     const label = `autopilot-${status}-${source}-${safeId}-${ts}`;
-    // Path-scoped stash: -u includes untracked files within the listed
-    // pathspecs only. CRITICAL difference from the pre-fix unscoped
-    // `git stash push -u` -- never sweep paths that were dirty before
-    // the workflow ran.
-    const quotedPaths = workflowOwned.map(p => `"${p.replace(/"/g, '\\"')}"`).join(' ');
-    execSync(`git stash push -u -m "${label}" -- ${quotedPaths}`, {
-      cwd, encoding: 'utf-8', timeout: 30_000,
-    });
+    // B2 fix: argv-form spawnSync. Pre-fix used a shell string with
+    // hand-rolled `replace(/"/g, '\\"')` quoting which differed
+    // between cmd.exe and bash; here paths land as literal argv
+    // elements, so a path with embedded quotes / spaces / shell
+    // metacharacters survives the call unchanged.
+    const result = spawnSync(
+      'git',
+      ['stash', 'push', '-u', '-m', label, '--', ...workflowOwned],
+      { cwd, encoding: 'utf-8', timeout: 30_000, shell: false },
+    );
+    if (result.error || result.status !== 0) return null;
     return label;
   } catch {
     // Non-fatal: leave the workflow's dirty tree behind rather than fall
@@ -665,12 +668,18 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
           // LOW-4 fix from the 2026-05-04 audit: persist the circuit-breaker
           // trip to decisions.log so it survives terminal close. Pre-fix this
           // only printed to stdout, making post-hoc audit impossible.
+          //
+          // B2 fix: replace shell-string `mkdir + printf >> file` with
+          // direct fs calls. Pre-fix the row content was JSON-stringified
+          // into the shell command line; a malicious or malformed prefix
+          // (e.g., one that survived the tab-replace and contained
+          // backticks or `$()`) would never reach the shell, but reducing
+          // the shell-execution surface is the entire point of B2.
           try {
             const ts = new Date().toISOString();
             const row = `${ts}\tautopilot\tCIRCUIT_BREAKER\t-\tprefix=${prefix.replace(/\t/g, ' ')}\tconsecutive=${consecutiveFailures}\n`;
-            execSync(`mkdir -p .lattice 2>/dev/null; printf '%s' ${JSON.stringify(row)} >> .lattice/decisions.log`, {
-              cwd, encoding: 'utf-8', timeout: 5_000,
-            });
+            mkdirSync(`${cwd}/.lattice`, { recursive: true });
+            appendFileSync(`${cwd}/.lattice/decisions.log`, row, 'utf-8');
           } catch { /* best-effort */ }
           result.circuitBreakerTripped = true;
           break;

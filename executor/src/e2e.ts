@@ -8,7 +8,7 @@
  * Phase 2: text_diff, custom diff, parallel suites, screenshot perceptual diff.
  */
 
-import { execSync } from 'node:child_process';
+import { execSync, spawnSync } from 'node:child_process';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
 import { resolve, dirname } from 'node:path';
 import yaml from 'js-yaml';
@@ -95,24 +95,30 @@ const DEFAULT_TIMEOUTS = { per_suite: 120_000, total: 600_000 };
  * instead of silently producing `git rev-list main..HEAD` against a non-existent ref.
  */
 export function detectDefaultBranch(cwd: string): string {
+  // B2 fix: argv-form spawnSync replaces shell-string execSync. No
+  // user-substituted values here, but cmd.exe vs bash quoting parity
+  // is the consistent improvement and the change is mechanical.
   try {
-    const ref = execSync('git symbolic-ref --quiet refs/remotes/origin/HEAD', {
-      cwd, encoding: 'utf-8', timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'],
-    }).trim();
-    // Form: "refs/remotes/origin/master" -> "master"
-    const m = ref.match(/refs\/remotes\/origin\/(.+)$/);
-    if (m) return m[1];
+    const sym = spawnSync(
+      'git', ['symbolic-ref', '--quiet', 'refs/remotes/origin/HEAD'],
+      { cwd, encoding: 'utf-8', timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'], shell: false },
+    );
+    if (!sym.error && sym.status === 0) {
+      const ref = (sym.stdout ?? '').trim();
+      // Form: "refs/remotes/origin/master" -> "master"
+      const m = ref.match(/refs\/remotes\/origin\/(.+)$/);
+      if (m) return m[1];
+    }
   } catch {
     // Origin HEAD not set — fall through to local-branch probe.
   }
   for (const candidate of ['master', 'main']) {
-    try {
-      execSync(`git rev-parse --verify --quiet refs/heads/${candidate}`, {
-        cwd, encoding: 'utf-8', timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'],
-      });
+    const probe = spawnSync(
+      'git', ['rev-parse', '--verify', '--quiet', `refs/heads/${candidate}`],
+      { cwd, encoding: 'utf-8', timeout: 5_000, stdio: ['ignore', 'pipe', 'ignore'], shell: false },
+    );
+    if (!probe.error && probe.status === 0) {
       return candidate;
-    } catch {
-      // Not present, try next.
     }
   }
   throw new Error(
@@ -217,9 +223,19 @@ export function detectComparisonMode(baseBranch: string, cwd: string): Compariso
   // The caller (runBranchComparison) catches and writes 'error' verdict.
   let ahead: number;
   try {
-    const out = execSync(`git rev-list --count ${baseBranch}..HEAD`, {
-      cwd, encoding: 'utf-8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'],
-    }).trim();
+    // B2: argv form. baseBranch is config-supplied; even though config
+    // is trusted, an argv-mode call can't be subverted by a value like
+    // `master; rm -rf $HOME` -- the literal string would just be a
+    // bogus ref name git rejects.
+    const result = spawnSync(
+      'git', ['rev-list', '--count', `${baseBranch}..HEAD`],
+      { cwd, encoding: 'utf-8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'], shell: false },
+    );
+    if (result.error) throw result.error;
+    if (result.status !== 0) {
+      throw new Error(`git rev-list --count ${baseBranch}..HEAD failed (exit ${result.status}): ${result.stderr ?? ''}`);
+    }
+    const out = (result.stdout ?? '').trim();
     ahead = parseInt(out, 10);
     if (Number.isNaN(ahead)) {
       throw new Error(`detectComparisonMode: rev-list returned non-numeric output: ${JSON.stringify(out)}`);
@@ -240,10 +256,14 @@ export function detectComparisonMode(baseBranch: string, cwd: string): Compariso
   // Original try/catch wrapper preserved below for the porcelain check.
   // Check for uncommitted changes (staged + unstaged + untracked)
   try {
-    const dirty = execSync('git status --porcelain', {
-      cwd, encoding: 'utf-8', timeout: 5_000,
-    }).trim();
-    if (dirty) return 'uncommitted';
+    const result = spawnSync(
+      'git', ['status', '--porcelain'],
+      { cwd, encoding: 'utf-8', timeout: 5_000, stdio: ['ignore', 'pipe', 'pipe'], shell: false },
+    );
+    if (!result.error && result.status === 0) {
+      const dirty = (result.stdout ?? '').trim();
+      if (dirty) return 'uncommitted';
+    }
   } catch {
     // Fall through
   }
@@ -260,9 +280,15 @@ export function detectComparisonMode(baseBranch: string, cwd: string): Compariso
 export function getChangedFiles(baseBranch: string, cwd: string, mode?: ComparisonMode): string[] {
   const effectiveMode = mode ?? detectComparisonMode(baseBranch, cwd);
 
-  const run = (cmd: string): string[] => {
+  // B2: argv form. Each command is a fixed `git` argv array; any
+  // value that needs interpolation (baseBranch) lands as a literal arg.
+  const runGit = (args: string[]): string[] => {
     try {
-      const output = execSync(cmd, { cwd, encoding: 'utf-8', timeout: 10_000 }).trim();
+      const result = spawnSync('git', args, {
+        cwd, encoding: 'utf-8', timeout: 10_000, stdio: ['ignore', 'pipe', 'pipe'], shell: false,
+      });
+      if (result.error || result.status !== 0) return [];
+      const output = (result.stdout ?? '').trim();
       return output ? output.split('\n').filter(Boolean) : [];
     } catch {
       return [];
@@ -272,18 +298,18 @@ export function getChangedFiles(baseBranch: string, cwd: string, mode?: Comparis
   switch (effectiveMode) {
     case 'branch':
       // Files changed between base and HEAD
-      return run(`git diff --name-only ${baseBranch}...HEAD`);
+      return runGit(['diff', '--name-only', `${baseBranch}...HEAD`]);
 
     case 'uncommitted': {
       // Staged + unstaged changes vs HEAD
-      const staged = run('git diff --cached --name-only');
-      const unstaged = run('git diff --name-only');
+      const staged = runGit(['diff', '--cached', '--name-only']);
+      const unstaged = runGit(['diff', '--name-only']);
       return [...new Set([...staged, ...unstaged])];
     }
 
     case 'last-commit':
       // Files changed in the most recent commit
-      return run('git diff --name-only HEAD~1...HEAD');
+      return runGit(['diff', '--name-only', 'HEAD~1...HEAD']);
   }
 }
 
@@ -333,7 +359,14 @@ function runSuite(suite: SuiteConfig, cwd: string, timeout: number): SuiteRunRes
   const start = Date.now();
   const effectiveTimeout = suite.timeout ?? timeout;
 
-  // Per-suite setup
+  // Per-suite setup. SCOPE-NOTE (B2): user-config commands
+  // (suite.setup / suite.command / suite.teardown / config.setup /
+  // config.teardown) deliberately run in shell mode -- the consumer
+  // author wrote them expecting pipes / redirects / `&&`. The B2 attack
+  // surface (prior-skill output substituted into the command line) does
+  // NOT apply here: these are static config strings loaded from the
+  // YAML, not templated from prior-node output. Argv-mode would force
+  // every consumer's existing setup script to be re-authored.
   if (suite.setup) {
     try {
       execSync(suite.setup, { cwd, encoding: 'utf-8', timeout: 30_000, stdio: 'pipe' });
@@ -590,10 +623,8 @@ export function runBranchComparison(
   };
 
   try {
-    // 1. Record current branch
-    originalBranch = execSync('git rev-parse --abbrev-ref HEAD', {
-      cwd, encoding: 'utf-8', timeout: 5_000,
-    }).trim();
+    // 1. Record current branch (B2: argv form)
+    originalBranch = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd).trim();
     result.featureBranch = originalBranch;
 
     // 2. Classify testability
@@ -640,18 +671,18 @@ export function runBranchComparison(
       case 'branch': {
         // Stash any dirty work (now known to be in-scope), checkout base,
         // run, checkout feature, run.
-        const dirty = git('status --porcelain', cwd).trim();
+        const dirty = git(['status', '--porcelain'], cwd).trim();
         if (dirty) {
-          git('stash push -m "lattice-e2e-gate"', cwd);
+          git(['stash', 'push', '-m', 'lattice-e2e-gate'], cwd);
           stashed = true;
         }
 
-        git(`checkout ${effectiveBase}`, cwd);
+        git(['checkout', effectiveBase], cwd);
         baseResults = runWithSetupTeardown(config, cwd);
 
-        git(`checkout ${originalBranch}`, cwd);
+        git(['checkout', originalBranch], cwd);
         if (stashed) {
-          try { git('stash pop', cwd); stashed = false; } catch {
+          try { git(['stash', 'pop'], cwd); stashed = false; } catch {
             result.error = 'WARNING: git stash pop failed (conflict). Run `git stash pop` manually.';
           }
         }
@@ -661,12 +692,12 @@ export function runBranchComparison(
 
       case 'uncommitted': {
         // Stash in-scope changes → run (clean HEAD) → pop → run (with changes)
-        git('stash push -m "lattice-e2e-gate"', cwd);
+        git(['stash', 'push', '-m', 'lattice-e2e-gate'], cwd);
         stashed = true;
 
         baseResults = runWithSetupTeardown(config, cwd);
 
-        try { git('stash pop', cwd); stashed = false; } catch {
+        try { git(['stash', 'pop'], cwd); stashed = false; } catch {
           result.error = 'WARNING: git stash pop failed (conflict). Run `git stash pop` manually.';
         }
         featureResults = runWithSetupTeardown(config, cwd);
@@ -675,11 +706,11 @@ export function runBranchComparison(
 
       case 'last-commit': {
         // Checkout HEAD~1, run, checkout HEAD, run
-        const headRef = git('rev-parse HEAD', cwd).trim();
-        git('checkout HEAD~1', cwd);
+        const headRef = git(['rev-parse', 'HEAD'], cwd).trim();
+        git(['checkout', 'HEAD~1'], cwd);
         baseResults = runWithSetupTeardown(config, cwd);
 
-        git(`checkout ${headRef}`, cwd);
+        git(['checkout', headRef], cwd);
         featureResults = runWithSetupTeardown(config, cwd);
         break;
       }
@@ -701,16 +732,16 @@ export function runBranchComparison(
     // Guarantee: return to original branch
     if (originalBranch) {
       try {
-        const current = git('rev-parse --abbrev-ref HEAD', cwd).trim();
+        const current = git(['rev-parse', '--abbrev-ref', 'HEAD'], cwd).trim();
         if (current !== originalBranch) {
-          git(`checkout ${originalBranch}`, cwd);
+          git(['checkout', originalBranch], cwd);
         }
       } catch { /* best-effort */ }
     }
 
     // Guarantee: pop stash if still pending
     if (stashed) {
-      try { git('stash pop', cwd); } catch { /* best-effort */ }
+      try { git(['stash', 'pop'], cwd); } catch { /* best-effort */ }
     }
 
     // Guarantee: run teardown
@@ -740,11 +771,33 @@ function runWithSetupTeardown(config: E2EConfig, cwd: string): SuiteRunResult[] 
   return results;
 }
 
-/** Shorthand for git commands. Throws on failure. */
-function git(cmd: string, cwd: string): string {
-  return execSync(`git ${cmd}`, {
-    cwd, encoding: 'utf-8', timeout: 30_000, stdio: 'pipe',
+/**
+ * Shorthand for git commands. Throws on failure.
+ *
+ * B2 fix: switched from `execSync(`git ${cmd}`, ...)` (shell mode) to
+ * `spawnSync('git', argv, { shell: false })`. Pre-fix path had two
+ * issues:
+ *   1. cmd.exe vs bash quoting differed for paths with spaces
+ *      (Windows-targeted codebase + double-quote escaping was unsafe).
+ *   2. Any caller-supplied substring made it through the shell -- in
+ *      e2e the only tainted input is `effectiveBase` / `originalBranch`
+ *      / `headRef`, but those flow through the same channel as
+ *      controlled-by-config strings.
+ *
+ * Callers pass argv-form (an array of args). Existing callers that
+ * passed a string are migrated to array-of-args at the call site.
+ */
+function git(cmdArgs: string[], cwd: string): string {
+  const result = spawnSync('git', cmdArgs, {
+    cwd, encoding: 'utf-8', timeout: 30_000, stdio: ['pipe', 'pipe', 'pipe'], shell: false,
   });
+  if (result.error) throw result.error;
+  if (result.status !== 0) {
+    throw new Error(
+      `git ${cmdArgs.join(' ')} failed (exit ${result.status}): ${result.stderr ?? ''}`,
+    );
+  }
+  return result.stdout ?? '';
 }
 
 // ── Result Persistence ──────────────────────────────────────
