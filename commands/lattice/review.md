@@ -29,6 +29,20 @@ The review MUST produce ALL of these named sections in its output. A missing sec
 
 If you catch yourself skipping a section or writing "N/A — not applicable" without justification, stop. That's the section that will contain the bug you missed.
 
+### Side-channel review-output file (D7 — mandatory side-effect)
+
+Before invoking `bash scripts/write-review-gate.sh ...` (Step 6), write the **structured review output** to:
+
+```
+.lattice/last-review-output.md
+```
+
+The file MUST be a markdown document containing the seven section anchors above as `## ` headings (exact strings: `## CHANGES`, `## ARCHITECT REVIEW`, `## DECISION AUDIT`, `## REQUIREMENT TRACE`, `## MECHANICAL CHECKS`, `## DOCS UPDATE`, `## VERDICT`). Mirror the actual review output you present to the user — same evidence, same verdicts.
+
+`write-review-gate.sh` greps the file for each anchor and exits non-zero with the missing list if any anchor is absent. The mechanical check replaces the prose-only enforcement that was honor-system before D7 (compare `design-mode-gate.sh` for the established pattern).
+
+The file is **single-use per gate write**: the gate consumes it; rewrite for the next review. If `.lattice/last-review-output.md` does not exist when `write-review-gate.sh` runs, the anchor check is SKIPPED — appropriate for trivial-fix invocations that bypass the full review skill (where the prose discipline still applies but no full structured output exists).
+
 ---
 
 ## Step 0: Detect context
