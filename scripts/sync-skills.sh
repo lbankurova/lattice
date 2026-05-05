@@ -58,18 +58,20 @@ map_to_dst() {
         commands/ops/*.md)         echo ".claude/commands/ops/$base" ;;
         agents/*.md)               echo ".claude/agents/$base" ;;
         docs/skills-includes/*.md) echo "docs/skills-includes/$base" ;;
+        scripts/tests/*.sh|scripts/tests/*.py)
+            # Stream C (2026-05-05) introduced scripts/tests/ as the
+            # convention for hook/script test suites. Must come BEFORE
+            # the scripts/*.sh branch — bash case `*` matches `/` too,
+            # so scripts/*.sh would otherwise swallow scripts/tests/X.sh
+            # and route it to the top-level destination.
+            echo "scripts/tests/$base"
+            ;;
         scripts/*.sh|scripts/*.py)
             if [ "$base" = "sync-skills.sh" ]; then
                 echo ""  # framework-only, never propagate
             else
                 echo "scripts/$base"
             fi
-            ;;
-        scripts/tests/*.sh|scripts/tests/*.py)
-            # Stream C (2026-05-05) introduced scripts/tests/ as the
-            # convention for hook/script test suites. Propagate so
-            # consumers can run the same regression coverage locally.
-            echo "scripts/tests/$base"
             ;;
         *) echo "" ;;  # not a synced path
     esac
