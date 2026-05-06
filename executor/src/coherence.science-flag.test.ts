@@ -57,6 +57,7 @@ function mkTopic(overrides: Partial<TopicState>): TopicState {
     breaks: [] as BreaksEntry[],
     propagates: [],
     prerequisites: [],
+    score: 0,
     crossTopicInteractions: [] as CrossTopicInteraction[],
     keyDecisions: [],
     probeResult: '',

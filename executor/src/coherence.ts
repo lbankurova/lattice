@@ -74,7 +74,11 @@ export interface TopicState {
   scienceFlags: ScienceFlag[];
   breaks: BreaksEntry[];
   propagates: string[];          // Subsystem IDs that receive cascading changes
-  prerequisites: string[];       // Other topics this depends on
+  prerequisites: string[];       // Other topics or TODO ids this depends on
+  /** Priority score 0-27 (pillars × data × impl rubric). Sorts topics within
+   *  the topic tier; topic-vs-TODO tier ordering is unchanged (topics still
+   *  rank ahead of TODOs of any score). Default 0 when absent from YAML. */
+  score: number;
   crossTopicInteractions: CrossTopicInteraction[];
   keyDecisions: string[];
   probeResult: string;           // ALL_SAFE, BREAKS, SCIENCE-FLAG, etc.
@@ -273,6 +277,12 @@ function extractTopicState(
   // Extract doc references from state file
   const docRefs = extractDocRefs(rawContent);
 
+  // Priority score (0-27, same rubric as TODO scoring). Clamp rather than
+  // reject so a typo (e.g., 28) doesn't make the topic invisible to autopilot
+  // -- the rubric ceiling is a soft convention. NaN / non-numeric / absent
+  // all default to 0.
+  const score = clampScore(data['score']);
+
   return {
     topic: topicName,
     phase,
@@ -287,6 +297,7 @@ function extractTopicState(
     breaks,
     propagates,
     prerequisites,
+    score,
     crossTopicInteractions,
     keyDecisions,
     probeResult,
@@ -295,6 +306,14 @@ function extractTopicState(
     docRefs,
     subsystemInteractions: [], // populated by enrichFromDocs
   };
+}
+
+function clampScore(raw: unknown): number {
+  const n = typeof raw === 'number' ? raw : Number(raw);
+  if (!Number.isFinite(n)) return 0;
+  if (n < 0) return 0;
+  if (n > 27) return 27;
+  return Math.floor(n);
 }
 
 /**
@@ -547,22 +566,34 @@ function extractPropagates(text: string): string[] {
 function extractPrerequisites(data: Record<string, unknown>): string[] {
   const prereqs: string[] = [];
 
-  // Direct prerequisite field
+  // Declarative array form (preferred). Each entry is a topic id (cycle-state
+  // YAML basename) or a TODO id (e.g., "GAP-275"). Non-string array members
+  // are ignored defensively rather than throwing -- a YAML with a malformed
+  // entry should not lose its other prereqs or fail to load entirely.
+  const arr = data['prerequisites'];
+  if (Array.isArray(arr)) {
+    for (const item of arr) {
+      if (typeof item === 'string' && item.trim()) {
+        prereqs.push(item.trim());
+      }
+    }
+  }
+
+  // Legacy prose-regex paths (kept for backwards-compat with existing YAMLs
+  // like pcc/.lattice/cycle-state/outliers-pane-unified.yaml:23). Migrate to
+  // the array form opportunistically; both paths can coexist in one YAML.
   const prereq = data['prerequisite'] as string | undefined;
   if (prereq) {
-    // Extract topic names from prerequisite text
     const match = prereq.match(/(\S+-\S+)\s+must\s+be/);
     if (match) prereqs.push(match[1]);
   }
-
-  // Implementation context prerequisites
   const ctx = data['implementation_context'] as Record<string, unknown> | undefined;
   if (ctx?.['prerequisite']) {
     const match = String(ctx['prerequisite']).match(/(\S+-\S+)\s+must\s+be/);
     if (match) prereqs.push(match[1]);
   }
 
-  return prereqs;
+  return [...new Set(prereqs)];
 }
 
 function extractCrossTopicInteractions(data: Record<string, unknown>): CrossTopicInteraction[] {
@@ -632,8 +663,20 @@ function findLatestTimestamp(text: string): string {
 
 /**
  * Run the full coherence check across all active topics.
+ *
+ * @param topics      Active topic states from `loadPortfolioState`.
+ * @param todoIds     IDs currently in the `autopilot: ready` TODO queue.
+ *                    Optional — defaults to empty set for callers that don't
+ *                    have a loaded TODO queue (cli, engine, tests). When
+ *                    empty, prereqs naming TODO ids are treated as satisfied
+ *                    (the only honest read available without TODO context).
+ *                    When supplied, prereqs whose id is in this set are
+ *                    treated as still-active and emit a blocker conflict.
  */
-export function checkCoherence(topics: TopicState[]): CoherenceReport {
+export function checkCoherence(
+  topics: TopicState[],
+  todoIds: Set<string> = new Set(),
+): CoherenceReport {
   const conflicts: Conflict[] = [];
 
   // Build subsystem heatmap
@@ -649,7 +692,7 @@ export function checkCoherence(topics: TopicState[]): CoherenceReport {
   conflicts.push(...detectStaleBlueprints(topics));
 
   // 4. Prerequisite violations
-  conflicts.push(...detectPrerequisiteViolations(topics));
+  conflicts.push(...detectPrerequisiteViolations(topics, todoIds));
 
   // 5. Unresolved BREAKS cascading to other topics
   conflicts.push(...detectBreaksCascade(topics, heatmap));
@@ -934,14 +977,22 @@ function detectStaleBlueprints(topics: TopicState[]): Conflict[] {
 
 /**
  * Detect topics that depend on others that haven't completed.
+ *
+ * A prereq id is satisfied when it matches NEITHER an active topic in a
+ * non-completed phase NOR an active TODO id in `todoIds`. Unmatched ids
+ * (typos, references to topics/TODOs that have already shipped and been
+ * removed) are treated as satisfied and surfaced as an `info` advisory so
+ * a reader can spot a typo without the topic getting silently filtered.
  */
-function detectPrerequisiteViolations(topics: TopicState[]): Conflict[] {
+function detectPrerequisiteViolations(
+  topics: TopicState[],
+  todoIds: Set<string>,
+): Conflict[] {
   const conflicts: Conflict[] = [];
   const allTopicNames = new Set(topics.map(t => t.topic));
 
   for (const topic of topics) {
     for (const prereq of topic.prerequisites) {
-      // Check if prerequisite is still active (not completed)
       if (allTopicNames.has(prereq)) {
         const prereqTopic = topics.find(t => t.topic === prereq)!;
         if (!COMPLETED_PHASES.has(prereqTopic.phase)) {
@@ -955,6 +1006,26 @@ function detectPrerequisiteViolations(topics: TopicState[]): Conflict[] {
             recommendation: `Advance ${prereq} to completion before building ${topic.topic}.`,
           });
         }
+      } else if (todoIds.has(prereq)) {
+        conflicts.push({
+          severity: 'blocker',
+          type: 'prerequisite',
+          topics: [topic.topic, prereq],
+          subsystems: [],
+          description: `${topic.topic} requires ${prereq} to complete first, ` +
+            `but ${prereq} is still on the autopilot-ready TODO queue.`,
+          recommendation: `Land ${prereq} (remove from TODO.md or strike through with commit hash) before advancing ${topic.topic}.`,
+        });
+      } else {
+        conflicts.push({
+          severity: 'info',
+          type: 'prerequisite',
+          topics: [topic.topic, prereq],
+          subsystems: [],
+          description: `${topic.topic} lists prerequisite "${prereq}" which is not in the active topic list or autopilot-ready TODO queue. ` +
+            `Treating as satisfied. If this is a typo, fix it; if the dependency was already resolved, remove the entry.`,
+          recommendation: `Verify ${prereq} is correctly spelled and either still tracked or genuinely shipped.`,
+        });
       }
     }
   }

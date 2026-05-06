@@ -142,8 +142,43 @@ function rootCausePrefix(message: string | undefined): string {
 // lives in state-io.ts (which already owns shared safe-I/O primitives in
 // the presence of concurrent sessions). Re-export here to preserve the
 // public import surface used by autopilot-stash.test.ts.
-import { captureDirtyPaths } from './state-io.js';
+import { captureDirtyPaths, atomicWriteFileSync } from './state-io.js';
 export { captureDirtyPaths };
+
+// ── Auto-pause-on-failure (one-strike) ──────────────────────
+
+/**
+ * After a topic candidate fails or errors, mark its cycle-state YAML
+ * `lifecycle_state: paused` + `pause_reason` so the next autopilot run
+ * skips the topic instead of re-attempting it (which would burn the same
+ * failure shape repeatedly -- the per-run circuit breaker only catches
+ * intra-run repetition).
+ *
+ * Idempotent: if the topic is already paused, leaves it alone (the
+ * existing pause_reason is preserved -- usually richer than what we'd
+ * write here from a failure prefix).
+ *
+ * Best-effort: write failures are caught by the caller and logged; the
+ * autopilot loop continues. Worst case the topic gets picked again next
+ * run and produces the same failure plus another auto-pause attempt.
+ */
+function autoPauseTopicOnFailure(
+  stateDir: string,
+  topicId: string,
+  failureMessage: string | undefined,
+): boolean {
+  const statePath = resolve(stateDir, `${topicId}.yaml`);
+  if (!existsSync(statePath)) return false;
+  const content = readFileSync(statePath, 'utf-8');
+  const data = (yaml.load(content) as Record<string, unknown> | null) ?? {};
+  if (data['lifecycle_state'] === 'paused') return false;
+  data['lifecycle_state'] = 'paused';
+  data['pause_reason'] =
+    `auto-paused after autopilot failure: ${rootCausePrefix(failureMessage)}`;
+  data['auto_paused_at'] = new Date().toISOString();
+  atomicWriteFileSync(statePath, yaml.dump(data, { lineWidth: -1 }));
+  return true;
+}
 
 /**
  * After a workflow run, stash ONLY paths the workflow itself made dirty,
@@ -360,8 +395,18 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
       break;
     }
 
+    // 1c. Load TODO queue once per iteration. We need it both for:
+    //   - prereq resolution in coherence (a topic listing GAP-275 as
+    //     prerequisite must block while GAP-275 is still on the autopilot
+    //     ready queue), and
+    //   - building TODO advance candidates below (when sourceSel !== 'topics').
+    // Workflows can modify TODO.md, so the mid-batch safety re-eval (line
+    // ~567) and the final coherence report (line ~762) re-load.
+    const todoItems = loadTodoQueue(cwd);
+    const todoIds = new Set(todoItems.map(t => t.id));
+
     // 2. Run coherence check
-    const report = checkCoherence(topics);
+    const report = checkCoherence(topics, todoIds);
     result.coherenceReport = report;
 
     await adapter.sendMessage(`\nActive: ${report.activeTopics} | Safe: ${report.safe.length} | Blocked: ${report.blocked.length} | Conflicts: ${report.conflicts.filter(c => c.severity === 'blocker').length}`);
@@ -383,6 +428,7 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
     const paused: string[] = [];
 
     if (sourceSel !== 'todo') {
+      const topicCandidates: AdvanceCandidate[] = [];
       for (const topicState of topics) {
         // Apply filter if provided
         if (opts.filter && !topicState.topic.includes(opts.filter)) continue;
@@ -399,20 +445,27 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
         const action = getAdvanceAction(topicState);
         if (!action) continue;
 
-        advanceable.push({
+        topicCandidates.push({
           source: 'topic',
           id: topicState.topic,
           topic: topicState,
           action,
           phaseLabel: topicState.phase,
-          score: 0,
+          score: topicState.score,
         });
       }
+      // Sort topics by score desc within the topic tier. Stable sort keeps
+      // YAML-iteration order on ties, preserving prior behavior for topics
+      // that haven't been scored. Topic tier still ranks ahead of TODOs --
+      // the TODO append below is unconditional, so a score-0 topic still
+      // beats a score-27 TODO (cycle-ceremony-already-paid invariant per
+      // commands/lattice/autopilot.md "Build the unified queue" section).
+      topicCandidates.sort((a, b) => b.score - a.score);
+      advanceable.push(...topicCandidates);
     }
 
     if (sourceSel !== 'topics') {
       const activeIds = new Set(topics.map(t => t.topic));
-      const todoItems = loadTodoQueue(cwd);
       const todoCandidates: AdvanceCandidate[] = [];
       for (const item of todoItems) {
         if (opts.filter && !item.id.includes(opts.filter)) continue;
@@ -527,9 +580,13 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
       // safety result on a fresh TODO id that doesn't appear in `topics`.
       if (attemptsThisLoop > 0 && cand.source === 'topic') {
         // loadTopicsCached returns the cached enriched topics unless a
-        // prior workflow / auto-resolve marked the cache dirty.
+        // prior workflow / auto-resolve marked the cache dirty. Re-load
+        // TODO ids freshly because workflows often modify TODO.md (strike
+        // through resolved items, append new gaps), so the iteration-top
+        // snapshot can be stale by the time we re-check safety.
         const freshTopics = loadTopicsCached();
-        const freshReport = checkCoherence(freshTopics);
+        const freshTodoIds = new Set(loadTodoQueue(cwd).map(t => t.id));
+        const freshReport = checkCoherence(freshTopics, freshTodoIds);
         const safety = isTopicSafe(cand.id, freshReport);
         if (!safety.safe) {
           skippedDueToStateChange++;
@@ -643,6 +700,33 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
         );
       }
 
+      // Auto-pause-on-failure (one-strike). When a TOPIC candidate fails
+      // or errors, write lifecycle_state: paused to its YAML so the next
+      // autopilot run skips it. Repeated picks of a topic with a real
+      // blocker (e.g., e2e-run failure that needs engineering attention)
+      // burn iterations on the same failure -- the circuit breaker only
+      // handles intra-run shape repetition. User resumes the topic by
+      // editing the YAML (remove lifecycle_state or set to 'active').
+      //
+      // Topic candidates only -- TODO items have their own lifecycle on
+      // TODO.md and don't carry a YAML to write to here.
+      if ((outcome === 'failed' || outcome === 'error') && cand.source === 'topic') {
+        try {
+          const paused = autoPauseTopicOnFailure(stateDir, cand.id, failureMessage);
+          if (paused) {
+            await adapter.sendMessage(
+              `  ${cand.id}: AUTO-PAUSED (lifecycle_state: paused; resume by editing the YAML).`,
+            );
+            cacheDirty = true;
+          }
+        } catch (err) {
+          const m = err instanceof Error ? err.message : String(err);
+          await adapter.sendMessage(
+            `  ${cand.id}: auto-pause write failed (non-fatal): ${m}`,
+          );
+        }
+      }
+
       // Circuit-breaker bookkeeping (Phase 3). Reset on success/pause;
       // accumulate on failure/error when the root-cause prefix matches
       // the previous failure. A different prefix resets the counter (a
@@ -696,8 +780,11 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
 
     // 6. Collect decisions from blocked topics. Re-uses the cached enriched
     // state when no workflow / auto-resolve mutated it during this iteration.
+    // TODO ids re-loaded freshly -- iteration may have committed TODO.md
+    // edits via the implement-todo / mechanical-fix-cycle workflows.
     const finalTopics = loadTopicsCached();
-    const finalReport = checkCoherence(finalTopics);
+    const finalTodoIds = new Set(loadTodoQueue(cwd).map(t => t.id));
+    const finalReport = checkCoherence(finalTopics, finalTodoIds);
     result.coherenceReport = finalReport;
     collectPendingDecisions(finalTopics, finalReport, result);
 

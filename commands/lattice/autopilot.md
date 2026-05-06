@@ -123,6 +123,24 @@ For each selected item:
 
 **Phase transitions are automatic.** Do NOT ask "start blueprint?" or "ready to build?" — if the coherence check passed, proceed.
 
+**Topic priority signal.** Topic YAMLs may carry two optional fields autopilot honors during queue construction:
+
+- `prerequisites: [topic-or-todo-id, ...]` — block this topic until each listed id is complete. An id is satisfied when it matches NEITHER an active topic in a non-completed phase NOR an entry in the `autopilot: ready` TODO queue. Unmatched ids (typos, references to already-shipped work) are treated as satisfied and surfaced as an `info` advisory in the coherence report. Legacy prose form `prerequisite: "X must be complete first"` (top-level or under `implementation_context:`) continues to work and merges with the array via dedupe.
+- `score: <int 0-27>` — same rubric as TODO scoring (pillars × data × impl). Sorts topics within the topic tier; topic-vs-TODO tier ordering is unchanged (topics still rank ahead of TODOs of any score). Out-of-range values clamp; non-numeric defaults to 0.
+
+Example:
+
+```yaml
+topic: example-topic
+phase: research-complete
+score: 18
+prerequisites:
+  - GAP-275           # blocks while GAP-275 is on the autopilot-ready TODO queue
+  - other-topic-id    # blocks while other-topic-id is in a non-completed phase
+```
+
+**Auto-pause-on-failure (one-strike).** When a topic candidate fails or errors, the executor writes `lifecycle_state: paused` + `pause_reason` + `auto_paused_at` to its cycle-state YAML before continuing. This prevents the next autopilot run from re-picking the same topic and burning iterations on the same blocker (e.g., persistent e2e-run failures, blueprint-cycle blockers that need engineering attention). Idempotent — a topic already paused stays paused with its existing reason. To resume a paused topic: edit the YAML and remove `lifecycle_state` (or set it to `active`). The per-run circuit breaker still trips at 5 consecutive same-cause failures across topics.
+
 **Commit trailers are mandatory.** Every commit carries:
 ```
 Topic: {topic-or-todo-id}
