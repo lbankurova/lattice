@@ -1,0 +1,679 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Agentic dev for Datagrok plugins</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.css">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/theme/black.css">
+<style>
+  :root {
+    --r-background-color: #0d1117;
+    --r-main-color: #c9d1d9;
+    --r-heading-color: #e6edf3;
+    --r-link-color: #58a6ff;
+    --r-heading-font: system-ui, -apple-system, sans-serif;
+    --r-main-font: system-ui, -apple-system, sans-serif;
+    --r-code-font: 'SF Mono', 'Cascadia Code', 'Fira Code', monospace;
+    --r-main-font-size: 28px;
+    --r-heading1-size: 1.8em;
+    --r-heading2-size: 1.4em;
+    --r-heading3-size: 1.1em;
+  }
+  .reveal { font-weight: 300; }
+  .reveal strong { color: #e6edf3; font-weight: 600; }
+  .reveal h1, .reveal h2, .reveal h3 { font-weight: 600; letter-spacing: -0.02em; }
+  .reveal h3 { color: #8b949e; font-weight: 400; }
+  .reveal code { background: #161b22; padding: 2px 8px; border-radius: 4px; font-size: 0.85em; color: #79c0ff; }
+  .reveal pre { box-shadow: none; }
+  .reveal pre code { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px 20px; font-size: 0.6em; line-height: 1.5; max-height: 480px; }
+  .reveal table { margin: 0 auto; border-collapse: collapse; font-size: 0.55em; }
+  .reveal table th { background: #161b22; color: #58a6ff; font-weight: 600; text-transform: uppercase; font-size: 0.85em; letter-spacing: 0.05em; }
+  .reveal table td, .reveal table th { border: 1px solid #30363d; padding: 6px 10px; }
+  .reveal table tr:nth-child(even) { background: rgba(22, 27, 34, 0.5); }
+  .reveal .dim { color: #8b949e; }
+  .reveal .accent { color: #58a6ff; }
+  .reveal .warn { color: #d29922; }
+  .reveal .fail { color: #f85149; }
+  .reveal .pass { color: #3fb950; }
+  .reveal ul { list-style: none; padding-left: 0; }
+  .reveal ul li { margin-bottom: 0.5em; }
+  .reveal ul li::before { content: ""; display: inline-block; width: 6px; height: 6px; background: #58a6ff; border-radius: 50%; margin-right: 12px; vertical-align: middle; }
+  .reveal .stat-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 700px; margin: 0 auto; }
+  .reveal .stat-box { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px; text-align: center; }
+  .reveal .stat-box .num { font-size: 2em; font-weight: 700; color: #58a6ff; display: block; }
+  .reveal .stat-box .label { font-size: 0.6em; color: #8b949e; text-transform: uppercase; letter-spacing: 0.05em; }
+  .reveal .stat-box.pass .num { color: #3fb950; }
+  .reveal .stat-box.warn .num { color: #d29922; }
+  .reveal .stat-box.fail .num { color: #f85149; }
+  .title-slide h1 { font-size: 1.6em !important; line-height: 1.2; }
+  .title-slide h3 { font-size: 0.7em !important; margin-top: 20px; }
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; font-size: 0.65em; max-width: 900px; margin: 16px auto 0; }
+  .two-col > div { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 16px 18px; text-align: left; }
+  .three-col { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; font-size: 0.55em; max-width: 1100px; margin: 16px auto 0; }
+  .three-col > div { background: #161b22; border: 1px solid #30363d; border-radius: 8px; padding: 14px; text-align: left; }
+  .reveal .source-cite { font-size: 0.5em; color: #484f58; margin-top: 16px; text-align: center; font-style: italic; }
+  .reveal .mermaid { background: transparent; margin: 0 auto; }
+  .reveal .mermaid svg { max-height: 540px !important; }
+  .footnote { font-size: 0.5em; color: #484f58; margin-top: 14px; text-align: center; }
+
+  /* Workflow timeline (story-driven walkthrough) */
+  .flow { max-width: 1050px; margin: 0 auto; text-align: left; font-size: 0.6em; }
+  .flow .step { display: grid; grid-template-columns: 110px 1fr; gap: 18px; padding: 14px 0; border-bottom: 1px solid #21262d; align-items: start; }
+  .flow .step:last-child { border-bottom: none; }
+  .flow .step .when { color: #58a6ff; font-weight: 700; padding-top: 2px; }
+  .flow .step .what { line-height: 1.55; }
+  .flow .step .what code { font-size: 0.95em; }
+  .flow .step .agent { color: #b8a8ff; font-style: italic; }
+  .flow .step .gate { color: #d29922; }
+  .flow .step .ok { color: #3fb950; }
+
+  /* Bridge / authoring cards */
+  .bridge { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; max-width: 1100px; margin: 14px auto; font-size: 0.55em; text-align: left; }
+  .bridge .piece { background: #161b22; border-radius: 10px; padding: 16px 18px; border: 1px solid #30363d; }
+  .bridge .piece h4 { margin: 0 0 6px 0; color: #58a6ff; font-size: 1.3em; }
+  .bridge .piece .who { color: #8b949e; font-style: italic; font-size: 0.9em; margin-bottom: 10px; }
+  .bridge .piece code { font-size: 0.95em; background: rgba(255,255,255,0.04); }
+  .bridge .piece.platform { border-left: 4px solid #185fa5; }
+  .bridge .piece.skills { border-left: 4px solid #534ab7; }
+  .bridge .piece.knowledge { border-left: 4px solid #0f6e56; }
+
+  /* Pillars (cardinality slide) */
+  .pillar-grid { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; max-width: 1100px; margin: 14px auto; font-size: 0.55em; text-align: left; }
+  .pillar-grid .pillar { border-radius: 10px; padding: 16px 18px; border: 1px solid; }
+  .pillar-grid .pillar h4 { margin: 0 0 6px 0; font-size: 1.4em; }
+  .pillar-grid .pillar .sub { color: #8b949e; font-size: 0.85em; margin-bottom: 10px; font-style: italic; }
+  .pillar-grid .pillar.platform { background: #0a1f33; border-color: #185fa5; }
+  .pillar-grid .pillar.platform h4 { color: #79c0ff; }
+  .pillar-grid .pillar.harness { background: #1a1640; border-color: #534ab7; }
+  .pillar-grid .pillar.harness h4 { color: #b8a8ff; }
+  .pillar-grid .pillar.project { background: #0a2620; border-color: #0f6e56; }
+  .pillar-grid .pillar.project h4 { color: #6ddfb1; }
+  .pillar-grid .pillar code { background: rgba(255,255,255,0.05); padding: 1px 6px; font-size: 0.95em; color: #e6edf3; }
+
+  /* Mini-cards for skill enumeration */
+  .mini-cards { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; font-size: 0.55em; max-width: 1000px; margin: 0 auto; text-align: left; }
+  .mini-cards .card { background: #161b22; border: 1px solid #30363d; border-radius: 6px; padding: 10px 14px; }
+  .mini-cards .card .head { color: #58a6ff; font-weight: 600; margin-bottom: 4px; }
+  .mini-cards .card .head .id { color: #d29922; margin-right: 6px; font-weight: 700; }
+  .mini-cards .card .meta { color: #8b949e; font-size: 0.85em; line-height: 1.4; }
+
+  /* Failure-mode list */
+  .fm-list { max-width: 920px; margin: 0 auto; text-align: left; font-size: 0.55em; }
+  .fm-list .row { display: grid; grid-template-columns: 200px 1fr; gap: 14px; padding: 8px 0; border-bottom: 1px solid #21262d; align-items: start; }
+  .fm-list .row .mode { color: #d29922; font-weight: 700; }
+  .fm-list .row .mech { color: #c9d1d9; line-height: 1.5; }
+  .fm-list .row .mech code { font-size: 0.95em; }
+
+  /* Asks list */
+  .asks { max-width: 950px; margin: 0 auto; text-align: left; font-size: 0.6em; }
+  .asks .ask { background: #161b22; border-left: 3px solid #58a6ff; border-radius: 0 6px 6px 0; padding: 12px 18px; margin-bottom: 12px; }
+  .asks .ask .q { color: #79c0ff; font-weight: 600; margin-bottom: 4px; }
+  .asks .ask .why { color: #8b949e; font-size: 0.9em; line-height: 1.5; }
+</style>
+</head>
+<body>
+<div class="reveal">
+<div class="slides">
+
+<!-- ============================================================ -->
+<!-- 1. TITLE -->
+<!-- ============================================================ -->
+<section class="title-slide">
+  <h1>Agentic dev for Datagrok plugins</h1>
+  <h3>What it looks like, and how to get there</h3>
+  <p style="margin-top: 32px; font-size: 0.55em; color: #8b949e; max-width: 740px; line-height: 1.6;">
+    For Datagrok plugin developers asking: <em>"can I have agents do the boring 80%, with discipline I'd trust to ship?"</em><br>
+    A research deliverable in 13 slides &mdash; press <strong>down arrow</strong> on any slide for drill-downs.
+  </p>
+  <p style="margin-top: 28px; font-size: 0.45em; color: #484f58;">
+    2026-05-07 &bull; <code>C:/pg/lattice/research/dg-harness/</code>
+  </p>
+</section>
+
+<!-- ============================================================ -->
+<!-- 2. TODAY -->
+<!-- ============================================================ -->
+<section>
+  <h2>Today: every plugin is a fresh problem</h2>
+  <div class="stat-grid" style="grid-template-columns: repeat(4, 1fr); max-width: 1000px;">
+    <div class="stat-box"><span class="num">74</span><span class="label">Plugin packages<br>in datagrok-public</span></div>
+    <div class="stat-box"><span class="num">569</span><span class="label">Help markdown files<br>(98 in /develop)</span></div>
+    <div class="stat-box"><span class="num">9</span><span class="label">grok check checks<br>(build-time only)</span></div>
+    <div class="stat-box fail"><span class="num">0</span><span class="label">First-party<br>agentic-dev tooling</span></div>
+  </div>
+  <p style="font-size: 0.7em; max-width: 850px; margin: 28px auto 0; line-height: 1.55;">
+    Plugin authors reverse-engineer conventions from source-reading. <code>grok check</code> validates at build time, but no agent today can <em>plan</em> against the platform's contract triangles, <em>scaffold</em> a viewer with the right base class, or <em>review</em> someone else's PR for reuse-anchor drift.
+  </p>
+  <p style="font-size: 0.65em; color: #8b949e; max-width: 800px; margin: 16px auto 0;">
+    Tableau, Spotfire, PowerBI, Streamlit Components: same gap. <strong>No BI / analytics platform ships a first-party agentic-dev story for plugin authors.</strong>
+  </p>
+  <p class="source-cite">01-platform-jsapi.md &bull; 02-plugin-scaffolds.md &bull; 03-comparable-frameworks.md Group 2</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- 3. TOMORROW: WHAT THE WORKFLOW LOOKS LIKE -->
+<!-- ============================================================ -->
+<section>
+  <section>
+    <h2>Tomorrow: <em>"I want a viewer that..."</em></h2>
+    <h3>One worked cycle, end to end</h3>
+    <div class="flow">
+      <div class="step"><div class="when">Day 1</div><div class="what">
+        I drop a 1-page spec into <code>incoming/my-viewer-spec.md</code>.<br>
+        <span class="agent">Agent reads it + the DG component map + the typed fact graph + the existing 74 packages for prior art.</span><br>
+        Runs research-cycle: <strong>R1 + R2 fresh-context peer review</strong>. I see two reviews, no rationale leakage.
+      </div></div>
+      <div class="step"><div class="when">Week 1</div><div class="what">
+        <code>/lattice:blueprint-cycle my-viewer</code> &mdash; agent synthesizes against the component map.<br>
+        <span class="agent">Architect-reviewer agent fires (separate context):</span> overengineering check, reuse-anchor check, science-preservation check.<br>
+        <span class="gate">Gate routes by verdict</span> &mdash; PASS / SIMPLIFY / REJECT / SCIENCE-FLAG.
+      </div></div>
+      <div class="step"><div class="when">Week 2-4</div><div class="what">
+        <code>/lattice:build-cycle my-viewer</code> &mdash; agent runs <code>grok create</code>, then the <code>add-viewer</code> + <code>add-function</code> skills.<br>
+        Every commit: <strong>pre-commit hook</strong> runs <code>grok check --strict</code>, audit-harness-pillar, science preservation gate.<br>
+        <span class="agent">Three reviewer agents fire on the diff in parallel</span> &mdash; architect, decision-auditor, post-impl. Aggregated verdict gates the commit.
+      </div></div>
+      <div class="step"><div class="when">Week 4</div><div class="what">
+        <code>grok publish --release</code>.<br>
+        <span class="ok">Audit trail</span>: every commit carries a <code>Topic:</code> trailer; the reconciler greps git log to derive truth. <em>What was built, what was reviewed, what overrides exist &mdash; visible without asking anyone.</em>
+      </div></div>
+    </div>
+    <p class="source-cite">From Lattice's existing cycle structure (4 months production on SENDEX) &bull; press <strong>down</strong> for what each phase produces</p>
+  </section>
+
+  <!-- drill: what each phase produces -->
+  <section>
+    <h3>What each phase persists</h3>
+    <table style="font-size: 0.5em;">
+      <tr><th>Phase</th><th>Inputs</th><th>Outputs (durable)</th><th>Reviewers</th></tr>
+      <tr><td>Research</td><td>Spec idea, prior research, knowledge files</td><td><code>research/{topic}.md</code> + 2 peer-review files</td><td>peer-review (R1), peer-review (R2)</td></tr>
+      <tr><td>Blueprint</td><td>Validated research, codebase, component map</td><td><code>incoming/{topic}-synthesis.md</code> + plan</td><td>architect-reviewer (gate)</td></tr>
+      <tr><td>Build</td><td>Validated blueprint, scaffold templates, JS API</td><td>Source code commits with <code>Topic:</code> trailers, review-gate.json (consumed)</td><td>architect + decision-auditor + post-impl (parallel)</td></tr>
+      <tr><td>Verify</td><td>Diff, validation references</td><td>Branch-comparison E2E results, validation-baseline.json update</td><td>(automatic — script-driven)</td></tr>
+    </table>
+    <p class="source-cite">Workflows defined as YAML DAGs in <code>workflows/*.yaml</code> &bull; executor topologically dispatches</p>
+  </section>
+</section>
+
+<!-- ============================================================ -->
+<!-- 4. THIS ALREADY EXISTS (for greenfield apps) -->
+<!-- ============================================================ -->
+<section>
+  <h2>This already exists &mdash; for greenfield apps</h2>
+  <h3>Lattice. 4 months of production dev. One developer.</h3>
+  <div class="stat-grid" style="grid-template-columns: repeat(4, 1fr); max-width: 1050px;">
+    <div class="stat-box"><span class="num">35</span><span class="label">Skills<br>(named task prompts)</span></div>
+    <div class="stat-box"><span class="num">4</span><span class="label">Reviewer agents<br>(fresh context)</span></div>
+    <div class="stat-box"><span class="num">7</span><span class="label">Workflow cycles<br>(YAML DAGs)</span></div>
+    <div class="stat-box"><span class="num">9</span><span class="label">LLM failure modes<br>addressed mechanically</span></div>
+  </div>
+  <p style="font-size: 0.7em; max-width: 850px; margin: 28px auto 14px; line-height: 1.55;">
+    SENDEX (pre-clinical SEND data explorer) shipped 4 months of regulated-domain analytical work using this. Two-round peer review, commit-trailer reconciler, four-layer authoritativeness ladder, full concurrency hygiene, science-preservation gate. <strong>It works.</strong>
+  </p>
+  <p style="font-size: 0.7em; max-width: 850px; margin: 14px auto; line-height: 1.55; color: #d29922;">
+    What's missing: <strong>it doesn't know about Datagrok.</strong> No <code>add-viewer</code> skill. No <code>JsViewer</code> base-class awareness. No platform manifest naming <code>grok</code> CLI verbs. No DG conventions in the typed fact graph.
+  </p>
+  <p style="font-size: 0.65em; color: #8b949e; max-width: 850px; margin: 14px auto 0;">
+    These gaps are not in Lattice's design. They're <strong>authorable</strong>. The next four slides describe exactly what to author.
+  </p>
+  <p class="source-cite"><code>C:/pg/lattice/</code> &bull; harness-for-datagrok.md &bull; README.md "Worked translation" §</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- 5. THE BRIDGE -->
+<!-- ============================================================ -->
+<section>
+  <section>
+    <h2>The bridge: three pieces to author</h2>
+    <h3>Each authored once, consumed by every DG plugin</h3>
+    <div class="bridge">
+      <div class="piece platform">
+        <h4>1. Platform manifest</h4>
+        <div class="who">Owned by Datagrok platform team</div>
+        <code>lattice-platform.toml</code><br><br>
+        Names the platform's CLI verbs, scaffold paths, contract triangles, validator command. The harness reads it; skills substitute <code>{{platform.publish.command}}</code> from it.<br><br>
+        <em>One file, one owner.</em>
+      </div>
+      <div class="piece skills">
+        <h4>2. DG skill pack</h4>
+        <div class="who">Authored once, ships in <code>commands/datagrok/</code></div>
+        7 DG-specific skills: <code>create-package</code>, <code>add-viewer</code>, <code>add-function</code>, <code>add-application</code>, <code>wire-detector</code>, <code>add-semantic-type</code>, <code>add-connection</code>.<br><br>
+        Each one knows the entity template + JS API + JSDoc grammar.<br><br>
+        <em>One markdown file per skill. Bounded by example.</em>
+      </div>
+      <div class="piece knowledge">
+        <h4>3. DG knowledge layer</h4>
+        <div class="who">Owned by Datagrok platform team</div>
+        Component map (33 functionRoles, 28 SEMTYPEs, class hierarchy with file:line anchors).<br><br>
+        Typed fact graph (viewer-event lifecycle, semver rules, deprecation policy).<br><br>
+        <em>Workplan W1.A1 + W1.A2 &mdash; seed coverage at kickoff, grows organically.</em>
+      </div>
+    </div>
+    <p style="font-size: 0.62em; color: #8b949e; max-width: 870px; margin: 22px auto 0;">
+      Plus: wire <code>grok check --strict</code> into the harness's pre-commit (one skill in lattice-core, parameterized over the platform manifest).
+    </p>
+    <p class="source-cite">04-project-graph.md §6 &bull; 07-proposed-skills.md §6 &bull; press <strong>down</strong> for skill detail</p>
+  </section>
+
+  <!-- drill: the 7 skills -->
+  <section>
+    <h3>The 7 DG skills, one card each</h3>
+    <div class="mini-cards">
+      <div class="card"><div class="head">create-package</div><div class="meta">
+        Wraps <code>grok create</code>. Substitutes the placeholder grammar (<code>#{PACKAGE_NAME}</code>, etc.). Initializes <code>lattice-project.toml</code> alongside <code>package.json</code>.
+      </div></div>
+      <div class="card"><div class="head">add-viewer</div><div class="meta">
+        Generates a <code>JsViewer</code>-extending class with the platform-required constructor pattern + property descriptors. Knows <code>tools/entity-template/viewer-class.ts</code>.
+      </div></div>
+      <div class="card"><div class="head">add-function</div><div class="meta">
+        Appends a function with <code>//name:</code>, <code>//input:</code>, <code>//output:</code> JSDoc. Decorator alternative via <code>@grok.decorators.func</code>. Knows the 33-role <code>functionRoles[]</code> registry.
+      </div></div>
+      <div class="card"><div class="head">add-application</div><div class="meta">
+        Function annotated <code>//tags: app</code> with the canonical entry-point shape. Wires sidebar + autostart hook if requested.
+      </div></div>
+      <div class="card"><div class="head">wire-detector</div><div class="meta">
+        Adds a method to <code>&lt;Name&gt;PackageDetectors extends DG.Package</code>. Returns a <code>DG.SemType</code> from the registered set or registers a new one.
+      </div></div>
+      <div class="card"><div class="head">add-semantic-type</div><div class="meta">
+        Registers a new <code>DG.SEMTYPE.*</code> constant. Wires the <code>SemTypeInfo</code> registration shape. Updates the typed fact graph.
+      </div></div>
+      <div class="card" style="grid-column: 1 / -1;"><div class="head">add-connection</div><div class="meta">
+        Adds <code>connections/&lt;name&gt;.json</code> + <code>queries/&lt;name&gt;.sql</code> with <code>--input</code> annotations. Per the <code>Chembl</code> package pattern.
+      </div></div>
+    </div>
+    <p class="source-cite">07-proposed-skills.md §3 + §4 &bull; placement test in 07 §2</p>
+  </section>
+
+  <!-- drill: pillar cardinality -->
+  <section>
+    <h3>Pillar cardinality (so this scales past one plugin)</h3>
+    <div class="pillar-grid">
+      <div class="pillar platform">
+        <h4>Platform</h4>
+        <div class="sub">1 per platform<br>(Datagrok team owns)</div>
+        Platform manifest + DG skill pack + component map + fact graph. Same artifact for every DG plugin. Authored once, maintained by Datagrok.
+      </div>
+      <div class="pillar harness">
+        <h4>Harness</h4>
+        <div class="sub">1 total<br>(lattice-core)</div>
+        Cycle workflows + executor + reviewer agents + hooks + locks. Same artifact across <em>every</em> project everywhere. SENDEX, plugin #2, plugin #N, hypothetical non-DG project &mdash; same harness.
+      </div>
+      <div class="pillar project">
+        <h4>Project</h4>
+        <div class="sub">N (1 per plugin)<br>(plugin author owns)</div>
+        Project manifest + domain knowledge + 7 customized HEAVY skills. Per-plugin work; SENDEX is plugin #1.
+      </div>
+    </div>
+    <p style="font-size: 0.6em; color: #8b949e; max-width: 870px; margin: 22px auto 0;">
+      <strong>The testable claim:</strong> swap the Platform pillar (DG → Tableau) and the Harness shape stays constant; add a Project pillar (plugin #2) and the Harness shape stays constant. Within DG, one Platform pillar serves every plugin.
+    </p>
+    <p class="source-cite">README.md "Pillar cardinality" &bull; user kickoff SVG</p>
+  </section>
+</section>
+
+<!-- ============================================================ -->
+<!-- 6. WHAT YOU AUTHOR (per-plugin) -->
+<!-- ============================================================ -->
+<section>
+  <section>
+    <h2>What you author (per-plugin)</h2>
+    <h3>The work that varies between plugins</h3>
+    <div class="two-col">
+      <div>
+        <div style="color: #58a6ff; font-weight: 700; font-size: 1.3em; margin-bottom: 8px;">One-time, when you start</div>
+        <ul style="font-size: 0.95em;">
+          <li><code>lattice-project.toml</code> &mdash; paths to your TODO, knowledge, validation refs, runtime commands.</li>
+          <li>Customize the 7 HEAVY skills for your domain &mdash; <code>review.md</code>, <code>design.md</code>, <code>lint-knowledge.md</code>, <code>lit-triage.md</code>, <code>ops/check.md</code>, <code>ops/bug-stress.md</code>, <code>ops/explore-data.md</code>.</li>
+          <li>Author your domain knowledge files. Varies; for SENDEX it's tox science (NOAEL, syndromes). For a chem plugin, it'd be mol descriptors + RDKit conventions.</li>
+        </ul>
+      </div>
+      <div>
+        <div style="color: #58a6ff; font-weight: 700; font-size: 1.3em; margin-bottom: 8px;">Continuous, while you work</div>
+        <ul style="font-size: 0.95em;">
+          <li>Specs in <code>incoming/</code> &mdash; one per feature you want.</li>
+          <li>Domain knowledge in <code>knowledge/</code> &mdash; typed facts, registries, design tables.</li>
+          <li>TODO + ROADMAP + decisions log &mdash; the harness writes most of these for you.</li>
+          <li>Test fixtures + validation references &mdash; if your domain has correctness criteria.</li>
+        </ul>
+      </div>
+    </div>
+    <p style="font-size: 0.7em; max-width: 850px; margin: 26px auto 0; color: #c9d1d9;">
+      Everything else &mdash; cycle orchestration, reviewer agents, peer review rounds, concurrency hygiene, decision log, audit trail &mdash; the <strong>harness handles it.</strong>
+    </p>
+    <p class="source-cite">04-project-graph.md §6 &bull; press <strong>down</strong> for SENDEX as worked example</p>
+  </section>
+
+  <!-- drill: SENDEX as worked example -->
+  <section>
+    <h3>SENDEX as worked example</h3>
+    <table style="font-size: 0.5em;">
+      <tr><th>Project artifact</th><th>What it contains today</th><th>Lives in</th></tr>
+      <tr><td><code>lattice-project.toml</code></td><td>Paths to <code>docs/_internal/</code>, knowledge files, validation refs, frontend build cmd</td><td>repo root (NEW for the harness contract)</td></tr>
+      <tr><td><code>review.md</code></td><td>"You are the Review Agent for SENDEX"; SEND domain expertise; tox-shaped 7-section format</td><td><code>commands/project/review.md</code></td></tr>
+      <tr><td><code>design.md</code></td><td>Tox UI design rules; CT-N theme catalog; SENDEX component-name references</td><td><code>commands/project/design.md</code></td></tr>
+      <tr><td><code>knowledge-graph.md</code></td><td>~150 typed YAML facts (HCD thresholds, syndrome rules, severity gradings)</td><td><code>docs/_internal/knowledge/</code></td></tr>
+      <tr><td><code>methods-index.md</code></td><td>STAT-01..18, METH-01..46, ASSAY-01..04</td><td><code>docs/_internal/knowledge/</code></td></tr>
+      <tr><td><code>species-profiles.md</code></td><td>rat / dog / rabbit / NHP / GP biology</td><td><code>docs/_internal/knowledge/</code></td></tr>
+      <tr><td><code>contract-triangles.md</code></td><td>declaration / enforcement / consumption per contract field</td><td><code>docs/_internal/knowledge/</code></td></tr>
+      <tr><td><code>validation/references/*.yaml</code></td><td>Per-study assertion cards (ground-truth oracle)</td><td><code>docs/validation/</code></td></tr>
+    </table>
+    <p style="font-size: 0.6em; color: #8b949e; max-width: 850px; margin: 16px auto 0;">
+      For SENDEX-on-DG, the science doesn't change. The build target does (Vercel/server → <code>grok publish</code>). The frontend re-targets (React → DG viewers/widgets). The harness configuration is unchanged.
+    </p>
+    <p class="source-cite">SENDEX project graph audited at <code>C:/pg/pcc/</code></p>
+  </section>
+</section>
+
+<!-- ============================================================ -->
+<!-- 7. WHAT THE HARNESS HANDLES -->
+<!-- ============================================================ -->
+<section>
+  <section>
+    <h2>What the harness handles (so you don't)</h2>
+    <h3>9 LLM failure modes addressed mechanically</h3>
+    <div class="fm-list">
+      <div class="row"><div class="mode">Self-review</div><div class="mech">4 reviewer sub-agents launched with <code>context: fresh</code>. The agent reviewing the artifact has no rationale-leakage from the agent that produced it.</div></div>
+      <div class="row"><div class="mode">Context-window degradation</div><div class="mech">Phase boundaries (research / blueprint / build) terminate at deterministic state files. Next phase reads the file, not the conversation. Per-call telemetry warns at 0.6 of context window, blocks at 0.8.</div></div>
+      <div class="row"><div class="mode">Cross-session memory loss</div><div class="mech">4 layers in order of authoritativeness: <code>Topic:</code> commit trailers (truth) → <code>decisions.log</code> (append-only) → <code>cycle-state/{topic}.yaml</code> → typed fact graph.</div></div>
+      <div class="row"><div class="mode">Rule-drift under load</div><div class="mech">Every rule that has shipped a defect has a hook. Pre-commit BLOCKS on missing review gate, missing bug retro, staging-drift, contract-triangle desync. PreToolUse BLOCKS engine writes during design-mode.</div></div>
+      <div class="row"><div class="mode">Scope creep</div><div class="mech">Architect-reviewer agent with explicit verdicts (PASS / SIMPLIFY / REJECT / SCIENCE-FLAG). SIMPLIFY-Risk-None auto-applies. Spec value audit forces frequency / workaround / impact per feature.</div></div>
+      <div class="row"><div class="mode">Runaway loops</div><div class="mech">2-round peer-review max. Bikeshed arbiter classifies R2-only objections; persistent-FLAWED arbiter mark-each-side's-evidence-VERIFIABLE-or-not. Outer autopilot loop hard-capped at 50.</div></div>
+      <div class="row"><div class="mode">Fabrication</div><div class="mech">Tool call as proof of consultation. Algorithmic peer-review must invoke <code>query-knowledge.py</code> against the typed graph. No invocation = re-launch. No fact found = explicit stub, not "generally accepted."</div></div>
+      <div class="row"><div class="mode">Concurrency conflicts</div><div class="mech">Per-topic WIP locks (mkdir-atomic, PID-liveness). Per-repo commit lock with outer-held variant. CAS-style state writes (revision-checked). Staging-drift detection at hook exit.</div></div>
+      <div class="row"><div class="mode">Wrong-question substitution</div><div class="mech">Algorithm-defensibility gate: SCIENCE-FLAG cleared only by (a) fix, (b) data-grounded counter-evidence in named format, or (c) explicit user defer. Pipeline-correctness rebuttals do NOT clear the flag.</div></div>
+    </div>
+    <p class="source-cite">Lattice README.md "Failure modes and mechanisms" lines 126-234 &bull; press <strong>down</strong> for the field comparison</p>
+  </section>
+
+  <!-- drill: comparable systems -->
+  <section>
+    <h3>What the field already knows (8 systems surveyed)</h3>
+    <div class="two-col">
+      <div style="border-left: 3px solid #56d364;">
+        <div style="color: #56d364; font-weight: 700; margin-bottom: 8px;">Universal across systems</div>
+        <ul style="margin: 0; padding: 0; font-size: 0.95em;">
+          <li>Markdown as system-prompt fragments</li>
+          <li>Mode separation within session</li>
+          <li>Git as source of truth</li>
+          <li>Repo-map / context digest of some shape</li>
+        </ul>
+      </div>
+      <div style="border-left: 3px solid #d29922;">
+        <div style="color: #d29922; font-weight: 700; margin-bottom: 8px;">Unique to Lattice (composition)</div>
+        <ul style="margin: 0; padding: 0; font-size: 0.95em;">
+          <li>4-layer authoritativeness ladder</li>
+          <li>Commit-trailer reconciler</li>
+          <li>Verdict-enum registry @ workflow-load</li>
+          <li>2-round PR with bikeshed/persistent arbiters</li>
+          <li>Algorithm-defensibility gate</li>
+          <li>Full file-level concurrency hygiene</li>
+        </ul>
+      </div>
+    </div>
+    <p style="font-size: 0.6em; color: #8b949e; max-width: 850px; margin: 22px auto 0;">
+      Surveyed: Aider, Cline, Continue, SWE-agent, OpenHands, Smol-developer, Cursor, mini-swe-agent. Equivalent mitigations exist for several "unique" failure modes via different mechanisms (OpenHands trained critic, SWE-agent action parser, container isolation). <strong>Novelty is at composition level, not categorical.</strong>
+    </p>
+    <p class="source-cite">03-comparable-frameworks.md cross-cutting §2-§3</p>
+  </section>
+
+  <!-- drill: the uncomfortable baseline -->
+  <section>
+    <h3>The uncomfortable baseline</h3>
+    <div class="stat-grid" style="grid-template-columns: 1fr 1fr; max-width: 800px;">
+      <div class="stat-box"><span class="num">65%</span><span class="label">SWE-bench Verified<br>(mini-swe-agent)</span></div>
+      <div class="stat-box"><span class="num">100</span><span class="label">Lines of Python<br>(no harness layers)</span></div>
+    </div>
+    <p style="font-size: 0.7em; color: #c9d1d9; max-width: 800px; margin: 22px auto 0; line-height: 1.55;">
+      mini-swe-agent solves 65% of SWE-bench Verified in 100 lines. The harness layer's value has to clear what the 100-line baseline can't do.
+    </p>
+    <p style="font-size: 0.65em; color: #8b949e; max-width: 800px; margin: 14px auto 0;">
+      Lattice's answer: <strong>multi-week sessions, durable cross-session memory, two-round peer review, mechanical enforcement of project knowledge, concurrent-session safety.</strong> Each is testable against SENDEX's 4-month track record. The thread should sanity-check that the value-delta is real for typical DG plugins, not just for SENDEX-shape projects.
+    </p>
+    <p class="source-cite">SWE-agent paper @ arXiv:2405.15793 &bull; mini-swe-agent (July 2025)</p>
+  </section>
+</section>
+
+<!-- ============================================================ -->
+<!-- 8. SENDEX-ON-DG (the forcing function) -->
+<!-- ============================================================ -->
+<section>
+  <section>
+    <h2>SENDEX-on-DG: the forcing function</h2>
+    <h3>Plugin #1 &mdash; what changes, what stays</h3>
+    <div class="two-col">
+      <div style="border-left: 3px solid #f85149;">
+        <div style="color: #f85149; font-weight: 700; margin-bottom: 8px;">What changes</div>
+        <ul style="margin: 0; padding: 0; font-size: 0.95em;">
+          <li>Build target: <code>npm run build</code> in <code>frontend/</code> → <code>grok api &amp;&amp; grok check &amp;&amp; webpack &amp;&amp; grok publish</code></li>
+          <li>Frontend: React components → DG viewers, widgets, dialogs</li>
+          <li>API: FastAPI routes (<code>/api/...</code>) → <code>dapi.functions</code> + <code>grok.shell</code></li>
+          <li>Deployment: Vercel/server → DG package server</li>
+          <li>Per-plugin work: HEAVY skills customization + project pillar authoring</li>
+        </ul>
+      </div>
+      <div style="border-left: 3px solid #56d364;">
+        <div style="color: #56d364; font-weight: 700; margin-bottom: 8px;">What stays</div>
+        <ul style="margin: 0; padding: 0; font-size: 0.95em;">
+          <li>The science: NOAEL determination, syndrome detection, recovery analysis</li>
+          <li>Domain knowledge: typed fact graph, methods-index, species-profiles, vehicle-profiles</li>
+          <li>Validation references + ground-truth oracle</li>
+          <li>The dev process: research → blueprint → build cycle</li>
+          <li>Reviewer agents + peer review rounds + commit-trailer reconciler</li>
+        </ul>
+      </div>
+    </div>
+    <p style="font-size: 0.7em; color: #c9d1d9; max-width: 850px; margin: 26px auto 0;">
+      <strong>SENDEX continues to be SENDEX.</strong> The DG plugin layer replaces the build/deploy/UI plumbing without touching the analytical engine or the dev discipline.
+    </p>
+    <p class="source-cite">User question that motivated this rewrite &bull; press <strong>down</strong> for phased path</p>
+  </section>
+
+  <!-- drill: phased path -->
+  <section>
+    <h3>The phased path (Larisa-side)</h3>
+    <div class="flow">
+      <div class="step"><div class="when">Phase 0</div><div class="what">
+        <strong>In-place reorg of Lattice.</strong> TOML loaders ship in the executor. Skill prompts use <code>{{lattice.x.y}}</code> templates. SENDEX adopts <code>lattice-project.toml</code>. Harness-pillar audit script lands. <em>SENDEX continues to work without interruption.</em>
+      </div></div>
+      <div class="step"><div class="when">Phase 1</div><div class="what">
+        <strong>Carve <code>lattice-core</code> out as a vendored library.</strong> SENDEX consumes it via dependency. Skill prompt migration (17 path+domain skills re-authored).
+      </div></div>
+      <div class="step"><div class="when">Phase 2</div><div class="what">
+        <strong>DG sibling skill pack lands.</strong> <code>commands/datagrok/</code> with the 7 DG-specific skills. Parallel with Datagrok team's W1.A1 (component map) + W1.A2 (typed fact graph).
+      </div></div>
+      <div class="step"><div class="when">Phase 3</div><div class="what">
+        <strong>SENDEX views port one at a time.</strong> Spike-cycle on the simplest view first. Friction log feeds back into the harness skills. Iterate.
+      </div></div>
+    </div>
+    <p style="font-size: 0.65em; color: #c9d1d9; max-width: 800px; margin: 22px auto 0;">
+      Phases 0-2 land before any per-plugin work; the Datagrok team's W1.A1/A2 happens in parallel with Phase 1. Plugin #2 amortizes most of the harness-side cost.
+    </p>
+    <p class="source-cite">08-architecture-recommendation.md §5</p>
+  </section>
+</section>
+
+<!-- ============================================================ -->
+<!-- 9. WHAT DATAGROK GETS -->
+<!-- ============================================================ -->
+<section>
+  <h2>What the Datagrok team gets</h2>
+  <div class="stat-grid" style="grid-template-columns: repeat(3, 1fr); max-width: 1000px;">
+    <div class="stat-box pass"><span class="num">74</span><span class="label">Hand-built plugins<br>get a reusable harness</span></div>
+    <div class="stat-box pass"><span class="num">1st</span><span class="label">BI / analytics platform<br>with first-party agentic dev</span></div>
+    <div class="stat-box pass"><span class="num">∞</span><span class="label">Future plugins<br>built faster, more consistently</span></div>
+  </div>
+  <p style="font-size: 0.72em; max-width: 870px; margin: 28px auto 14px; line-height: 1.55;">
+    <strong>Plugin authors</strong> get scaffolds, reviewer agents, decision logs, audit trails &mdash; without learning a new methodology. Drop the harness in, point <code>lattice-project.toml</code> at your paths, customize 7 skills, work.
+  </p>
+  <p style="font-size: 0.72em; max-width: 870px; margin: 14px auto; line-height: 1.55;">
+    <strong>Plugin reviewers</strong> (Datagrok core) get consistent verdicts and mechanical enforcement. <code>grok check --strict</code> in pre-commit. Contract-triangle drift caught at commit, not in production. Reuse-anchor enforcement against the component map.
+  </p>
+  <p style="font-size: 0.72em; max-width: 870px; margin: 14px auto; line-height: 1.55;">
+    <strong>The platform itself</strong> grows institutional memory: the typed fact graph captures conventions that today live in Slack threads and source-reading. <em>Tribal knowledge becomes machine-queryable.</em>
+  </p>
+  <p class="source-cite">Tableau, Spotfire, PowerBI, Streamlit Components: zero first-party agentic-dev story. (03-comparable-frameworks.md Group 2)</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- 10. THE ASK -->
+<!-- ============================================================ -->
+<section>
+  <h2>The ask</h2>
+  <h3>5 sharp questions for the team thread</h3>
+  <div class="asks">
+    <div class="ask">
+      <div class="q">1. Who is the Harness Architect?</div>
+      <div class="why">Workplan W1.A5. Owns the platform manifest, the deny-list, the skill pack governance. <strong>Without an owner, W1.B items don't move and the week-4 gate fails.</strong> Naming someone is the load-bearing kickoff decision.</div>
+    </div>
+    <div class="ask">
+      <div class="q">2. When does the DG team author the component map (W1.A1) + fact graph (W1.A2)?</div>
+      <div class="why">Component-map entries with <code>file:line</code> anchors + typed facts seeded at kickoff, growing as plugins surface friction. Both are authored by someone with read-authority across <code>js-api/</code> and <code>libraries/</code>. <strong>Owned by the platform team, not the harness maintainer.</strong></div>
+    </div>
+    <div class="ask">
+      <div class="q">3. Pilot plugin: SENDEX (already in flight) + plugin #2 (when, which)?</div>
+      <div class="why">SENDEX is the forcing function but is also SENDEX-shape. Plugin #2 (something un-tox: chemoinformatics? something simpler?) validates the harness generalizes. <strong>Pick early to prevent SENDEX-shaped accidents.</strong></div>
+    </div>
+    <div class="ask">
+      <div class="q">4. Lattice integration shape: vendor library, fork, or in-place generalize?</div>
+      <div class="why">Vendor (<code>lattice-core</code>) wins at n≥3 consumers; at n=2 the overhead is comparable to fork-rot. In-place is the right transitional first step. <strong>Decision drives the release cadence + governance model.</strong></div>
+    </div>
+    <div class="ask">
+      <div class="q">5. Datagrok core team's appetite for the failure-mode framing?</div>
+      <div class="why">The 9 LLM failure modes are the philosophical anchor. A team that doesn't share the diagnosis ("self-review is worthless," "fabrication needs tool calls as proof") will end up with a different-shape harness even if they take the executor. <strong>Surface the framing explicitly so adoption is informed.</strong></div>
+    </div>
+  </div>
+  <p style="font-size: 0.62em; color: #c9d1d9; max-width: 850px; margin: 16px auto 0;">
+    <strong>Concrete first move:</strong> agree on Harness Architect + assign W1.A1 + W1.A2 owners + week-4 gate criteria. Everything else falls out of those three names.
+  </p>
+  <p class="source-cite">06-questions-for-discussion.md (full 6 buckets, ~25 questions) &bull; datagrok-harness-workplan.md</p>
+</section>
+
+<!-- ============================================================ -->
+<!-- 11. EXTRACTION DETAIL (drill-down for the curious) -->
+<!-- ============================================================ -->
+<section>
+  <section>
+    <h2>For the curious: extraction audit</h2>
+    <h3>How much of Lattice ports cleanly?</h3>
+    <div class="stat-grid" style="grid-template-columns: repeat(4, 1fr); max-width: 1000px;">
+      <div class="stat-box pass"><span class="num">76%</span><span class="label">Projected harness-grade<br>(post-carve-out)</span></div>
+      <div class="stat-box warn"><span class="num">53%</span><span class="label">Skills coupled today<br>(current state)</span></div>
+      <div class="stat-box"><span class="num">7</span><span class="label">HEAVY/fundamental<br>stay project-side</span></div>
+      <div class="stat-box pass"><span class="num">3</span><span class="label">Executor hardcodes<br>(single-line fixes)</span></div>
+    </div>
+    <p style="font-size: 0.7em; max-width: 850px; margin: 24px auto 0; line-height: 1.55;">
+      The "today's Lattice is 53% coupled" figure is honest. The "76% projected" figure is the post-extraction bundle. Both numbers exclude the same 7 HEAVY/fundamental skills &mdash; SENDEX's daily-driver tools. Each plugin re-authors those 7 for its own domain.
+    </p>
+    <p style="font-size: 0.65em; color: #8b949e; max-width: 850px; margin: 16px auto 0;">
+      <strong>Honest framing:</strong> the carve-out is mostly <em>executor + workflows + agents + scripts + ~22 lighter skills</em>. The daily-driver layer is per-plugin. Different value proposition than "drop Lattice in, ship plugins" &mdash; but still meaningful (no surveyed system implements Lattice's executor + reconciler + 2-round-review + concurrency hygiene composition).
+    </p>
+    <p class="source-cite">05-lattice-extraction.md §2.3 + §8 &bull; press <strong>down</strong> for the 7 HEAVY skills + the executor cleanliness</p>
+  </section>
+
+  <!-- drill: 7 HEAVY skills -->
+  <section>
+    <h3>The 7 HEAVY/fundamental skills (project-side per plugin)</h3>
+    <table style="font-size: 0.5em;">
+      <tr><th>Skill</th><th>Why coupled</th></tr>
+      <tr><td><code>review.md</code></td><td>"You are the Review Agent for SENDEX"; SEND domain expertise; PCC-specific scripts</td></tr>
+      <tr><td><code>design.md</code></td><td>CT-N theme citations; component-name references throughout</td></tr>
+      <tr><td><code>lint-knowledge.md</code></td><td>Hardcoded venv path; SENDEX audit-script enumeration</td></tr>
+      <tr><td><code>lit-triage.md</code></td><td>Tox literature triage rules; species + endpoint mismatch criteria</td></tr>
+      <tr><td><code>ops/check.md</code></td><td>Hardcoded <code>frontend/</code> path; SENDEX engine module list</td></tr>
+      <tr><td><code>ops/bug-stress.md</code></td><td>Tox pattern families; example fixes</td></tr>
+      <tr><td><code>ops/explore-data.md</code></td><td><span class="fail">Fundamentally tox-coupled</span> &mdash; "data exploration assistant for SENDEX generated study data"</td></tr>
+    </table>
+    <p style="font-size: 0.6em; color: #d29922; max-width: 800px; margin: 18px auto 0;">
+      These are the skills the toxicologist uses every day. Excluding them from the harness pillar means each plugin re-authors for its domain. The platform pack may ship DG-flavored skeletons; the plugin still customizes.
+    </p>
+    <p class="source-cite">05-lattice-extraction.md §2.3</p>
+  </section>
+
+  <!-- drill: executor cleanliness -->
+  <section>
+    <h3>Executor cleanliness (the floor)</h3>
+    <div class="mini-cards" style="grid-template-columns: 1fr; max-width: 850px;">
+      <div class="card"><div class="head"><span class="id">#1</span> Single-line path hardcode</div><div class="meta">
+        <code>executor/src/reconcile.ts:177</code> &mdash; <code>const archiveDir = `${cwd}/docs/_internal/incoming/archive`;</code><br>
+        <span class="dim">Fix: read <code>[specs] archive</code> from <code>lattice-project.toml</code></span>
+      </div></div>
+      <div class="card"><div class="head"><span class="id">#2</span> Fallback chain</div><div class="meta">
+        <code>executor/src/todo-queue.ts:33-37</code> &mdash; <code>['docs/_internal/TODO.md', 'TODO.md', 'docs/TODO.md']</code><br>
+        <span class="dim">Fix: read <code>[backlog] todo</code> from <code>lattice-project.toml</code></span>
+      </div></div>
+      <div class="card"><div class="head"><span class="id">#3</span> Informational comment</div><div class="meta">
+        <code>executor/src/coherence.ts:583</code> &mdash; references <code>pcc/.lattice/cycle-state/outliers-pane-unified.yaml:23</code> as legacy back-compat anchor<br>
+        <span class="dim">Fix: re-word comment</span>
+      </div></div>
+    </div>
+    <p style="font-size: 0.6em; color: #56d364; max-width: 700px; margin: 20px auto 0;">
+      <strong>All three are single-line edits.</strong> The executor is the natural foundation for the carve-out.
+    </p>
+    <p class="source-cite">05-lattice-extraction.md §6</p>
+  </section>
+</section>
+
+<!-- ============================================================ -->
+<!-- 12. CLOSING -->
+<!-- ============================================================ -->
+<section>
+  <h2>Lattice is the starting point, not the destination</h2>
+  <p style="font-size: 0.72em; max-width: 870px; margin: 26px auto 14px; line-height: 1.6;">
+    The deliverable is a <strong>research artifact</strong> at <code>C:/pg/lattice/research/dg-harness/</code>. 9 files + 2 peer reviews + a corpus-coherence note. Validated through R1 + R2 fresh-context peer review. Probe verdict: PROPAGATES (no BREAKS, no SCIENCE-FLAG).
+  </p>
+  <p style="font-size: 0.72em; max-width: 870px; margin: 14px auto; line-height: 1.6; color: #d29922;">
+    <strong>The research is the artifact.</strong> The carve-out is the <em>invitation</em>.
+  </p>
+  <p style="font-size: 0.65em; max-width: 850px; margin: 22px auto; color: #8b949e; line-height: 1.6;">
+    Concrete next move: the team agrees on Harness Architect + W1.A1/A2 owners + week-4 gate. <code>/lattice:blueprint-cycle dg-agentic-harness</code> converts the recommendation into a build plan once the discussion the questions in slide 10 is designed to drive has landed.
+  </p>
+  <p style="font-size: 0.5em; color: #484f58; margin-top: 50px;">
+    Datagrok agentic dev harness research &bull; 2026-05-07 &bull; <code>research/dg-harness/</code>
+  </p>
+</section>
+
+</div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/reveal.js@5.1.0/dist/reveal.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/mermaid@10/dist/mermaid.min.js"></script>
+<script>
+  mermaid.initialize({
+    startOnLoad: false,
+    theme: 'dark',
+    themeVariables: {
+      background: '#0d1117',
+      primaryColor: '#161b22',
+      primaryTextColor: '#c9d1d9',
+      primaryBorderColor: '#30363d',
+      lineColor: '#58a6ff',
+      secondaryColor: '#1c1208',
+      tertiaryColor: '#0d1f0d',
+      fontFamily: 'system-ui, -apple-system, sans-serif',
+      fontSize: '14px'
+    },
+    flowchart: { curve: 'basis', padding: 8 }
+  });
+
+  Reveal.initialize({
+    hash: true,
+    slideNumber: 'c/t',
+    transition: 'none',
+    center: true,
+    width: 1280,
+    height: 760,
+    margin: 0.06,
+  });
+
+  function renderMermaid() {
+    const blocks = document.querySelectorAll('.mermaid:not([data-processed="true"])');
+    if (blocks.length > 0) {
+      mermaid.run({ nodes: blocks }).catch(err => console.error('mermaid render error', err));
+    }
+  }
+  Reveal.on('ready', renderMermaid);
+  Reveal.on('slidechanged', renderMermaid);
+</script>
+</body>
+</html>

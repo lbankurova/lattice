@@ -50,6 +50,14 @@
 
 _(no open ENH items at this time — see `docs/decisions/todo-pruned-2026-04-28.md` for items moved out of active backlog.)_
 
+### ENH-08: Skill-version-contract mechanism for per-project HEAVY skill re-authorings
+- **Source:** peer-review/dg-agentic-harness (Finding F-3, 2026-05-07)
+- **Problem:** When harness-pillar skill SHAPE evolves (new section, changed verdict enum), per-project re-authored copies of HEAVY skills (review.md, design.md, lint-knowledge.md, etc.) silently diverge. No detection mechanism exists.
+- **Candidates:** (a) template-at-authoring-time — skill body is a template expanded by sync-skills.sh with project stanzas injected; (b) structural test — harness ships a pytest/bash test that validates section structure of any skill claiming to implement a harness contract; (c) version-keyed skill schema — TOML key `[skills] review_schema_version = N` that sync-skills.sh validates against the harness-shipped schema version.
+- **Priority:** Medium — becomes load-bearing when n >= 2 DG plugin projects each maintain project-side HEAVY skill copies.
+
+- [ ] **DATA-GAP: dg-agentic-harness effort estimate decomposition** — from peer review of dg-agentic-harness. The "4-6 weeks to first DG plugin port" estimate (08 §4) does not itemize project-pillar authoring cost (component map, API index, typed-fact graph, knowledge files, system manifest). This cost is uncertain (1 day if DG team's existing docs are sufficient; 2+ weeks if not) and must be resolved before committing resources to the timeline. Missing: break-even model for vendor overhead at n=2 vs n=3+ consumers.
+
 ---
 
 ## Literature-Sourced Backlog
