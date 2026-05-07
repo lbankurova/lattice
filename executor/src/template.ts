@@ -5,13 +5,36 @@
  * {{state.phase}}, {{env.TIMESTAMP}} patterns.
  */
 
+import { existsSync, readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import type { NodeResult } from './types.js';
+import { lookupKey, formatValue, type Manifest } from './manifest.js';
 
 export interface TemplateContext {
   inputs: Record<string, string | number | boolean>;
   nodes: Record<string, NodeResult>;
   state: Record<string, string>;
   env: Record<string, string>;
+  /**
+   * Project + platform manifest (lattice-project.toml, lattice-platform.toml).
+   * Optional for back-compat with callers that don't load a manifest.
+   * When undefined, {{lattice.x.y}} / {{platform.x.y}} / {{include:project.x.y}}
+   * tokens emit the UNDEFINED sentinel (or throw, for include:).
+   */
+  manifest?: Manifest;
+}
+
+/**
+ * Error thrown when a {{include:...}} token cannot be satisfied.
+ * Surfaces both the token expression and the underlying reason so a skill
+ * author can see exactly which TOML key was missing or which file path
+ * resolved nowhere.
+ */
+export class TemplateIncludeError extends Error {
+  constructor(public readonly expression: string, reason: string) {
+    super(`{{${expression}}}: ${reason}`);
+    this.name = 'TemplateIncludeError';
+  }
 }
 
 const TEMPLATE_RE = /\{\{([^}]+)\}\}/g;
@@ -48,8 +71,30 @@ export function resolveTemplates<T>(obj: T, ctx: TemplateContext): T {
 
 /**
  * Resolve a single dot-notation expression against the context.
+ *
+ * Supported namespaces:
+ *   inputs.X              - workflow input by name
+ *   nodes.X.output        - node output (full text); .output.field extracts JSON/KV
+ *   nodes.X.exit_code     - node exit code
+ *   nodes.X.status        - node status string
+ *   nodes.X.route         - gate route
+ *   state.X               - cycle-state key
+ *   env.X                 - executor env var (TIMESTAMP, LATTICE_ROOT, ...)
+ *   lattice.X.Y[.Z...]    - dotted lookup in manifest.project (lattice-project.toml).
+ *                           Undefined keys substitute as `<<UNDEFINED:X.Y>>`.
+ *   platform.X.Y[.Z...]   - dotted lookup in manifest.platform (lattice-platform.toml).
+ *                           Same undefined semantics.
+ *   include:project.X.Y   - looks up a path in manifest.project at X.Y;
+ *                           reads that file's contents and returns them inline.
+ *                           Throws TemplateIncludeError if the key is undefined,
+ *                           empty, or points to a missing file.
  */
 function resolveExpression(expr: string, ctx: TemplateContext): string | undefined {
+  // include:project.x.y - file content inclusion (separate from dot-namespace dispatch).
+  if (expr.startsWith('include:')) {
+    return resolveInclude(expr.slice('include:'.length).trim(), expr, ctx);
+  }
+
   const parts = expr.split('.');
 
   if (parts.length < 2) return undefined;
@@ -59,6 +104,24 @@ function resolveExpression(expr: string, ctx: TemplateContext): string | undefin
   switch (root) {
     case 'inputs':
       return String(ctx.inputs[parts[1]] ?? '');
+
+    case 'lattice': {
+      // {{lattice.x.y[.z...]}} - lookup in manifest.project
+      const dotted = parts.slice(1).join('.');
+      if (!ctx.manifest) {
+        return `<<UNDEFINED:lattice.${dotted}>>`;
+      }
+      return formatValue(lookupKey(ctx.manifest.project, dotted), `lattice.${dotted}`);
+    }
+
+    case 'platform': {
+      // {{platform.x.y[.z...]}} - lookup in manifest.platform
+      const dotted = parts.slice(1).join('.');
+      if (!ctx.manifest) {
+        return `<<UNDEFINED:platform.${dotted}>>`;
+      }
+      return formatValue(lookupKey(ctx.manifest.platform, dotted), `platform.${dotted}`);
+    }
 
     case 'nodes': {
       // {{nodes.X.output}} or {{nodes.X.output.field}}
@@ -112,6 +175,45 @@ function resolveExpression(expr: string, ctx: TemplateContext): string | undefin
 }
 
 /**
+ * Resolve `{{include:project.X.Y}}` into the contents of the file pointed to
+ * by manifest.project at X.Y.
+ *
+ * Spec: "The file path resolves relative to the project root. The file's full
+ * contents are inlined into the skill body as a single block. If the file does
+ * not exist, substitution emits a sentinel and the skill aborts (multi-paragraph
+ * content is always required when its key is set)." (lattice-project-spec.md §3)
+ *
+ * Implementation choice: we throw TemplateIncludeError so the caller can decide
+ * whether to abort the whole skill dispatch or fall back. The previous text-only
+ * sentinel approach made it possible for skill bodies to silently substitute
+ * `<<UNDEFINED:...>>` and run anyway with corrupted prompts.
+ */
+function resolveInclude(payload: string, fullExpr: string, ctx: TemplateContext): string {
+  if (!payload.startsWith('project.')) {
+    throw new TemplateIncludeError(fullExpr, `only 'include:project.X.Y' is supported (got 'include:${payload}')`);
+  }
+  const dotted = payload.slice('project.'.length);
+  if (!ctx.manifest) {
+    throw new TemplateIncludeError(fullExpr, 'no manifest loaded; cannot resolve include');
+  }
+  const path = lookupKey(ctx.manifest.project, dotted);
+  if (path === undefined) {
+    throw new TemplateIncludeError(fullExpr, `manifest key 'project.${dotted}' is undefined`);
+  }
+  if (typeof path !== 'string') {
+    throw new TemplateIncludeError(fullExpr, `manifest key 'project.${dotted}' is not a string path`);
+  }
+  if (path === '') {
+    throw new TemplateIncludeError(fullExpr, `manifest key 'project.${dotted}' is empty (intentionally undefined; skill must guard before referencing)`);
+  }
+  const abs = resolve(ctx.manifest.projectRoot, path);
+  if (!existsSync(abs)) {
+    throw new TemplateIncludeError(fullExpr, `file not found: ${abs}`);
+  }
+  return readFileSync(abs, 'utf-8');
+}
+
+/**
  * Try to parse output as JSON and extract a field.
  * Falls back to searching for KEY=VALUE or KEY: VALUE patterns in plain text.
  */
@@ -149,6 +251,7 @@ export function buildInitialContext(
   inputs: Record<string, string | number | boolean>,
   stateData: Record<string, string>,
   latticeRoot?: string,
+  manifest?: Manifest,
 ): TemplateContext {
   const env: Record<string, string> = {
     TIMESTAMP: new Date().toISOString(),
@@ -159,5 +262,6 @@ export function buildInitialContext(
     nodes: {},
     state: stateData,
     env,
+    manifest,
   };
 }
