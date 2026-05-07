@@ -1,0 +1,308 @@
+# lattice-project.toml.template
+#
+# Copy this file to your project root as `lattice-project.toml` and edit values.
+# Schema spec: lattice/docs/lattice-project-spec.md.
+#
+# Comments starting with `#!greenfield` flag keys that greenfield projects
+# (no platform, no domain knowledge graph) can leave undefined safely; the
+# corresponding harness step will skip with a warning. See spec §7.
+#
+# Comments starting with `#!sendex` show the SENDEX-realized value as a
+# concrete example — replace with your project's value.
+
+# =============================================================================
+# 1. RUNTIME — build/test/lint/dev commands
+# =============================================================================
+[runtime]
+#!sendex build_command = "cd C:/pg/pcc/frontend && npm run build"
+build_command = "<your build command>"
+
+#!sendex test_command = "cd C:/pg/pcc/frontend && npm test"
+test_command = "<your test command>"
+
+#!sendex lint_command = "cd C:/pg/pcc/frontend && npm run lint"
+lint_command = "<your lint command>"
+
+# Project's Python interpreter (full path; on Windows, use forward slashes).
+# Used by lint-knowledge.md and other Python-invoking skills.
+#!sendex python = "backend/venv/Scripts/python.exe"
+python = "<path to your python>"
+
+# Visual smoke test target for ops:check Playwright walks.
+#!sendex dev_server_url = "http://localhost:5173"
+#!greenfield dev_server_url = ""  # leave empty to skip Playwright
+dev_server_url = "<your dev server URL>"
+
+# Doc-regen sequence run by lattice:review Step 3 + commands/lattice/regen-docs.md.
+# Each entry is a shell command run from the project root; failure aborts.
+#!sendex
+# doc_regen_steps = [
+#   "scripts/generate-coverage-facts.py",
+#   "vitest run generate-engine-reference --reporter=verbose",
+#   "vitest run ground-truth-validation --reporter=verbose",
+# ]
+doc_regen_steps = []
+
+# Optional: bundle size baseline (KB). review.md flags regressions.
+#!sendex bundle_size_baseline_kb = 1223
+#!greenfield (leave undefined)
+# bundle_size_baseline_kb = 1223
+
+
+# =============================================================================
+# 2. PROJECT.BACKLOG — work tracking
+# =============================================================================
+[project.backlog]
+#!sendex todo = "docs/_internal/TODO.md"
+todo = "<path to your TODO.md>"
+
+#!sendex roadmap = "docs/_internal/ROADMAP.md"
+#!greenfield (leave undefined)
+roadmap = ""
+
+#!sendex manifest = "docs/_internal/MANIFEST.md"
+#!greenfield (leave undefined; review Step 4 will skip)
+manifest = ""
+
+# Optional Area-tag taxonomy for TODO entries. When empty, freeform tags allowed.
+#!sendex todo_area_taxonomy = ["Architecture", "Frontend", "Backend", "Validation", "Docs", "Tooling"]
+todo_area_taxonomy = []
+
+
+# =============================================================================
+# 3. PROJECT.RESEARCH — research corpus
+# =============================================================================
+[project.research]
+#!sendex root = "docs/_internal/research"
+root = "<path to your research/ root>"
+
+index = "<path to research INDEX>"
+registry = "<path to research REGISTRY>"
+peer_reviews = "<path to peer-reviews/ dir>"
+distillations = "<path to distillations/ dir>"
+
+#!sendex literature = "docs/_internal/research/literature"
+#!greenfield (leave undefined; lit-triage will abort)
+literature = ""
+
+literature_pdf_triage = ""
+
+
+# =============================================================================
+# 4. PROJECT.DOCS — knowledge surfaces
+# =============================================================================
+[project.docs]
+#!sendex internal_root = "docs/_internal"
+internal_root = "<root for all internal docs>"
+
+# MANIFEST tracker (spec dependency map). When undefined, lattice:review Step 4 skips.
+#!sendex manifest_file = "docs/_internal/MANIFEST.md"
+#!greenfield (leave undefined)
+manifest_file = ""
+
+# System manifest. REQUIRED for /lattice:probe (the cross-impact analyzer).
+# Probe aborts with explanatory message when undefined.
+#!sendex system_manifest = "docs/_internal/knowledge/system-manifest.md"
+#!greenfield (leave undefined; probe disabled)
+system_manifest = ""
+
+# Domain knowledge map. Always-loaded rule file convention.
+#!sendex domain_knowledge_map = ".claude/rules/domain-knowledge-map.md"
+#!greenfield (leave undefined; distill knowledge-promotion falls back to operator judgment)
+domain_knowledge_map = ""
+
+# Typed knowledge graph (atomic domain facts per CLAUDE.md rule 22).
+#!sendex typed_graph = "docs/_internal/knowledge/knowledge-graph.md"
+typed_graph = ""
+
+contract_triangles = ""
+field_contracts = ""
+field_contracts_index = ""
+methods_index = ""
+guardrails = ""
+
+
+# =============================================================================
+# 5. PROJECT.DOCS.ENTRY — project-author convenience aliases
+# =============================================================================
+# Per Correction 1 of decoupling-handoff.md: NO project-side skills enter the
+# harness contract. But project authors are free to define their own automation
+# aliases for ergonomics. The harness body references these via abstract names;
+# when undefined, harness falls back to its native procedure.
+
+[project.docs.entry]
+#!sendex system_manifest_authoring_skill = "docs-agent"
+#!greenfield (leave undefined; probe Step 1 prompts user manually)
+system_manifest_authoring_skill = ""
+
+# When undefined, distill audit Step 4 invokes commands/lattice/regen-docs.md.
+#!sendex doc_regen_skill = "regen-science"
+doc_regen_skill = ""
+
+#!sendex validation_regen_skill = "regen-validation"
+validation_regen_skill = ""
+
+
+# =============================================================================
+# 6. PROJECT.BUGS — bug log surface
+# =============================================================================
+[project.bugs]
+#!sendex bug_log = "docs/_internal/BUG-SWEEP.md"
+#!greenfield (leave undefined; ops:bug + bug-stress will abort)
+bug_log = ""
+
+
+# =============================================================================
+# 7. PROJECT.SCRIPTS — project-tuned scripts
+# =============================================================================
+# All entries are optional. Harness skills check existence and skip the
+# corresponding mechanical check when undefined.
+
+[project.scripts]
+#!sendex audit_spec_reuse = "scripts/audit-spec-reuse.py"
+audit_spec_reuse = ""
+
+#!sendex audit_contract_triangles = "scripts/audit-contract-triangles.py"
+audit_contract_triangles = ""
+
+#!sendex audit_knowledge_graph = "scripts/audit-knowledge-graph.py"
+audit_knowledge_graph = ""
+
+#!sendex declare_commit_intent = "scripts/declare-commit-intent.sh"
+declare_commit_intent = ""
+
+#!sendex query_knowledge = "python scripts/query-knowledge.py"
+query_knowledge = ""
+
+
+# =============================================================================
+# 8. PROJECT.LATTICE — lattice-internal project state
+# =============================================================================
+[project.lattice]
+#!sendex algorithm_paths_file = ".lattice/algorithm-paths.txt"
+#!greenfield (leave undefined; algorithm-defensibility gate falls back per algorithm_defaults_mode)
+algorithm_paths_file = ""
+
+reuse_anchor_baseline = ""
+triangle_audit_baseline = ""
+validation_baseline = ""
+
+# `empty` makes algorithm-defensibility advisory only when paths_file is undefined.
+# `sendex` retains today's hardcoded SENDEX defaults (back-compat during migration).
+#!sendex algorithm_defaults_mode = "empty"
+#!greenfield algorithm_defaults_mode = "empty"
+algorithm_defaults_mode = "empty"
+
+
+# =============================================================================
+# 9. SKILLS.<NAME> — per-skill content overrides
+# =============================================================================
+# Each harness skill that needs project-shaped values declares its keys here.
+# All are optional unless the skill body declares otherwise.
+
+[skills.review]
+#!sendex persona = "the Review Agent for SENDEX (SEND Explorer)"
+persona = "the Review Agent for <your project>"
+
+# Multi-paragraph domain expertise. Pointed-to file is inlined via {{include:...}}.
+#!sendex domain_expertise = "docs/_internal/skill-content/review-domain-expertise.md"
+domain_expertise = ""
+
+# Capability model file (reviewed in lattice:review Step 3D). When undefined, skipped.
+#!sendex capability_model = "docs/_internal/capabilities.yaml"
+capability_model = ""
+
+# Per-skill expected harness version (skill-version-contract per spec §6).
+expected_harness_version = "1.0"
+
+
+[skills.review.architect]
+# Project-specific generated-doc paths added on top of the harness baseline
+# (scaffold/universal-architect-exclude-globs.md). The architect agent will not
+# trigger on changes to these files.
+#!sendex
+# exclude_globs = [
+#   "docs/validation/engine-output.md",
+#   "docs/validation/signal-detection.md",
+#   "docs/validation/summary.md",
+# ]
+exclude_globs = []
+
+
+[skills.bug_stress]
+#!sendex pattern_families = "docs/_internal/skill-content/bug-pattern-families.md"
+#!greenfield (leave undefined; bug-stress uses universal baseline only)
+pattern_families = ""
+
+
+[skills.distill.corpus]
+# D-R1 refinement (round-2 dog-food): corpus is multi-layer.
+# `always_full` — Step 0 Layer 0 + Layer 1 reads.
+# `index_only` — Step 0 Layer 2 scans.
+# `peer_review_dir` — Step 0 Layer 2 peer-review enumeration.
+# `deep_read_budget` — Step 0 Layer 3 budget cap.
+
+#!sendex
+# always_full = [
+#   "docs/_internal/research/REGISTRY.md",
+#   "docs/_internal/knowledge/system-manifest.md",
+#   "docs/_internal/knowledge/scoring-engine-model.md",
+#   "docs/_internal/incoming/*-synthesis.md",
+#   "docs/_internal/knowledge/methods-index.md",
+#   "docs/_internal/knowledge/species-profiles.md",
+#   "docs/_internal/knowledge/vehicle-profiles.md",
+# ]
+always_full = []
+
+#!sendex index_only = ["docs/_internal/research/INDEX.md"]
+index_only = []
+
+#!sendex peer_review_dir = "docs/_internal/research/peer-reviews/"
+peer_review_dir = ""
+
+deep_read_budget = 15
+
+
+[skills.distill.audit]
+# Inventory of project-side docs that distill --audit checks for staleness.
+# When empty, distill --audit prints "no docs_to_check configured; skipping."
+#!sendex
+# docs_to_check = [
+#   "docs/methods.md",
+#   "docs/scientific-logic.md",
+#   "docs/validation/summary.md",
+# ]
+docs_to_check = []
+
+
+[skills.synthesize]
+#!sendex domain_expertise = "docs/_internal/skill-content/synthesize-domain-expertise.md"
+domain_expertise = ""
+
+
+[skills.peer_review]
+#!sendex domain_expertise = "docs/_internal/skill-content/peer-review-domain-expertise.md"
+domain_expertise = ""
+
+
+[skills.architect]
+#!sendex domain_expertise = "docs/_internal/skill-content/architect-domain-expertise.md"
+domain_expertise = ""
+
+
+[skills.implement]
+#!sendex empirical_claim_example = "docs/_internal/skill-content/implement-empirical-claim-example.md"
+# Replaces the SENDEX-specific exemplar in commands/lattice/implement.md Phase 1.D.
+empirical_claim_example = ""
+
+
+# =============================================================================
+# 10. PLATFORM POINTER (optional)
+# =============================================================================
+# When this project sits on a platform with its own skill pack (e.g. Datagrok),
+# the harness reads lattice-platform.toml at session start to discover the pack.
+# Platform schema is documented separately; out of scope for this template.
+# Uncomment + configure if you have a platform layer:
+#
+# [platform]
+# discovery = "lattice-platform.toml"   # path relative to project root
