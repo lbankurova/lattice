@@ -16,20 +16,33 @@ Read the fix diff (`git diff` or `git diff --cached`). Determine:
 
 **Subsystem:** Map the changed file(s) to subsystem IDs using the system manifest (`docs/_internal/knowledge/system-manifest.md`). If no manifest exists, identify the module name.
 
-**Pattern family:** Classify into one of these families (or propose a new one):
+**Pattern family:** Classify into one of these families (or propose a new one). The combined table is the universal baseline (Layer 1) plus the project's domain-specific extension (Layer 3, when configured via `lattice-project.toml [skills.bug_stress] pattern_families`):
+
+### Universal baseline (`scaffold/universal-bug-patterns.md`)
 
 | Family | Description | Example |
 |--------|-------------|---------|
-| `null-handling` | Field is null/undefined when code assumes it exists | `avg_severity` undefined for endpoints with no severity |
-| `encoding-variance` | CDISC/data allows multiple encodings for same concept | TESTCD "ALT" vs "Alanine Aminotransferase" |
-| `threshold-boundary` | Off-by-one, wrong operator, or boundary not tested | `gLower > 0.3` vs `gLower >= 0.3` |
-| `domain-logic` | Scientific rule incorrectly implemented | Adverse classification ignoring reversibility |
-| `statistical-edge` | Small N, zero variance, all-same values, empty groups | Hedges' g with n=1 producing NaN |
-| `contract-drift` | Output format changed but consumer not updated | Backend adds field, frontend doesn't read it |
-| `species-variance` | Assumption valid for one species but not others | Rat liver regeneration threshold applied to dog |
-| `temporal-edge` | Time-dependent logic with boundary cases | Recovery verdict when recovery period = 0 days |
-| `ui-state-sync` | Selection/filter state not propagated across surfaces | Rail selection doesn't update context panel |
-| `cascade-failure` | Override or upstream change propagates incorrectly | Pattern override doesn't update downstream NOAEL |
+| `null-handling` | Field is null/undefined when code assumes it exists | a struct field accessed without checking it's set |
+| `off-by-one` | Boundary condition wrong: index, length, range, count | `for i in 0..n-1` where the intent is `0..n` |
+| `threshold-boundary` | Comparison operator wrong direction or wrong inclusive/exclusive | `x > 0.3` vs `x >= 0.3` |
+| `encoding-mismatch` | Same data accessible under multiple encodings; consumer reads one form, producer emits another | `"ALT"` vs `"Alanine Aminotransferase"` |
+| `race` | Two or more concurrent paths interleave on shared state | parallel session writes interleave on git index |
+| `lock-acquisition-order` | Two locks acquired in different orders → deadlock | thread A: lock(x) lock(y); thread B: lock(y) lock(x) |
+| `null-deref` | Dereferencing a value the type system claims is non-null but runtime can be null | TS `!` non-null assertion on async return |
+| `regex-backtracking` | Catastrophic backtracking on adversarial input | `^(a+)+$` against `aaaa…X` runs exponentially |
+| `encoding-utf8-vs-cp1252` | File I/O without explicit encoding picks platform default | Python on Windows defaults to cp1252 |
+| `feature-flag-inversion` | Flag name implies one polarity but code branches on the other | `ENABLE_X = False` but the gate is `if not ENABLE_X` |
+| `cache-invalidation` | Cached value not invalidated when source changes; stale read | mutation doesn't invalidate dependent query |
+| `path-injection` | User input flows into a file path without sanitization | `open("data/" + user_input)` allows traversal |
+| `command-injection` | User input flows into a shell command without escaping | `exec("git log --grep=" + user_input)` |
+| `time-zone-drift` | Timestamps stored in one zone, displayed in another, compared in a third | naive datetime compared to UTC |
+| `int-overflow` | Arithmetic exceeds the integer type's representable range | int32 multiplied by int32 silently wraps |
+
+### Project-specific families
+
+{{include:project.skills.bug_stress.pattern_families}}
+
+When `[skills.bug_stress] pattern_families` is unconfigured, only the universal baseline applies; the include throws and the skill aborts asking the project author to configure the file or set the key to `""` to acknowledge the project intentionally has no domain-specific families.
 
 **Severity:** How bad was it?
 - **Silent wrong answer** — produced incorrect analytical output without error (worst)
@@ -57,18 +70,7 @@ This is the key step. The bug you fixed is one instance of a pattern. Search for
 2. **Direct consumer subsystems** — do they make the same assumption that broke?
 3. **Sibling subsystems** (same pattern family) — if S02 had a threshold-boundary bug, check S03, S04, S05 which also use thresholds
 
-**Search strategy by pattern family:**
-
-| Family | What to grep for |
-|--------|-----------------|
-| `null-handling` | Same field name without null guard across consumers |
-| `encoding-variance` | Same TESTCD/ORRES/etc. field used without normalization |
-| `threshold-boundary` | Same threshold value with different comparison operators |
-| `domain-logic` | Same domain rule implemented in multiple places |
-| `statistical-edge` | Same statistical function called without n-check |
-| `contract-drift` | Same field name across backend→frontend boundary |
-| `species-variance` | Same hardcoded constant used across species contexts |
-| `cascade-failure` | Same upstream field consumed without re-validation |
+**Search strategy by pattern family:** consult the per-family search heuristics that ship with each family table — both the universal baseline (`scaffold/universal-bug-patterns.md` § "Search-strategy guidance") and the project-specific extension (when configured) include a "what to grep for" column alongside each pattern. The right grep depends on the family identified in Step 1.
 
 Report each finding:
 ```
@@ -184,7 +186,7 @@ The pre-commit hook (Step 0d -- pcc-side) verifies that any future commit touchi
 
 Every bug fix is evidence that some gate failed. The retrospective forces that lesson back into the framework. Skipping this step is the failure mode that lets the same class of bug recur.
 
-Run the 5 questions and append the output to the bug's BUG-SWEEP.md entry under a `#### Retrospective` heading. The pre-commit hook BLOCKS `fix:` commits when these fields are missing.
+Run the 5 questions and append the output to the bug's {{lattice.project.bugs.bug_log}} entry under a `#### Retrospective` heading. The pre-commit hook BLOCKS `fix:` commits when these fields are missing.
 
 ### Question 1: Root cause (1 sentence)
 
@@ -252,7 +254,7 @@ Lattice change —
   - ...
 ```
 
-For BUG-031 the lattice change list is the canonical example — see `docs/_internal/BUG-SWEEP.md#BUG-031`.
+For BUG-031 in SENDEX the lattice change list is the canonical example — see `{{lattice.project.bugs.bug_log}}#BUG-031` in pcc. Other projects' bug logs will accumulate their own canonical examples over time.
 
 ### Question 5 — disposition (F7 — MANDATORY tracking)
 
@@ -276,16 +278,16 @@ Bullet numbering is 1-indexed against the order in the rendered Lattice-change l
 
 The pre-commit hook (Step 5b -- pcc-side) verifies that:
 1. The commit has a `Bug-Retro: BUG-XXX` trailer (existing rule 20 check, unchanged).
-2. The BUG-SWEEP entry contains all 5 retro fields (existing check, unchanged).
+2. The bug-log entry contains all 5 retro fields (existing check, unchanged).
 3. **The gate carries at least one `kind=retro-action` attestation with `ref-prefix=BUG-XXX`** (NEW for F7).
 
-The periodic audit (`scripts/audit-retro-action-items.py`) lints existing entries: when a BUG-SWEEP entry has Lattice-change bullets but no F7 disposition table, no fix commit, no `[from BUG-XXX]` TODO tag, and no ESCALATION entry referencing the bug id, the bullets are reported as silently-abandoned. Pre-F7 retros can be retroactively annotated with an explicit "F7 disposition" subsection (BUG-031 in pcc has the canonical example) — the audit script accepts the table itself as evidence.
+The periodic audit (`scripts/audit-retro-action-items.py`) lints existing entries: when a bug-log entry has Lattice-change bullets but no F7 disposition table, no fix commit, no `[from BUG-XXX]` TODO tag, and no ESCALATION entry referencing the bug id, the bullets are reported as silently-abandoned. Pre-F7 retros can be retroactively annotated with an explicit "F7 disposition" subsection (BUG-031 in pcc has the canonical example) — the audit script accepts the table itself as evidence.
 
 Failure mode this prevents: rule 20 added action items but nothing enforced their tracking; past retros (informal, pre-rule-20) had action items that were quietly dropped. F7 makes the drop the explicit (a/b/c) decision rather than implicit silence.
 
 ### Output
 
-Append directly to the bug's BUG-SWEEP.md entry:
+Append directly to the bug's {{lattice.project.bugs.bug_log}} entry:
 
 ```markdown
 #### Retrospective
