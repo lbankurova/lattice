@@ -176,7 +176,22 @@ query_knowledge = ""
 
 
 # =============================================================================
-# 8. PROJECT.LATTICE — lattice-internal project state
+# 8. PROJECT.SPECS — feature-spec lifecycle paths
+# =============================================================================
+# Required by executor/src/reconcile.ts (archive scan) and the extract-learnings
+# trigger regex. When undefined during the migration window, falls back to the
+# SENDEX-shape defaults (docs/_internal/incoming, docs/_internal/incoming/archive).
+
+[project.specs]
+#!sendex incoming = "docs/_internal/incoming"
+incoming = "<path to incoming-specs/ dir>"
+
+#!sendex archive = "docs/_internal/incoming/archive"
+archive = "<path to archived-specs/ dir>"
+
+
+# =============================================================================
+# 9. PROJECT.LATTICE — lattice-internal project state
 # =============================================================================
 [project.lattice]
 #!sendex algorithm_paths_file = ".lattice/algorithm-paths.txt"
@@ -195,7 +210,7 @@ algorithm_defaults_mode = "empty"
 
 
 # =============================================================================
-# 9. SKILLS.<NAME> — per-skill content overrides
+# 10. SKILLS.<NAME> — per-skill content overrides
 # =============================================================================
 # Each harness skill that needs project-shaped values declares its keys here.
 # All are optional unless the skill body declares otherwise.
@@ -297,7 +312,7 @@ empirical_claim_example = ""
 
 
 # =============================================================================
-# 10. PLATFORM POINTER (optional)
+# 11. PLATFORM POINTER (optional)
 # =============================================================================
 # When this project sits on a platform with its own skill pack (e.g. Datagrok),
 # the harness reads lattice-platform.toml at session start to discover the pack.

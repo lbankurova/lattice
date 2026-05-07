@@ -64,7 +64,7 @@ Skill bodies reference TOML values via Mustache-style template tokens:
 
 Each per-skill section in §6 below names which keys are required vs optional and the abort/skip behavior.
 
-**`{{include:...}}` semantics:** the file path resolves relative to the project root. The file's full contents are inlined into the skill body as a single block. If the file does not exist, substitution emits a sentinel and the skill aborts (multi-paragraph content is always required when its key is set).
+**`{{include:...}}` semantics:** the file path resolves relative to the project root. The file's full contents are inlined into the skill body as a single block. The substitution **throws `TemplateIncludeError`** when (a) the manifest key is undefined, (b) the value is an empty string (intentionally-undefined marker — skills must guard before referencing), (c) the value is not a string path, or (d) the file does not exist. The throw is intentional and louder than a sentinel: silent sentinels in inlined-content positions produce corrupted prompts the model may not flag. Skills that legitimately want a no-content-when-undefined shape should reference `{{lattice.X.Y}}` instead (which DOES emit a sentinel) and let the skill body conditionally include using its own templating.
 
 ## 4. Schema buckets (top-level)
 
@@ -190,7 +190,19 @@ query_knowledge = "python scripts/query-knowledge.py"
 
 **Behavior when undefined:** review's Step 2a REUSE-ANCHOR-DRIFT check skips; review's TRIANGLE protocol skips; peer-review's algorithmic-tightening fact-lookup skips with a warning ("no typed knowledge graph configured — algorithmic claims unverified against domain truth oracle").
 
-### 4.8 `[project.lattice]` — lattice-internal project state
+### 4.8 `[project.specs]` — feature-spec lifecycle paths
+
+```toml
+[project.specs]
+incoming = "docs/_internal/incoming"
+archive = "docs/_internal/incoming/archive"
+```
+
+**Required for:** `executor/src/reconcile.ts` (archive path); `commands/lattice/extract-learnings.md` (post-archive trigger regex).
+
+**Behavior when undefined:** the executor falls back to the SENDEX-shape default paths (`docs/_internal/incoming` + `docs/_internal/incoming/archive`) for the migration window. New projects that don't follow the SENDEX layout MUST set these keys explicitly. Once Phase 6 closes the migration window, the fallback is removed.
+
+### 4.10 `[project.lattice]` — lattice-internal project state
 
 ```toml
 [project.lattice]
@@ -205,7 +217,7 @@ algorithm_defaults_mode = "empty"  # or "sendex" for back-compat during migratio
 
 **Behavior when undefined:** review's ALGORITHM protocol falls back per `algorithm_defaults_mode` — `empty` makes the protocol advisory only; `sendex` retains today's hardcoded SENDEX paths (for back-compat during the migration window).
 
-### 4.9 `[skills.<name>]` — per-skill content overrides
+### 4.11 `[skills.<name>]` — per-skill content overrides
 
 The largest single contributor to "skill body customization." Each harness skill that needs project-shaped values (persona, domain expertise paragraphs, corpus file lists, exemplar story references, exclusion globs) declares its keys here.
 

@@ -16,6 +16,7 @@
 
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { loadManifest, lookupKey } from './manifest.js';
 
 export type TodoKind = 'research' | 'spike' | 'bugfix' | 'mechanical';
 
@@ -43,8 +44,18 @@ const VALID_KINDS = new Set<TodoKind>(['research', 'spike', 'bugfix', 'mechanica
 
 /**
  * Find the project's TODO.md file. Returns absolute path or null.
+ *
+ * Resolution order:
+ *   1. lattice-project.toml [project.backlog] todo (when set to non-empty string)
+ *   2. Fallback: TODO_CANDIDATE_PATHS chain (back-compat for the migration window).
  */
 export function findTodoFile(cwd: string): string | null {
+  const m = loadManifest(cwd);
+  const configured = lookupKey(m.project, 'project.backlog.todo');
+  if (typeof configured === 'string' && configured !== '') {
+    const full = resolve(cwd, configured);
+    return existsSync(full) ? full : null;
+  }
   for (const candidate of TODO_CANDIDATE_PATHS) {
     const full = resolve(cwd, candidate);
     if (existsSync(full)) return full;
