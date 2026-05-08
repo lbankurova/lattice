@@ -154,16 +154,40 @@ Mechanical check: `lattice resync` performs an advisory scan after substitution 
 
 The harness fires `sync-skills.sh` + `lattice resync` automatically on a lattice-side commit (post-commit hook chain). When a project author edits their **own** content locally — `lattice-project.toml` keys, files under `docs/_internal/skill-content/`, or any path referenced by an `{{include:project.X.Y}}` token — the synced `.claude/commands/*.md` bodies do **not** re-render automatically. The skill bodies still hold the values from the last sync.
 
-Re-render manually after a local edit:
+#### Manual one-shot
 
 ```bash
-bash scripts/sync-skills.sh         # copies harness command bodies into .claude/commands/
-node executor/dist/cli.js resync .  # OR: lattice resync . (when the binary is on PATH)
+node <lattice-root>/executor/dist/cli.js render-once <project-root>
+# OR (when the lattice binary is on PATH):
+lattice render-once <project-root>
 ```
 
-The two-step sequence is idempotent — running it when nothing changed reports `0 rendered, N already-template-free`. If `resync` reports any `errors`, `UNDEFINED sentinels`, or `stray templates`, fix the source content and re-run before invoking the affected skill.
+`render-once` is a single-command wrapper that chains the two underlying steps:
 
-Automated triggering (a project-side post-commit hook that re-runs the cycle when `lattice-project.toml` or `skill-content/**` changes; or a `lattice render-once` CLI shorthand wrapping both steps) is open framework work. Until that ships, the manual cycle above is the contract.
+1. `bash <lattice>/scripts/sync-skills.sh <project-root>` — re-copy harness command bodies (with templates intact) into `<project>/.claude/commands/`.
+2. `lattice resync <project-root>` — substitute templates against the project's current `lattice-project.toml`.
+
+Running resync alone (without the preceding sync) is a no-op when the synced bodies are already rendered — substitution is idempotent on rendered files, so new TOML values would never reach those bodies. The sync step puts fresh templated bodies in place; only then does resync produce updated rendered output.
+
+The combined flow is idempotent — when nothing changed it reports `0 rendered, N already-template-free`. If `render-once` reports any `errors`, `UNDEFINED sentinels`, or `stray templates`, fix the source content and re-run before invoking the affected skill.
+
+#### Automated triggering (consumer-side post-commit hook)
+
+A reference hook ships at `<lattice>/scripts/post-commit-render-once.sh`. It detects when the just-committed commit touched `lattice-project.toml`, `lattice-platform.toml`, or any `**/skill-content/**` path, and invokes `lattice render-once` against the project root only when a trigger fires. Wire-up options (consumer side):
+
+- **From an existing post-commit hook:** add `bash "$LATTICE_ROOT/scripts/post-commit-render-once.sh"` as one line near the end of your `.git/hooks/post-commit` (or `.githooks/post-commit` if the project uses `core.hooksPath`).
+- **As the post-commit hook directly:** symlink `ln -s "$LATTICE_ROOT/scripts/post-commit-render-once.sh" .git/hooks/post-commit` (when the project has no other post-commit work).
+- **Configuration:** set `LATTICE_ROOT` in your environment, or edit `LATTICE_ROOT_DEFAULT` in the script for a single-project deploy.
+
+The hook is no-op when no trigger path is touched, so chaining it has zero cost on commits that don't need re-rendering.
+
+##### Convention: include targets MUST live under `skill-content/`
+
+For the auto-trigger to detect edits, every `{{include:project.X.Y}}` target path declared in `lattice-project.toml` MUST resolve to a path containing `skill-content/` as a directory segment (i.e., matching glob `**/skill-content/**`). The Layer 3 diagram (§2) names `docs/_internal/skill-content/*.md` as the canonical location; any sibling subdirectory ending in `skill-content/` is also covered (`docs/_internal/dg-skill-content/...` is NOT — it must be `docs/_internal/dg/skill-content/...` or similar).
+
+This convention is enforced by the post-commit hook's trigger pattern, not by the template engine itself. The engine will resolve any path the TOML specifies; an include target placed elsewhere (e.g., `docs/_internal/help/coverage-facts.md`) WILL resolve and render correctly when `lattice render-once` runs, but the hook will NOT auto-trigger when it changes — the consumer must invoke `render-once` manually.
+
+Why this is a hard convention rather than a parsed-from-TOML signal: parsing TOML reliably from a bash post-commit hook is fragile (the engine's parser is in TypeScript, the hook script can't reuse it). A path-based convention keeps the hook's trigger logic to four lines of `case` matching while preserving the convention's meaning. Projects that need to host content elsewhere can either (a) symlink their non-conforming paths under `skill-content/`, or (b) accept the manual-resync cost.
 
 ## 4. Schema buckets (top-level)
 

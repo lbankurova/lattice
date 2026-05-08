@@ -85,13 +85,14 @@ _(no open ENH items at this time — see `docs/decisions/todo-pruned-2026-04-28.
 - **Priority:** Medium (Phase 4 will hit this every time a new include lands).
 - **Resolution:** added §3.1 "Authoring conventions for inlinable content" to `docs/lattice-project-spec.md`. 4 rules + canonical template + anti-pattern + cross-reference to the empirical exemplar (pcc's `bug-pattern-families.md` / commit `3f0f249`). Mechanical-check note flags that automated linting is a future enhancement.
 
-### ENH-13: Trigger re-sync on local project content edits (option c done; a + b open)
+### ~~ENH-13: Trigger re-sync on local project content edits~~ -- DONE (all 3 options shipped)
 - **Source:** /lattice:review on Phase 3b validation prep (2026-05-07).
-- **Problem:** When a project author edits their `lattice-project.toml` or `skill-content/*.md` files locally (without a lattice commit firing), the synced `.claude/commands/*.md` bodies don't re-render automatically. Currently requires manual `bash scripts/sync-skills.sh && lattice resync` invocation.
-- **Possible shapes:** (a) project-side post-commit hook in pcc (and other consumer projects) that calls resync against itself when `lattice-project.toml` or `skill-content/` changes; (b) `lattice render-once` CLI shorthand that wraps sync + resync; ~~(c) document the manual workflow and live with it.~~
-- **Status:** option (c) **DONE** -- `docs/lattice-project-spec.md` §3.2 documents the manual `sync-skills.sh` + `lattice resync` cycle that project authors must run after local edits to `lattice-project.toml` or `skill-content/`. Idempotency note included; failure-mode triage (errors / sentinels / strays) cross-referenced. Options (a) and (b) remain open as ergonomics improvements.
+- **Problem:** When a project author edits their `lattice-project.toml` or `skill-content/*.md` files locally (without a lattice commit firing), the synced `.claude/commands/*.md` bodies don't re-render automatically. Manual fix required: `bash scripts/sync-skills.sh && lattice resync`.
 - **Surfaced when:** fixing the `bug-pattern-families.md` include shape during Phase 3b prep — the resync's idempotency check correctly detected "already-rendered" but the source-of-truth had changed, requiring a manual sync-then-resync cycle.
-- **Priority:** Medium-Low (option c closes the documentation gap; remaining work is workflow ergonomics).
+- **Resolution:** all three candidate shapes shipped.
+  - **(a) Project-side post-commit hook.** `scripts/post-commit-render-once.sh` is a portable bash hook that detects when the just-committed commit touched `lattice-project.toml`, `lattice-platform.toml`, or any `**/skill-content/**` path; on a hit, it invokes `lattice render-once <project-root>` and reports through stderr-prefixed lines. No-op when no trigger path is touched (zero-cost chaining). Consumer wires up via existing post-commit hook, symlink, or `core.hooksPath` chain. Smoke-tested end-to-end (trigger detection + sync + resync + reporting all confirmed).
+  - **(b) `lattice render-once` CLI shorthand.** New `cmdRenderOnce` subcommand in `executor/src/cli.ts`. Resolves the lattice install via `findLatticeRoot()`, spawns `bash sync-skills.sh <project>`, then calls `resyncProject(<project>)`. Mirrors `lattice resync` exit-code semantics (0 clean / 1 template errors / 2 usage error or sync-skills failure). Help text updated.
+  - **(c) Documentation.** `docs/lattice-project-spec.md` §3.2 documents the `lattice render-once` shorthand as the primary path AND surfaces the post-commit hook as the auto-trigger option. Wire-up options enumerated; trigger-path list cited; idempotency + failure-mode (errors / sentinels / strays) cross-referenced.
 
 ### ~~ENH-15: Spec inlinable-content Rule 5 -- forbid literal `{{...}}` syntax in include files~~ -- DONE
 - **Source:** BUG-043 retro (lattice/pcc decoupling Phase 4 -- review-doc-regen.md template-escape).

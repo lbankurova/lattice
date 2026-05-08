@@ -28,6 +28,7 @@ import {
 } from './e2e.js';
 import { formatCostSummary, readContextTelemetry, loadBudgetConfig } from './budget.js';
 import { resyncProject, type ResyncResult } from './resync.js';
+import { spawnSync } from 'node:child_process';
 import type { WorkflowCost } from './types.js';
 
 // ── Argument parsing ────────────────────────────────────────
@@ -886,12 +887,24 @@ function cmdResync(): void {
     process.exit(2);
   }
 
+  process.exit(reportResyncResult(result, root, 'resync'));
+}
+
+/**
+ * Format a `ResyncResult` to stderr/stdout and return the appropriate exit
+ * code. Shared by `cmdResync` and `cmdRenderOnce` -- the two commands are
+ * contractually required to report identically (render-once is documented
+ * as the composition of sync + resync, so its output must be interpretable
+ * alongside resync output). `prefix` distinguishes the summary line
+ * ("resync:" vs "render-once:"); everything else is identical.
+ */
+function reportResyncResult(result: ResyncResult, root: string, prefix: string): number {
   if (!result.hasManifest) {
     console.error(`WARNING: ${root}/lattice-project.toml not found; rendered with empty manifest. Tokens became <<UNDEFINED:...>> sentinels.`);
   }
 
   const strays = result.strayTemplateFiles ?? [];
-  console.log(`resync: ${result.rendered} rendered, ${result.unchanged} already-template-free, ${result.errors.length} errors, ${result.sentinelFiles.length} with UNDEFINED sentinels, ${strays.length} with stray templates`);
+  console.log(`${prefix}: ${result.rendered} rendered, ${result.unchanged} already-template-free, ${result.errors.length} errors, ${result.sentinelFiles.length} with UNDEFINED sentinels, ${strays.length} with stray templates`);
 
   if (result.sentinelFiles.length > 0) {
     console.error('Files with UNDEFINED sentinels (manifest key not defined):');
@@ -915,10 +928,74 @@ function cmdResync(): void {
       const rel = file.startsWith(root) ? file.slice(root.length + 1) : file;
       console.error(`  ${rel}: ${reason}`);
     }
-    process.exit(1);
+    return 1;
   }
 
-  process.exit(0);
+  return 0;
+}
+
+// ── render-once command ─────────────────────────────────────
+
+/**
+ * Wraps sync-skills.sh + resyncProject into one invocation. The two-step
+ * cycle is what a project author has to run after editing their own
+ * `lattice-project.toml` or `skill-content/*.md` files (per
+ * lattice-project-spec.md S3.2): sync-skills.sh re-copies the harness
+ * skill bodies (with templates intact) into the project's
+ * `.claude/commands/`, then resync substitutes templates against the
+ * (now-updated) project manifest. Running resync alone after an
+ * already-rendered sync is a no-op — substitution is idempotent on
+ * already-rendered files, so the new TOML values would never reach
+ * the synced bodies without the sync step preceding.
+ *
+ * Exit codes:
+ *   0 — sync OK and resync clean
+ *   1 — sync OK but resync had TemplateIncludeError
+ *   2 — usage error (missing arg, project root doesn't exist) OR sync-skills.sh failed
+ */
+function cmdRenderOnce(): void {
+  const projectRoot = args[1];
+  if (!projectRoot) {
+    console.error('Usage: lattice render-once <project-root>');
+    process.exit(2);
+  }
+  const root = resolve(projectRoot);
+  if (!existsSync(root)) {
+    console.error(`Project root does not exist: ${root}`);
+    process.exit(2);
+  }
+
+  const latticeRoot = findLatticeRoot();
+  const syncScript = resolve(latticeRoot, 'scripts/sync-skills.sh');
+  if (!existsSync(syncScript)) {
+    console.error(`sync-skills.sh not found at ${syncScript}`);
+    process.exit(2);
+  }
+
+  // Step 1: sync-skills.sh — re-copy harness skill bodies into the project.
+  // No FRAMEWORK_CHANGED_FILES, so sync-skills runs in full-sync mode.
+  console.error(`render-once: syncing skill bodies from ${latticeRoot} to ${root}`);
+  const syncResult = spawnSync('bash', [syncScript, root], { stdio: 'inherit' });
+  if (syncResult.error) {
+    console.error(`Failed to invoke bash: ${syncResult.error.message}`);
+    process.exit(2);
+  }
+  if (syncResult.status !== 0) {
+    console.error(`sync-skills.sh failed with exit code ${syncResult.status}`);
+    process.exit(2);
+  }
+
+  // Step 2: resync — substitute templates against the project's manifest.
+  console.error(`render-once: rendering templates against ${root}/lattice-project.toml`);
+  let result: ResyncResult;
+  try {
+    result = resyncProject(root);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(2);
+  }
+
+  process.exit(reportResyncResult(result, root, 'render-once'));
 }
 
 // ── Dispatch ────────────────────────────────────────────────
@@ -963,6 +1040,9 @@ switch (command) {
   case 'resync':
     cmdResync();
     break;
+  case 'render-once':
+    cmdRenderOnce();
+    break;
   default:
     console.log('Lattice Executor v0.1.0\n');
     console.log('Commands:');
@@ -980,5 +1060,7 @@ switch (command) {
     console.log('  lattice e2e classify [--base main]        Testability classification');
     console.log('  lattice cost [topic]                      Per-topic cost report');
     console.log('  lattice context [--last N]                Context-rot telemetry (LIT-09)');
+    console.log('  lattice resync <project-root>             Re-substitute templates in synced skill bodies');
+    console.log('  lattice render-once <project-root>        sync-skills + resync in one shot (use after local edits to TOML / skill-content)');
     process.exit(command ? 1 : 0);
 }
