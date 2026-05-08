@@ -5,7 +5,7 @@ description: Ground research findings against existing codebase — map gaps to 
 
 You are synthesizing research findings into an actionable implementation plan. Your job is to bridge the gap between "what's needed" (from `/research`) and "what we have" — then produce a spec for what to build.
 
-**Input:** Path to a research document (from `/lattice:research`), e.g., `docs/_internal/research/historical-control-profiling.md`. If a peer review exists for this research, also read `docs/_internal/research/peer-reviews/{topic}-review.md` and incorporate accepted findings.
+**Input:** Path to a research document (from `/lattice:research`), e.g., `<research-dir>/<topic>.md`. If a peer review exists for this research, also read `{{lattice.project.research.peer_reviews}}/{topic}-review.md` and incorporate accepted findings.
 
 ## Step 0: Re-read State (context discipline)
 
@@ -13,7 +13,7 @@ Do not rely on file contents or decisions "remembered" from earlier in the sessi
 
 1. **Cycle state** (`.lattice/cycle-state/{topic}.yaml`) — what steps completed, what decisions were made, what constraints are in play
 2. **Decisions log** (`.lattice/decisions.log`) — prior attempts on this topic, known failures to avoid
-3. **Guardrails** (`docs/_internal/knowledge/code-quality-guardrails.md`) — current complexity budgets and canonical patterns
+3. **Guardrails** (`{{lattice.project.docs.guardrails}}`) — current complexity budgets and canonical patterns
 
 Then proceed to loading the research doc.
 
@@ -26,17 +26,15 @@ Read the research document fully. Extract:
 
 ## Step 2: Map Against Existing Codebase
 
-**Read `docs/_internal/knowledge/code-quality-guardrails.md` first** (if it exists). This tells you which patterns are canonical, which modules are domain-critical, and what the current complexity budget looks like. Your synthesis must work WITH these patterns, not against them.
+**Read `{{lattice.project.docs.guardrails}}` first** (if it exists). This tells you which patterns are canonical, which modules are domain-critical, and what the current complexity budget looks like. Your synthesis must work WITH these patterns, not against them.
 
 For each proposed capability from the research:
 
-1. **Search the codebase** — does something like this already exist? Check:
-   - Backend services (`backend/services/analysis/`)
-   - Generator pipeline (`backend/generator/`)
-   - Frontend libraries (`frontend/src/lib/`)
-   - Shared definitions (`shared/`)
-   - Generated JSON (`backend/generated/PointCross/` as reference)
-2. **Check knowledge files** — consult the domain knowledge map (`.claude/rules/domain-knowledge-map.md`) for relevant existing documentation
+1. **Search the codebase** — does something like this already exist?
+
+{{include:optional:project.skills.synthesize.codebase_dirs}}
+
+2. **Check knowledge files** — consult the domain knowledge map (`{{lattice.project.docs.domain_knowledge_map}}`) for relevant existing documentation
 3. **Classify each capability:**
    - **EXISTS** — already implemented, research validates current approach
    - **PARTIAL** — foundation exists, needs extension to meet the research-identified need
@@ -67,7 +65,7 @@ For capabilities classified as PARTIAL or NEW that are ready to implement:
 
 Follow the Pre-write protocol (CLAUDE.md): state approach, identify reusable code, list constraints.
 
-Routes to: `docs/_internal/incoming/` spec -> ROADMAP intake (Spec -> ROADMAP intake, CLAUDE.md)
+Routes to: `{{lattice.project.specs.incoming}}/` spec -> ROADMAP intake (Spec -> ROADMAP intake, CLAUDE.md)
 
 ### Section 1a: Reuse Inventory (mandatory)
 
@@ -122,7 +120,7 @@ Topics needing more investigation before building. For each:
 - **Suggested sources** — from the original research's source map
 - **Priority** — based on how many build plan items depend on the answer
 
-**Persisted in Step 5** to `docs/_internal/research/REGISTRY.md`.
+**Persisted in Step 5** to `{{lattice.project.research.registry}}`.
 
 ### Section 3: Data & Coverage Gaps
 
@@ -133,7 +131,7 @@ Missing data, species, study types, methods needing validation. For each:
 - **Blocking?** — prevents implementation or is a known limitation?
 - **Acquisition path** — how to get the missing data
 
-**Persisted in Step 5** to `docs/_internal/TODO.md`.
+**Persisted in Step 5** to `{{lattice.project.backlog.todo}}`.
 
 ## Step 5: Persist Gaps
 
@@ -141,7 +139,7 @@ The synthesis identified Research Gaps (Section 2) and Data Gaps (Section 3). Th
 
 ### Research gaps → Research Registry
 
-For each research gap in Section 2, **append or update** `docs/_internal/research/REGISTRY.md`:
+For each research gap in Section 2, **append or update** `{{lattice.project.research.registry}}`:
 
 ```yaml
 {gap-id}:
@@ -159,7 +157,7 @@ If the gap relates to an existing stream, update that stream's `open-questions` 
 
 ### Data gaps → TODO.md
 
-For each data gap in Section 3, **append** to `docs/_internal/TODO.md`:
+For each data gap in Section 3, **append** to `{{lattice.project.backlog.todo}}`:
 
 ```
 - [ ] **DATA-GAP: {short title}** — {what's missing}. Impact: {consequence}. Acquisition: {how to get it}. Source: `{topic}-synthesis.md`. [Area: {relevant area}]
@@ -173,12 +171,12 @@ Flag scientific/method decisions in the build plan that should be challenged:
 
 ```
 **Peer review recommended** on: [list of decisions]
-Run: /lattice:peer-review docs/_internal/incoming/{topic}-synthesis.md
+Run: /lattice:peer-review {{lattice.project.specs.incoming}}/{topic}-synthesis.md
 ```
 
 ## Output
 
-Write the synthesis to `docs/_internal/incoming/{topic}-synthesis.md`.
+Write the synthesis to `{{lattice.project.specs.incoming}}/{topic}-synthesis.md`.
 
 The build plan section is a standard incoming spec — subject to ROADMAP intake (Spec -> ROADMAP intake, CLAUDE.md). If a peer review was incorporated, link to the review file and note which findings changed the plan.
 
