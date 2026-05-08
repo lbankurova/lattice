@@ -69,6 +69,58 @@ Each per-skill section in §6 below names which keys are required vs optional an
 
 **Optional form (`{{include:optional:project.X.Y}}`):** for content the skill can operate without — e.g., review's `[project.docs] capability_model` (skipped at Step 3D when absent), probe's `[project.docs] system_manifest` (fallback narrative), distill's project-side advisories. Absence (undefined key, empty-string marker, missing file, or no manifest at all) silently renders as empty string. Wrong-type values (key present but not a string) STILL throw — that's a misconfiguration, not absence. Choose the optional form when the surrounding skill body has natural conditional structure ("if any project content for X, prepend it"); choose the required form when absence would corrupt the prompt.
 
+### 3.1 Authoring conventions for inlinable content
+
+When a project file is inlined into a skill body via `{{include:project.X.Y}}` or `{{include:optional:project.X.Y}}`, the file's full contents become a contiguous block within the surrounding skill prompt. The skill author has already structured headings, sections, and prose around the include site; the project author's job is to supply a fragment that slots cleanly into that structure without re-introducing competing structure.
+
+The four rules below are derived from the structural-noise problem caught mid-Phase-3b in pcc's `docs/_internal/skill-content/bug-pattern-families.md` (commit `3f0f249`): the first version of that file had a top-level `# Bug Pattern Families` heading and a `> This file is consumed by /ops:bug-stress` blockquote. When inlined into the bug-stress skill body, the H1 produced a duplicate top-level heading inside the skill prompt (skill body already has its own outline), and the meta-blockquote leaked authoring metadata into the model's instruction stream. Both confused the prompt structure without adding any signal the model could act on.
+
+**Rule 1: No top-level `#` heading.** The skill body owns the H1 / outline level. An inlinable file starts with content directly — prose, a table, an opening sentence. **Why:** an orphan H1 in inlined content produces a structural conflict with the skill's own headings, breaking the prompt outline the skill author designed.
+
+**Rule 2: No meta-blockquote describing how the file is consumed.** Sentences like `> This file is the SENDEX-specific extension consumed by /ops:bug-stress Step 1` belong in an HTML comment (Rule 3), not in the inlined output. **Why:** consumption metadata is for the project author / future maintainer, not for the model; including it in the inlined block leaks authoring scaffolding into the instruction stream.
+
+**Rule 3: HTML comments are safe and encouraged for authoring metadata.** The model parser strips `<!-- ... -->` blocks before the prompt reaches the model, so developer documentation about file purpose, composition order, or maintenance rules is preserved on disk and invisible at dispatch. Use HTML comments for the consumption hints that Rule 2 forbids in prose.
+
+**Rule 4: Sub-headings (`##` or deeper) are fine.** They slot under the parent skill's outline cleanly. A long inlinable file can structure its own internal sections with `## Family` / `## Per-family search strategy` / etc. without conflicting with the skill body. **Why:** the skill author can predict where the include site sits in their own outline and structure the surrounding prompt to accommodate `##`-level sub-content.
+
+**Canonical template** (anchor: `pcc/docs/_internal/skill-content/bug-pattern-families.md`):
+
+```markdown
+<!--
+This file is the SENDEX-specific extension consumed by /ops:bug-stress
+Step 1 via lattice-project.toml [skills.bug_stress] pattern_families.
+
+Authoring rules for inlinable content:
+- Start with prose / table content directly (no top-level # heading).
+- No meta-blockquotes describing how the file is consumed.
+- HTML comments like this one are stripped; safe to keep.
+- Sub-headings (## or deeper) are fine -- they slot under the parent skill.
+-->
+
+The patterns below are specific to SENDEX's domain ... [content starts here]
+
+| Family | Description | ... |
+|--------|-------------|-----|
+...
+
+## Per-family search strategy
+
+...
+```
+
+**Anti-pattern** (what NOT to write):
+
+```markdown
+# Bug Pattern Families        <-- forbidden: orphan H1
+
+> This file is consumed by    <-- forbidden: meta-blockquote leaks
+> /ops:bug-stress Step 1.        authoring metadata into the model
+
+The patterns below ...        <-- content starts here
+```
+
+Mechanical check: there is currently no automated linter for these conventions. The Phase 4 skill-migration workflow surfaces violations during dog-food validation (the structural-noise is visible when the synced skill body is read after `lattice resync`). A future enhancement could add a content-file lint to `lattice resync` (cross-reference: framework-side TODO).
+
 ## 4. Schema buckets (top-level)
 
 Total: 8 buckets + 1 per-skill namespace. Each bucket contains scalar keys; sub-tables are noted explicitly.

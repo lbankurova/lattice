@@ -77,11 +77,12 @@ _(no open ENH items at this time — see `docs/decisions/todo-pruned-2026-04-28.
 - **Where:** `executor/src/manifest.ts`. Extract a single `scanString(text, pos): { end: number; closed: boolean }` helper.
 - **Priority:** Low (cleanup; not blocking).
 
-### ENH-12: Spec inlinable-content authoring conventions
+### ~~ENH-12: Spec inlinable-content authoring conventions~~ -- DONE
 - **Source:** /lattice:review on Phase 3b validation prep (2026-05-07).
 - **Problem:** Phase 3b validation surfaced that project-content files referenced via `{{include:project.X.Y}}` need to follow inlinable conventions (no top H1, no meta-blockquote describing the file's role) or they produce structurally-noisy prompts. Caught + fixed in pcc's `bug-pattern-families.md`; the convention is not documented in `docs/lattice-project-spec.md`.
 - **Where:** add a §3 sub-section or §4.10 addendum to `docs/lattice-project-spec.md` covering authoring rules for project content files: start with prose/table content directly, no orphan top-level headings, sub-headings (## or deeper) OK, HTML comments allowed for developer documentation.
 - **Priority:** Medium (Phase 4 will hit this every time a new include lands).
+- **Resolution:** added §3.1 "Authoring conventions for inlinable content" to `docs/lattice-project-spec.md`. 4 rules + canonical template + anti-pattern + cross-reference to the empirical exemplar (pcc's `bug-pattern-families.md` / commit `3f0f249`). Mechanical-check note flags that automated linting is a future enhancement.
 
 ### ENH-13: Trigger re-sync on local project content edits
 - **Source:** /lattice:review on Phase 3b validation prep (2026-05-07).
