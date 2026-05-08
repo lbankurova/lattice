@@ -7,7 +7,7 @@ You are orchestrating the **blueprint phase** of a topic. This cycle takes valid
 
 **Input:** A topic (must have validated research from `/lattice:research-cycle`).
 
-**Output:** Validated synthesis at `docs/_internal/incoming/{topic}-synthesis.md`. Next: `/lattice:build-cycle {topic}`.
+**Output:** Validated synthesis at `{{lattice.project.specs.incoming}}/{topic}-synthesis.md`. Next: `/lattice:build-cycle {topic}`.
 
 ---
 
@@ -55,7 +55,7 @@ Continues the state file from research-cycle: `.lattice/cycle-state/{topic}.yaml
 |------|----------------------|
 | 0 | Decisions log (FULL, not just this topic), `.lattice/bug-patterns.md`, `code-quality-guardrails.md`, prior cycle states in `.lattice/cycle-state/` |
 | 1 | Research doc, review files, probe results from research-cycle, distill results, Step 0 findings |
-| 2 | Synthesis doc, `docs/_internal/knowledge/code-quality-guardrails.md` |
+| 2 | Synthesis doc, `{{lattice.project.docs.guardrails}}` |
 | 3 | Synthesis doc, system manifest |
 | 4 | Synthesis doc (the file, not memory) |
 | 5 | Synthesis doc + plan review file + decisions log |
@@ -64,7 +64,7 @@ Continues the state file from research-cycle: `.lattice/cycle-state/{topic}.yaml
 **Entry detection (no flags needed):**
 1. State file `current_step` starts with `blueprint` → resume from that step
 2. No blueprint state → detect from files:
-   - No `docs/_internal/incoming/{topic}-synthesis.md` → Step 0
+   - No `{{lattice.project.specs.incoming}}/{topic}-synthesis.md` → Step 0
    - Synthesis exists, no `peer-reviews/{topic}-architect-review.md` → Step 2
    - Architect passed, no build-plan probe recorded → Step 3
    - Probe done, no `peer-reviews/{topic}-synthesis-review.md` → Step 4
@@ -85,7 +85,7 @@ Mirrors research's Step 0 (corpus load) but for implementation knowledge. Read:
    - Architectural decisions that constrain this build plan
    - Patterns that worked well and should be reused
 2. **Bug patterns** (`.lattice/bug-patterns.md`) — known failure families. If the build plan touches modules with known bug patterns, the plan must account for them.
-3. **Code quality guardrails** (`docs/_internal/knowledge/code-quality-guardrails.md`) — complexity budgets, canonical patterns, domain-critical modules that need extra care.
+3. **Code quality guardrails** (`{{lattice.project.docs.guardrails}}`) — complexity budgets, canonical patterns, domain-critical modules that need extra care.
 4. **Prior cycle states** (`.lattice/cycle-state/`) — scan for related completed cycles. If topic A's build plan changed module X, and this topic also touches module X, note the interaction.
 
 **Output:** An "Implementation Context" section in the checkpoint. This feeds into Step 1 — synthesize must know what's been tried and what constraints exist from accumulated experience.
@@ -97,13 +97,13 @@ Update state: `phase: blueprint, current_step: blueprint.1`.
 ### Step 1: Synthesize
 
 Run `/lattice:synthesize` on the validated research. Provide:
-- Research doc: `docs/_internal/research/{topic}.md`
+- Research doc: `{{lattice.project.research.root}}/{topic}.md`
 - Peer reviews R1 and R2 (if they exist)
 - Distill audit results from research-cycle Step 6 (if contradictions found)
 - Probe results from research-cycle Step 7 (if PROPAGATES or BREAKS)
 - Implementation context from Step 0 (failed approaches, relevant bug patterns, cross-topic constraints)
 
-Write to `docs/_internal/incoming/{topic}-synthesis.md`.
+Write to `{{lattice.project.specs.incoming}}/{topic}-synthesis.md`.
 
 **Mandatory section gate.** Verify these sections exist with substantive content (not just headers):
 1. **Build Plan** — at least one feature with acceptance criteria
@@ -134,7 +134,7 @@ Launch with:
 | **REJECT** | **STOP** — present to user with alternative approach |
 | **SCIENCE-FLAG** | **STOP** — present flagged items, each needs explicit accept/reject |
 
-Write review to `docs/_internal/research/peer-reviews/{topic}-architect-review.md`.
+Write review to `{{lattice.project.research.peer_reviews}}/{topic}-architect-review.md`.
 
 Update state: `current_step: blueprint.3`.
 
@@ -157,7 +157,7 @@ Update state: `current_step: blueprint.4`.
 Launch with:
 - **subagent_type:** `peer-review`
 - **prompt:** the synthesis doc path ONLY; one sentence: "Review the synthesis at `{synthesis-path}` per the peer-review protocol (Implementation Plan / Synthesis tier)."
-- **Output:** `docs/_internal/research/peer-reviews/{topic}-synthesis-review.md` (agent writes this directly)
+- **Output:** `{{lattice.project.research.peer_reviews}}/{topic}-synthesis-review.md` (agent writes this directly)
 
 **Gate check:** Same structural quality check as research-cycle — at least one CONDITIONAL/FLAWED, evidence per finding, at least 3 dimensions.
 
@@ -172,7 +172,7 @@ For each accepted finding:
 - **CONDITIONAL:** Strengthen evidence, narrow scope, or add caveats
 - **Rejected:** Note counter-evidence in a "Plan Review Notes" section
 
-Update `docs/_internal/incoming/{topic}-synthesis.md`.
+Update `{{lattice.project.specs.incoming}}/{topic}-synthesis.md`.
 
 Update state: `current_step: blueprint.6`.
 
@@ -183,7 +183,7 @@ Update state: `current_step: blueprint.6`.
 Launch with:
 - **subagent_type:** `peer-review`
 - **prompt:** updated synthesis doc path AND R1 plan review path; one sentence: "Review the synthesis at `{synthesis-path}`. Read R1 review at `{r1-path}` first; check revisions addressed R1 findings, check for new issues from revisions, do NOT re-raise addressed findings."
-- **Output:** `docs/_internal/research/peer-reviews/{topic}-synthesis-review-r2.md` (agent writes this directly)
+- **Output:** `{{lattice.project.research.peer_reviews}}/{topic}-synthesis-review-r2.md` (agent writes this directly)
 
 Same gate check and evaluation as research-cycle:
 | R2 outcome | Action |
@@ -198,8 +198,8 @@ Update state: `current_step: blueprint.7`.
 
 **Verify gap persistence.** Before declaring the build plan complete:
 
-1. **Read `docs/_internal/research/REGISTRY.md`** — confirm every research gap from the synthesis Section 2 has an entry or is covered by an existing stream's `open-questions`. If any are missing, write them now.
-2. **Read `docs/_internal/TODO.md`** — confirm every data gap from the synthesis Section 3 has an entry. If any are missing, write them now.
+1. **Read `{{lattice.project.research.registry}}`** — confirm every research gap from the synthesis Section 2 has an entry or is covered by an existing stream's `open-questions`. If any are missing, write them now.
+2. **Read `{{lattice.project.backlog.todo}}`** — confirm every data gap from the synthesis Section 3 has an entry. If any are missing, write them now.
 
 Gaps that exist only in the synthesis document are not persisted — the synthesis gets archived after implementation. The registry and TODO.md survive.
 
@@ -208,8 +208,8 @@ Then produce the summary:
 ```
 ## Build Plan Validated: {topic}
 
-**Research:** docs/_internal/research/{topic}.md (validated)
-**Synthesis:** docs/_internal/incoming/{topic}-synthesis.md (validated)
+**Research:** {{lattice.project.research.root}}/{topic}.md (validated)
+**Synthesis:** {{lattice.project.specs.incoming}}/{topic}-synthesis.md (validated)
 **Reviews:** [list all review files]
 **Auto-decisions:** [count] (review in .lattice/decisions.log)
 
