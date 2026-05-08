@@ -23,7 +23,7 @@ Check `.lattice/last-sweep` for the timestamp of the last `/ops:sweep` run.
 Read these sources in parallel to build a complete picture:
 
 ### Capability Model (PRIMARY SOURCE)
-- `docs/_internal/capabilities.yaml` — the capability model. This is the single most important input. It contains:
+- `{{lattice.project.docs.capabilities}}` — the capability model. This is the single most important input. It contains:
   - **9 user workflow pillars** with traced code paths and per-dimension state
   - **Cross-cutting dimension tables** (HCD matrix, species overrides, compound profiles, study types, validation studies)
   - **Cascade edges** — "if X ships, what else improves?" with explicit pillar/dimension references
@@ -37,22 +37,22 @@ Read these sources in parallel to build a complete picture:
 - `git stash list` — stashed work (what was paused)
 
 ### Tactical Backlog
-- `docs/_internal/TODO.md` — bugs, individual GAP-* items, tech debt
-- `docs/_internal/incoming/*.md` — specs and synthesis docs waiting for action
+- `{{lattice.project.backlog.todo}}` — bugs, individual GAP-* items, tech debt
+- `{{lattice.project.specs.incoming}}/*.md` — specs and synthesis docs waiting for action
 
 **TODO.md annotation filters (apply during classification, not during read):**
 
 - **`- **Research exhausted:** true`** on a `DATA-GAP-*` entry means research already ran and confirmed the data does not exist in public sources. Do NOT classify these as "research ready" or recommend `/lattice:research` on them. Either (a) surface under a **Data Acquisition / Partnership** bucket if there's a clear consortium/commissioning path, or (b) skip them entirely from the "what to do next" list. They do not count against the research-pipeline structural-gap metric in Step 5.
 - **`- **Category:** … — not a research task`** on a `DATA-GAP-*` entry means the ID lives in the data-gap namespace for cross-reference stability but the actual work is Engineering, Schema migration, or Docs. Reclassify into the named bucket for ranking. These do not count against research-pipeline metrics either.
 
-`grep "^- \*\*Research exhausted:\*\* true" docs/_internal/TODO.md -B1` and `grep "^- \*\*Category:\*\*.*not a research task" docs/_internal/TODO.md -B1` yield the current filtered sets.
+`grep "^- \*\*Research exhausted:\*\* true" {{lattice.project.backlog.todo}} -B1` and `grep "^- \*\*Category:\*\*.*not a research task" {{lattice.project.backlog.todo}} -B1` yield the current filtered sets.
 
 ### Research State
-- `docs/_internal/research/REGISTRY.md` — stream status, open questions, cross-stream dependencies
+- `{{lattice.project.research.registry}}` — stream status, open questions, cross-stream dependencies
 - Each pillar in capabilities.yaml lists its research streams with current status
 
 ### Validation State
-- `docs/validation/summary.md` — missed signals, design mismatches, gaps
+- `{{lattice.project.docs.validation_summary}}` — missed signals, design mismatches, gaps
 
 ### Memory
 - Read MEMORY.md index for active initiatives, in-progress transitions, known blockers
@@ -183,7 +183,7 @@ After recommendations, flag structural gaps using the capability model:
 
 ## Output
 
-Present the recommendations inline organized by pillar (not flat list). Group related items under the pillar they advance. Also write a snapshot to `docs/_internal/incoming/priority-snapshot-{date}.md` so the reasoning persists.
+Present the recommendations inline organized by pillar (not flat list). Group related items under the pillar they advance. Also write a snapshot to `{{lattice.project.specs.incoming}}/priority-snapshot-{date}.md` so the reasoning persists.
 
 Format:
 ```
@@ -199,5 +199,5 @@ State: [1-line summary of current capability]
 
 - **Value, not effort.** Never rank something lower because it's hard. Rank by how much it helps scientists.
 - **No inventing work.** Only recommend items that exist in the state you read. Don't propose new features — that's `/lattice:research`.
-- **Be specific.** "Work on the cohort view" is not a recommendation. "Run `/lattice:synthesize docs/_internal/research/cohort-subject-level-data-review.md` to produce the build plan" is.
+- **Be specific.** "Work on the cohort view" is not a recommendation. "Run `/lattice:synthesize {{lattice.project.research.root}}/cohort-subject-level-data-review.md` to produce the build plan" is.
 - **Acknowledge in-progress work.** If something is mid-transition (uncommitted changes, half-done migration), say so. Don't recommend abandoning it without reason.
