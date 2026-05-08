@@ -7,7 +7,7 @@ You are orchestrating the **research phase** of a topic. This cycle produces val
 
 **Input:** A topic. Auto-detects entry point from state. Accepts `--landscape`, `--novel`.
 
-**Output:** Validated research at `docs/_internal/research/{topic}.md`. Next: `/lattice:blueprint-cycle {topic}`.
+**Output:** Validated research at `{{lattice.project.research.root}}/{topic}.md`. Next: `/lattice:blueprint-cycle {topic}`.
 
 ---
 
@@ -75,17 +75,17 @@ checkpoints:
     completed: {ISO timestamp}
     key_decisions: ["chose Hedges' g over Cohen's d — unequal groups"]
     constraints: ["gLower 0.3 is load-bearing — S05 and S11 gate on it"]
-    output: "docs/_internal/research/{topic}.md"
+    output: "{{lattice.project.research.root}}/{topic}.md"
     next_needs: "peer review needs the doc path only — no context"
 ```
 
 **Entry detection (no --from flags needed):**
 1. State file exists → resume from `current_step`
 2. No state file → detect from files:
-   - No `docs/_internal/research/{topic}.md` → Step 1
-   - Research doc exists, no `peer-reviews/{topic}-review.md` → Step 2
+   - No `{{lattice.project.research.root}}/{topic}.md` → Step 1
+   - Research doc exists, no `{{lattice.project.research.peer_reviews}}/{topic}-review.md` → Step 2
    - Review exists, no "Peer Review Notes" section in research doc → Step 3
-   - "Peer Review Notes" exists, no `{topic}-review-r2.md` → Step 4
+   - "Peer Review Notes" exists, no `{{lattice.project.research.peer_reviews}}/{topic}-review-r2.md` → Step 4
    - R2 review exists → Step 5
    - Research validated → **Done — run `/lattice:blueprint-cycle {topic}`**
 
@@ -111,11 +111,11 @@ Modifiers: [applicable flags like --novel, --deep, --landscape]
 
 The research skill's Step 0 (corpus load) runs first — reads decisions log, existing research, knowledge files, peer reviews, and distillations. Non-negotiable.
 
-Run `/lattice:research` on the topic. Write to `docs/_internal/research/{topic}.md`.
+Run `/lattice:research` on the topic. Write to `{{lattice.project.research.root}}/{topic}.md`.
 
 **Gates:**
 - Output must contain an "Already Known" section. If missing, corpus load was skipped — send it back.
-- **For algorithmic topics** — when the research touches mortality classification / NOAEL / LOAEL / adversity classification / target-organ flagging / syndrome detection / severity / recovery / onset, OR proposes an algorithm in a path listed in `.lattice/algorithm-paths.txt` — output must contain an "Oracle Walk" section per Phase 4 of `commands/lattice/research.md`. The section must identify the reference-card assertion(s) the proposed approach must satisfy (or draft new assertions where none exist), trace expected-vs-actual against `backend/generated/<study>/unified_findings.json`, and verdict each algorithmic proposal as `PRODUCES | CANNOT_PRODUCE | AMBIGUOUS`. If missing or if the topic visibly has algorithmic proposals but the section says "Phase 4 skipped", send back to research with: "Add Phase 4 algorithmic oracle walk per `commands/lattice/research.md`." For non-algorithmic topics, the auditable one-line skip per Phase 4 is sufficient.
+- **For algorithmic topics** — when the research touches an analytical output or proposes an algorithm in a path listed in `.lattice/algorithm-paths.txt` — output must contain an "Oracle Walk" section per Phase 4 of `commands/lattice/research.md`. The section must identify the reference-card assertion(s) the proposed approach must satisfy (or draft new assertions where none exist), trace expected-vs-actual against the project's generated output, and verdict each algorithmic proposal as `PRODUCES | CANNOT_PRODUCE | AMBIGUOUS`. If missing or if the topic visibly has algorithmic proposals but the section says "Phase 4 skipped", send back to research with: "Add Phase 4 algorithmic oracle walk per `commands/lattice/research.md`." For non-algorithmic topics, the auditable one-line skip per Phase 4 is sufficient.
 
 **If `--landscape`:** Present branch table with coverage scores. **STOP — branch selection is a critical decision point.**
 
@@ -128,13 +128,13 @@ Update state: `current_step: research.2`.
 Launch with:
 - **subagent_type:** `peer-review` — the harness loads the agent's instructions; the orchestrator must NOT inline the skill content into the prompt (that pattern was retired 2026-04-27 after measuring ~10K wasted tokens per launch)
 - **prompt:** the doc path ONLY — no reasoning, no rationale, no context. One sentence: "Review the document at `{doc-path}` per the peer-review protocol."
-- **Output:** `docs/_internal/research/peer-reviews/{topic}-review.md` (the agent writes this directly)
+- **Output:** `{{lattice.project.research.peer_reviews}}/{topic}-review.md` (the agent writes this directly)
 
 **Gate check:** After the agent returns, read the review and verify:
 1. At least one finding rated CONDITIONAL or FLAWED. All-SOUND is suspicious — re-read. If genuinely substantive, accept. If shallow, re-launch with: "Look harder — specifically at assumptions, failure modes, and literature conflicts."
 2. Each finding has specific evidence, not just a verdict label.
 3. Review addresses at least 3 of 5 dimensions: assumptions, logic chain, alternatives, failure modes, literature.
-4. **Verify-Before-Citing Gate (mandatory when launched with `--novel`).** Run `python scripts/audit-novel-source-discovery.py {review-path}` (the project-side mirror at `scripts/audit-novel-source-discovery.py`, auto-synced from lattice). Exit 0 = pass. Exit 1 = defect: surface the validator's stderr to the user and re-launch the peer-review agent with the stderr appended as additional instruction ("Fix the Verify-Before-Citing defects below per the skill spec, then re-emit the review:\n{stderr}"). Re-launches count toward the 3-launch cap defined in `commands/lattice/review.md` Step 1's peer-review re-launch policy. On the 3rd consecutive validator FAIL, STOP and surface the verdicts to the user — do not auto-proceed. This gate is the mechanical enforcement of the skill prompt's "rows missing a `Verification` cell are a defect → orchestrator MUST re-launch the review" rule (per pcc GAP-25.15.1). Skipped silently for non-`--novel` runs (the validator is a no-op pass-through when no `## Novel Source Discovery` markdown header is present).
+{{include:optional:project.skills.research_cycle.novel_verification_gate}}
 
 **Auto-handle:** SOUND → note. CONDITIONAL → auto-accept. FLAWED → accept for incorporation.
 
@@ -158,7 +158,7 @@ Update state: `current_step: research.4`.
 Launch with:
 - **subagent_type:** `peer-review`
 - **prompt:** the updated doc path AND R1 review path; one sentence: "Review the document at `{doc-path}`. Read R1 review at `{r1-path}` first; check revisions addressed R1 findings, check for new issues from revisions, do NOT re-raise addressed findings.{` Use --novel mode.` if flagged}"
-- **Output:** `docs/_internal/research/peer-reviews/{topic}-review-r2.md` (the agent writes this directly)
+- **Output:** `{{lattice.project.research.peer_reviews}}/{topic}-review-r2.md` (the agent writes this directly)
 
 Same gate check as Step 2.
 
@@ -180,7 +180,7 @@ Present research summary:
 ```
 ## Research Validated: {topic}
 
-**Doc:** docs/_internal/research/{topic}.md
+**Doc:** {{lattice.project.research.root}}/{topic}.md
 **Reviews:** {topic}-review.md, {topic}-review-r2.md
 **Findings incorporated:** [list]
 **Auto-decisions:** [list from log]
@@ -212,7 +212,7 @@ Update state: `phase: research-complete, current_step: build.0`.
 
 Before declaring research complete, verify all gaps from the cycle are persisted:
 
-1. **Read `docs/_internal/research/REGISTRY.md`** — confirm gaps from:
+1. **Read `{{lattice.project.research.registry}}`** — confirm gaps from:
    - Research (Phase 2 gap analysis, Phase 2b uniformity assumptions)
    - Peer review R1 and R2 (CONDITIONAL/FLAWED findings implying gaps)
    - Distill audit (if contradictions found in Step 6)
@@ -220,9 +220,9 @@ Before declaring research complete, verify all gaps from the cycle are persisted
    
    If any gap was mentioned in research/review output but has no REGISTRY entry, write it now.
 
-2. **Read `docs/_internal/TODO.md`** — confirm data gaps from research and probe STALE findings are logged.
+2. **Read `{{lattice.project.backlog.todo}}`** — confirm data gaps from research and probe STALE findings are logged.
 
-**Gaps discovered during research are the INPUTS to blueprint-cycle prioritization. If they're not in REGISTRY.md and TODO.md, the build plan will be built without them.**
+**Gaps discovered during research are the INPUTS to blueprint-cycle prioritization. If they're not in the registry and TODO, the build plan will be built without them.**
 
 Update state: `current_step: research.complete`.
 
@@ -235,7 +235,7 @@ bash scripts/release-topic-lock.sh {topic}
 
 ```
 Research validated: {topic}
-Gaps persisted: {N} research (REGISTRY.md), {N} data (TODO.md)
+Gaps persisted: {N} research ({{lattice.project.research.registry}}), {N} data ({{lattice.project.backlog.todo}})
 Next: /lattice:blueprint-cycle {topic}
 ```
 
