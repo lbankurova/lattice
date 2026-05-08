@@ -6,7 +6,7 @@ description: UI/UX design step — sits between synthesize and implement. Decide
 You are making **design decisions** for a feature before any code is written. This skill sits between `/lattice:synthesize` (what to build) and `/lattice:implement` (writing code). The synthesize says WHAT capabilities are needed. You decide HOW they present to the user.
 
 **Input:** A spec or synthesis document, or a specific feature description. Examples:
-- `design docs/_internal/incoming/evidence-scoring-overhaul-synthesis.md`
+- `design {{lattice.project.specs.incoming}}/evidence-scoring-overhaul-synthesis.md`
 - `design "dose proportionality chart for PK exposure section"`
 - `design Phase 3 of the current spec`
 
@@ -101,11 +101,11 @@ This validates the file contains all four block markers (`1.1`, `1.2`, `1.3`, `1
 
 Before answering any of the four blocks below, **re-read in full**:
 
-- `.claude/rules/design-decisions.md` (the path-scoped decision tables)
-- `.claude/rules/frontend-ui-gate.md` (Rule 0 reference component, Rule 6 utility catalogue)
+- `{{lattice.project.docs.design_decisions}}` (the path-scoped decision tables)
+- `{{lattice.project.docs.frontend_ui_gate}}` (Rule 0 reference component, Rule 6 utility catalogue)
 - `.claude/rules/domain-knowledge-map.md` (which knowledge files apply to the surface in scope)
 
-These files are nominally "always loaded," but the empirical record (`docs/_internal/audits/workflow-audits/CORRIGENDA.md` GAP-308 miss, the 2026-04-26 sweep) shows agents skip them anyway and re-derive what's already documented. Reading them at Step 0 is what makes block 1.4 (rules in scope) honest — you can't cite rule IDs you haven't actually re-read.
+These files are nominally "always loaded," but the empirical record (`{{lattice.project.docs.workflow_audits_dir}}/CORRIGENDA.md` GAP-308 miss, the 2026-04-26 sweep) shows agents skip them anyway and re-derive what's already documented. Reading them at Step 0 is what makes block 1.4 (rules in scope) honest — you can't cite rule IDs you haven't actually re-read.
 
 **Trivial-bypass exception** for both 0.1 and 0.2 is the same as for the four blocks: known-trivial change (typo, copy fix, single-token edit, verbatim implementation of a previously-approved design). Cite which trigger applies and run `bash scripts/design-session.sh end` if you started a session.
 
@@ -121,13 +121,13 @@ If you cannot write all four blocks honestly with concrete content, the feature 
 
 State as a concrete toxicology question whose answer would change interpretation. Good: *"Is hepatocellular injury at the high dose driven by a single subject or distributed across the cohort?"* Bad: *"User wants to see NOAEL"* (that's a request, not a question — what does seeing it let them decide?).
 
-If the surface serves multiple personas, name each persona's question separately (P1, P2, P3, P4, P5 per `docs/_internal/design-system/datagrok-app-design-patterns.md` § Personas).
+If the surface serves multiple personas, name each persona's question separately (P1, P2, P3, P4, P5 per `{{lattice.project.docs.design_system_dir}}/datagrok-app-design-patterns.md` § Personas).
 
-**Audit cross-reference.** If a workflow audit exists for this surface (`docs/_internal/audits/workflow-audits/{persona}-{workflow}/README.md`), **read it before answering this block**. The audit's friction notes and GAPs are the user's pain points already documented; an agent designing without reading them is re-discovering known friction. Also check `docs/_internal/audits/workflow-audits/THEMES.md` — if the surface is cited under any CT-N theme (CT-1 disconnected islands, CT-3 score-collapses-N-states, CT-6 mutually-exclusive panels, CT-8 default-mode-hides-synthesis, CT-9 vocabulary leak, CT-15 sub-pane allocation, CT-23 missing per-subject drill-in), name the theme and how the redesign closes or carries it.
+**Audit cross-reference.** If a workflow audit exists for this surface (`{{lattice.project.docs.workflow_audits_dir}}/{persona}-{workflow}/README.md`), **read it before answering this block**. The audit's friction notes and GAPs are the user's pain points already documented; an agent designing without reading them is re-discovering known friction. Also check `{{lattice.project.docs.workflow_audits_dir}}/THEMES.md` — if the surface is cited under any CT-N theme (CT-1 disconnected islands, CT-3 score-collapses-N-states, CT-6 mutually-exclusive panels, CT-8 default-mode-hides-synthesis, CT-9 vocabulary leak, CT-15 sub-pane allocation, CT-23 missing per-subject drill-in), name the theme and how the redesign closes or carries it.
 
 ### 1.2 Engine outputs survey (concrete counts, quoted from real data)
 
-Run `/ops:explore-data` against the canonical fixture (PointCross by default; choose per `docs/_internal/audits/workflow-audits/STUDY-FIXTURES.md` if the workflow has a stronger fixture), or read `backend/generated/{study}/unified_findings.json` directly. Output:
+Run `/ops:explore-data` against the canonical fixture (PointCross by default; choose per `{{lattice.project.docs.workflow_audits_dir}}/STUDY-FIXTURES.md` if the workflow has a stronger fixture), or read `backend/generated/{study}/unified_findings.json` directly. Output:
 
 - **What the engine produces here.** Quote actual counts and a few representative values. Example shape: *"PointCross produces 16 syndrome matches (HIGH-confidence Hepatocellular Injury N=7, Hepatotoxicity Classic N=3, …), 405 organ × endpoint records, recovery verdicts on K findings, evidence-quality grades on M organs."*
 - **What the existing UI surfaces today.** Concrete: which panes, which charts, which fields. Be honest about gaps.
@@ -140,7 +140,7 @@ Block 1.2 is non-optional even when the request sounds like a relocation ("move 
 
 State at least three structural spines (findings / syndromes / organs / subjects). For each:
 
-- **(a) Persona match.** Which persona's mental model does this spine fit? Cite from `docs/_internal/design-system/datagrok-app-design-patterns.md` § Mental Models. Examples: *"Study Director (P1) thinks in convergence (ALT + hypertrophy + vacuolation = hepatotox) → **syndrome spine** matches this frame natively; findings spine forces them to mentally re-aggregate."* / *"Pathologist (P2) is specimen-centric ('Liver → what did I see?') → **organ spine** matches; findings spine inverts their navigation."* / *"Biostatistician (P5) reasons over distributions and effect sizes → **findings spine** with per-endpoint dose-response is the native frame."*
+- **(a) Persona match.** Which persona's mental model does this spine fit? Cite from `{{lattice.project.docs.design_system_dir}}/datagrok-app-design-patterns.md` § Mental Models. Examples: *"Study Director (P1) thinks in convergence (ALT + hypertrophy + vacuolation = hepatotox) → **syndrome spine** matches this frame natively; findings spine forces them to mentally re-aggregate."* / *"Pathologist (P2) is specimen-centric ('Liver → what did I see?') → **organ spine** matches; findings spine inverts their navigation."* / *"Biostatistician (P5) reasons over distributions and effect sizes → **findings spine** with per-endpoint dose-response is the native frame."*
 - **(b) What the user GETS** if this spine is picked. Concrete, in their workflow.
 - **(c) What they LOSE** if a different spine is picked. Concrete, in their workflow.
 
@@ -148,16 +148,16 @@ State at least three structural spines (findings / syndromes / organs / subjects
 
 **Pick one default.** Justify on persona-fit *and* engine outputs (1.2), **not** on "what the existing UI looks like." Existing structure is evidence about a previous choice, not the answer. If the previous choice still wins, say *why it wins on the merits* (which persona's mental model it served, what the alternative loses), not "because it's what's there."
 
-**Built-not-mounted check (rule 5 with teeth).** Before proposing a new component, grep `frontend/src/` for components that match the role you're about to build. Sendex has a documented history of production-ready components sitting unwired (`AuditTrailPanel.tsx`, `verdict-transparency.ts` helpers; previously `RecoveryPane.tsx` until user-retracted). Wiring a built component is one to two orders of magnitude cheaper than building. Cite either the component you found (and why wiring is the right move), or the grep that came up empty (and why building is justified). Reference: `.claude/rules/ux-audit-validate.md` Section 4 (built-not-mounted inventory).
+**Built-not-mounted check (rule 5 with teeth).** Before proposing a new component, grep `frontend/src/` for components that match the role you're about to build. Sendex has a documented history of production-ready components sitting unwired (`AuditTrailPanel.tsx`, `verdict-transparency.ts` helpers; previously `RecoveryPane.tsx` until user-retracted). Wiring a built component is one to two orders of magnitude cheaper than building. Cite either the component you found (and why wiring is the right move), or the grep that came up empty (and why building is justified). Reference: `{{lattice.project.docs.ux_audit_validate}}` Section 4 (built-not-mounted inventory).
 
 ### 1.4 Rules in scope (cited rule IDs)
 
 Before the sketch, quote the rule IDs that bind here. Categories:
 
-- **`.claude/rules/design-decisions.md`** — name the rows that apply (e.g., "C-05 categorical badges neutral gray," "T-02 section header," "K-07 filter dropdowns via FilterSelect").
-- **`docs/_internal/design-system/audit-checklist.md`** — name the rule IDs that apply (e.g., "C-29 grayscale survives," "C-35 per-screen color budget," "K-05 tab bar pattern").
-- **`.claude/rules/frontend-ui-gate.md`** — name the rules (Rule 0 reference component, Rule 6 existing utility, etc.).
-- **`docs/_internal/reference/interactivity-rule.md`** — every clickable element must respond; population-level views need per-subject drill-in (CT-23 carries this).
+- **`{{lattice.project.docs.design_decisions}}`** — name the rows that apply (e.g., "C-05 categorical badges neutral gray," "T-02 section header," "K-07 filter dropdowns via FilterSelect").
+- **`{{lattice.project.docs.audit_checklist}}`** — name the rule IDs that apply (e.g., "C-29 grayscale survives," "C-35 per-screen color budget," "K-05 tab bar pattern").
+- **`{{lattice.project.docs.frontend_ui_gate}}`** — name the rules (Rule 0 reference component, Rule 6 existing utility, etc.).
+- **`{{lattice.project.docs.interactivity_rule}}`** — every clickable element must respond; population-level views need per-subject drill-in (CT-23 carries this).
 - **Vocabulary leak check (CT-9 / GAP-282).** Internal IDs reaching user UI is a documented systemic failure: `pattern_only`, `WATCHLIST`, `UE-NN`, `S2 L10`, `XS01-09`, `pathologist` vs `reviewedBy`, `mechanism_uncertain`, `non-resp`. If the new surface displays any of these without a tooltip translation or a user-facing label map, name it as a vocabulary debt the design must close.
 - **CLAUDE.md** — at minimum: rule 5 (reuse before reinventing), rule 14 (science preservation), rule 16 (empirical verification). Add others if they bind.
 
@@ -213,7 +213,7 @@ Is it the PRIMARY analytical output for this view?
                      Propose where it DOES belong, or propose leaving it out.
 ```
 
-**CT-15 pane-allocation check.** If the placement decision lands on **"context panel pane"** (a dedicated sub-pane), the choice must be justified by persona-utility evidence. Cite the **View-Persona Utility Matrix score** in `docs/_internal/design-system/datagrok-app-design-patterns.md` for the persona(s) this pane serves. Threshold: a dedicated pane requires utility ≥ 4 for at least one primary persona, or ≥ 3 for two personas. Below that, demote to inline row, badge, or on-demand expansion. Reason: the audit corpus identified "sub-pane absence for first-class workflow" (CT-15) and its inverse — pane allocation that doesn't reflect workflow weight — as systemic. Pane allocation should track persona utility, not historical accident or agent enthusiasm.
+**CT-15 pane-allocation check.** If the placement decision lands on **"context panel pane"** (a dedicated sub-pane), the choice must be justified by persona-utility evidence. Cite the **View-Persona Utility Matrix score** in `{{lattice.project.docs.design_system_dir}}/datagrok-app-design-patterns.md` for the persona(s) this pane serves. Threshold: a dedicated pane requires utility ≥ 4 for at least one primary persona, or ≥ 3 for two personas. Below that, demote to inline row, badge, or on-demand expansion. Reason: the audit corpus identified "sub-pane absence for first-class workflow" (CT-15) and its inverse — pane allocation that doesn't reflect workflow weight — as systemic. Pane allocation should track persona utility, not historical accident or agent enthusiasm.
 
 **Coping strategies when it doesn't fit** (ordered by context cost — cheapest first):
 
