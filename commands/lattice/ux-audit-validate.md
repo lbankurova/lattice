@@ -11,7 +11,7 @@ You are running **Stage 2** of the 3-stage UX audit pipeline:
 /lattice:ux-audit-file       <audit-path>             # validated findings → TODO.md
 ```
 
-**Mandate:** the rule file at `.claude/rules/ux-audit-validate.md` is your specification. Do not paraphrase or re-derive its checks — apply them. This skill is the executor; the rule file is the law. If the rule file changes, the skill picks up the change automatically.
+**Mandate:** the rule file at `{{lattice.project.docs.ux_audit_validate}}` is your specification. Do not paraphrase or re-derive its checks — apply them. This skill is the executor; the rule file is the law. If the rule file changes, the skill picks up the change automatically.
 
 **Empirical justification:** the 2026-04-26 sweep had ~21% walk-time GAP refute rate. Skipping this stage means filing 1 in 5 GAPs as false positives. Validation is mandatory.
 
@@ -19,7 +19,7 @@ You are running **Stage 2** of the 3-stage UX audit pipeline:
 
 ## Input
 
-- `audit-path` — path to a walked audit, e.g., `docs/_internal/audits/workflow-audits/p1-noael-determination`. Must contain a `README.md` produced by `/lattice:ux-audit-walk` with `STATUS: WALK-ONLY (UNVALIDATED)` in its header.
+- `audit-path` — path to a walked audit, e.g., `{{lattice.project.docs.workflow_audits_dir}}/p1-noael-determination`. Must contain a `README.md` produced by `/lattice:ux-audit-walk` with `STATUS: WALK-ONLY (UNVALIDATED)` in its header.
 
 If the path does not exist or the README does not show that status header, ask the user — you may have been pointed at a non-walk artifact.
 
@@ -27,7 +27,7 @@ If the path does not exist or the README does not show that status header, ask t
 
 ## Step 0: Read the rule file (mandatory)
 
-Read `.claude/rules/ux-audit-validate.md` in full. This contains:
+Read `{{lattice.project.docs.ux_audit_validate}}` in full. This contains:
 
 - Section 1: pipeline definition.
 - Section 2: the 5-step Grep checklist (with the **Step 0** prefix that reads `.claude/rules/design-decisions.md` and `.claude/rules/frontend-ui-gate.md` first).
@@ -117,7 +117,7 @@ Write to `{audit-path}/VALIDATED.md` (sibling of the walk's `README.md`). Format
 # Validated Findings — {Persona name}: {Workflow human-readable name}
 
 > Validation date: YYYY-MM-DD. Walk artifact: `README.md`. Validator: claude-code via `/lattice:ux-audit-validate`.
-> Rule file applied: `.claude/rules/ux-audit-validate.md` (read in full at validate time).
+> Rule file applied: `{{lattice.project.docs.ux_audit_validate}}` (read in full at validate time).
 > **STATUS: VALIDATED.** Eligible for `/lattice:ux-audit-file` to file remaining KEPT findings to TODO.md.
 
 ## Validation summary
@@ -164,7 +164,7 @@ Write to `{audit-path}/VALIDATED.md` (sibling of the walk's `README.md`). Format
 
 ## Inventory updates
 
-- **New built-not-mounted components found this pass:** {list, or "none"}. Appended to Section 4 of `.claude/rules/ux-audit-validate.md`: {yes/no}.
+- **New built-not-mounted components found this pass:** {list, or "none"}. Appended to Section 4 of `{{lattice.project.docs.ux_audit_validate}}`: {yes/no}.
 - **New pre-approved conventions surfaced:** {list, or "none"}. Propose addition to Section 3 of rule file by editing it directly with the new entry.
 
 ## Open items for /lattice:ux-audit-file
@@ -181,7 +181,7 @@ Edit the walk's `README.md`: change the status line from `STATUS: WALK-ONLY (UNV
 
 ## Step 9: Update INDEX.md
 
-Mark the audit's status in `docs/_internal/audits/workflow-audits/INDEX.md` as `VALIDATED` (was `WALKED`).
+Mark the audit's status in `{{lattice.project.docs.workflow_audits_dir}}/INDEX.md` as `VALIDATED` (was `WALKED`).
 
 ## Step 10: Hand off
 
@@ -189,8 +189,8 @@ End your turn with:
 
 ```
 VALIDATE COMPLETE — {persona}-{workflow}
-Walk artifact:      docs/_internal/audits/workflow-audits/{persona}-{workflow}/README.md
-Validated findings: docs/_internal/audits/workflow-audits/{persona}-{workflow}/VALIDATED.md
+Walk artifact:      {{lattice.project.docs.workflow_audits_dir}}/{persona}-{workflow}/README.md
+Validated findings: {{lattice.project.docs.workflow_audits_dir}}/{persona}-{workflow}/VALIDATED.md
 
 Disposition: {K} KEPT, {W} WRONG, {C} CONVENTION VIOLATION, {R} REFRAMED → wire, {A} AMBIGUOUS.
 Refute rate this audit: {X}%.
@@ -212,8 +212,8 @@ Do NOT update TODO.md, do NOT promote themes — that's Stage 3 + the manual the
 
 ## Cross-references
 
-- `.claude/rules/ux-audit-validate.md` — your specification
+- `{{lattice.project.docs.ux_audit_validate}}` — your specification
 - `.claude/rules/design-decisions.md` — Step 0 oracle
 - `.claude/rules/frontend-ui-gate.md` — Step 0 oracle
-- `docs/_internal/audits/workflow-audits/CORRIGENDA.md` — exemplar disposition document from the 2026-04-26 sweep
-- `docs/_internal/audits/workflow-audits/THEMES-VS-CODE-AUDIT.md` — exemplar theme suppression document
+- `{{lattice.project.docs.workflow_audits_dir}}/CORRIGENDA.md` — exemplar disposition document from the 2026-04-26 sweep
+- `{{lattice.project.docs.workflow_audits_dir}}/THEMES-VS-CODE-AUDIT.md` — exemplar theme suppression document

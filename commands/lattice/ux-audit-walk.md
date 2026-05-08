@@ -18,7 +18,7 @@ You are running **Stage 1** of the 3-stage UX audit pipeline:
 ## Inputs
 
 - `persona` — one of `p1` (Study Director), `p2` (Pathologist), `p4` (Data Manager), `p5` (Biostatistician), `p6` (QA Auditor). **Exclude regulatory personas (p3, p7).**
-- `workflow` — kebab-case slug. Examples: `noael-determination`, `mortality-disposition`, `pattern-override`, `loo-outlier-audit`. Must match (or extend) the inventory in `docs/_internal/audits/workflow-audits/INDEX.md`.
+- `workflow` — kebab-case slug. Examples: `noael-determination`, `mortality-disposition`, `pattern-override`, `loo-outlier-audit`. Must match (or extend) the inventory in `{{lattice.project.docs.workflow_audits_dir}}/INDEX.md`.
 
 If either argument is missing, ask the user. Do not guess the workflow.
 
@@ -26,13 +26,13 @@ If either argument is missing, ask the user. Do not guess the workflow.
 
 ## Step 0: Set up
 
-1. Read the persona definition in `docs/_internal/design-system/datagrok-app-design-patterns.md`.
-2. Read the audit inventory: `docs/_internal/audits/workflow-audits/INDEX.md`. Confirm whether this persona × workflow already has an audit. If yes, ask the user whether to re-walk (and what to do with the prior audit) before proceeding.
-3. Read `docs/_internal/audits/workflow-audits/THEMES.md` so you know which patterns to look for and which suppression rules apply (Section 7 of `.claude/rules/ux-audit-validate.md`).
+1. Read the persona definition in `{{lattice.project.docs.design_system_dir}}/datagrok-app-design-patterns.md`.
+2. Read the audit inventory: `{{lattice.project.docs.workflow_audits_dir}}/INDEX.md`. Confirm whether this persona × workflow already has an audit. If yes, ask the user whether to re-walk (and what to do with the prior audit) before proceeding.
+3. Read `{{lattice.project.docs.workflow_audits_dir}}/THEMES.md` so you know which patterns to look for and which suppression rules apply (Section 7 of `{{lattice.project.docs.ux_audit_validate}}`).
 
 ## Step 1: Pick the study fixture
 
-Open `docs/_internal/audits/workflow-audits/STUDY-FIXTURES.md`. Look up the workflow you're auditing in the per-workflow reverse index.
+Open `{{lattice.project.docs.workflow_audits_dir}}/STUDY-FIXTURES.md`. Look up the workflow you're auditing in the per-workflow reverse index.
 
 - Use the **primary** fixture.
 - If primary is unavailable (data-gen failed, study removed from `backend/generated/`), use the **fallback**.
@@ -62,7 +62,7 @@ Use `mcp__playwright__browser_*` tools throughout. Cadence:
    - Optional 1-line note on friction or surprise.
 3. **Walk to the workflow's natural end** — either the persona's expected outcome is achieved, or the workflow dead-ends (real bug, missing UI, cross-view jump).
 
-**Save screenshots** to `docs/_internal/audits/workflow-audits/{persona}-{workflow}/screens/{NN}-{slug}.png`. Use `mcp__playwright__browser_take_screenshot` with `filename` set to the absolute path.
+**Save screenshots** to `{{lattice.project.docs.workflow_audits_dir}}/{persona}-{workflow}/screens/{NN}-{slug}.png`. Use `mcp__playwright__browser_take_screenshot` with `filename` set to the absolute path.
 
 ## Step 4: Verdict tag rubric
 
@@ -75,7 +75,7 @@ Use `mcp__playwright__browser_*` tools throughout. Cadence:
 | `GAP (architectural)` | Cross-view information scent broken; needs architecture-level fix | **No** — flag for validate |
 | `DEAD-END (real bug)` | Workflow cannot continue: 404, blank pane, broken click | **No, and use sparingly** — empirical: high false-positive rate; must produce code-level mount-failure proof at validate stage |
 
-Suppress these candidate citations during the walk (they are pre-approved patterns, per Section 3 of `.claude/rules/ux-audit-validate.md`):
+Suppress these candidate citations during the walk (they are pre-approved patterns, per Section 3 of `{{lattice.project.docs.ux_audit_validate}}`):
 
 - Right-click override cells with violet column tint (`bg-violet-100/50`) + corner triangle (`.cell-overridable`) — that IS the affordance.
 - `OverridePill` blue/grey dot on overridden cells — that's note-presence on overridden cells, NOT an override-state indicator.
@@ -87,7 +87,7 @@ If you observe one of these as the audit's basis for a `GAP`, drop the citation.
 
 ## Step 5: Write the audit README
 
-Path: `docs/_internal/audits/workflow-audits/{persona}-{workflow}/README.md`.
+Path: `{{lattice.project.docs.workflow_audits_dir}}/{persona}-{workflow}/README.md`.
 
 Format (follow exactly — downstream skills parse this):
 
@@ -149,7 +149,7 @@ Format (follow exactly — downstream skills parse this):
 
 ## Step 6: Update INDEX.md
 
-Add or update the row for this audit in `docs/_internal/audits/workflow-audits/INDEX.md`. Mark column status as `WALKED` (not `VALIDATED` — that comes after Stage 2).
+Add or update the row for this audit in `{{lattice.project.docs.workflow_audits_dir}}/INDEX.md`. Mark column status as `WALKED` (not `VALIDATED` — that comes after Stage 2).
 
 ## Step 7: Hand off
 
@@ -157,7 +157,7 @@ End your turn with:
 
 ```
 WALK COMPLETE — {persona}-{workflow}
-Audit at: docs/_internal/audits/workflow-audits/{persona}-{workflow}/README.md
+Audit at: {{lattice.project.docs.workflow_audits_dir}}/{persona}-{workflow}/README.md
 Steps walked: N (V verdicts: P PASS / F FRICTION / G GAP / D DEAD-END)
 Candidate themes: {list}
 
@@ -174,12 +174,12 @@ Do NOT update TODO.md, do NOT promote themes, do NOT mark anything as confirmed.
 - **One workflow per invocation.** Don't bundle p1-noael + p1-target-organ. Run separately so each can be validated independently.
 - **Don't fix anything.** Walk, observe, classify. Even if you spot a 1-line fix, do not edit code — that's a separate `/lattice:implement` cycle.
 - **Don't open the panes you have to right-click to discover.** That's the point of the audit. If a feature requires arcane knowledge to surface, the audit should reflect that.
-- **Honor pre-approved conventions.** The Section 3 list of `.claude/rules/ux-audit-validate.md` enumerates patterns that are documented and approved. Do not re-flag them.
+- **Honor pre-approved conventions.** The Section 3 list of `{{lattice.project.docs.ux_audit_validate}}` enumerates patterns that are documented and approved. Do not re-flag them.
 
 ## Cross-references
 
-- `.claude/rules/ux-audit-validate.md` — Stage 2 rule file (pre-approved patterns, suppression rules, 5-step Grep checklist)
-- `docs/_internal/audits/workflow-audits/INDEX.md` — workflow inventory + audit status
-- `docs/_internal/audits/workflow-audits/STUDY-FIXTURES.md` — per-workflow fixture selection
-- `docs/_internal/audits/workflow-audits/THEMES.md` — current theme registry
-- `docs/_internal/design-system/datagrok-app-design-patterns.md` — persona definitions
+- `{{lattice.project.docs.ux_audit_validate}}` — Stage 2 rule file (pre-approved patterns, suppression rules, 5-step Grep checklist)
+- `{{lattice.project.docs.workflow_audits_dir}}/INDEX.md` — workflow inventory + audit status
+- `{{lattice.project.docs.workflow_audits_dir}}/STUDY-FIXTURES.md` — per-workflow fixture selection
+- `{{lattice.project.docs.workflow_audits_dir}}/THEMES.md` — current theme registry
+- `{{lattice.project.docs.design_system_dir}}/datagrok-app-design-patterns.md` — persona definitions

@@ -11,13 +11,13 @@ You are running **Stage 3** (terminal stage) of the 3-stage UX audit pipeline:
 /lattice:ux-audit-file       <audit-path>             # this skill — VALIDATED → TODO.md
 ```
 
-Your job: take a `VALIDATED.md` produced by Stage 2 and write its KEPT / CONVENTION-VIOLATION / REFRAMED / AMBIGUOUS findings into `docs/_internal/TODO.md` as new GAP entries with the right shape, then close out the audit. **You must not promote anything that Stage 2 marked WRONG** — those are refuted hypotheses, not gaps.
+Your job: take a `VALIDATED.md` produced by Stage 2 and write its KEPT / CONVENTION-VIOLATION / REFRAMED / AMBIGUOUS findings into `{{lattice.project.backlog.todo}}` as new GAP entries with the right shape, then close out the audit. **You must not promote anything that Stage 2 marked WRONG** — those are refuted hypotheses, not gaps.
 
 ---
 
 ## Input
 
-- `audit-path` — same shape as Stage 2: `docs/_internal/audits/workflow-audits/{persona}-{workflow}`. Must contain `VALIDATED.md`. If `VALIDATED.md` is absent, ask the user — Stage 2 has not been run.
+- `audit-path` — same shape as Stage 2: `{{lattice.project.docs.workflow_audits_dir}}/{persona}-{workflow}`. Must contain `VALIDATED.md`. If `VALIDATED.md` is absent, ask the user — Stage 2 has not been run.
 
 ---
 
@@ -25,12 +25,12 @@ Your job: take a `VALIDATED.md` produced by Stage 2 and write its KEPT / CONVENT
 
 1. `{audit-path}/VALIDATED.md` — the validated dispositions.
 2. `{audit-path}/README.md` — for context (persona, workflow, observed surfaces).
-3. `docs/_internal/TODO.md` — to find the next GAP-NNN number and to scan for duplicate / overlapping existing GAPs.
-4. `docs/_internal/capabilities.yaml` — to identify which capability pillar(s) the GAPs touch (informs `[Area: ...]` tag and cross-references).
+3. `{{lattice.project.backlog.todo}}` — to find the next GAP-NNN number and to scan for duplicate / overlapping existing GAPs.
+4. `{{lattice.project.docs.capabilities}}` — to identify which capability pillar(s) the GAPs touch (informs `[Area: ...]` tag and cross-references).
 
 ## Step 1: Pick the next GAP-NNN
 
-Grep `docs/_internal/TODO.md` for `^### GAP-` and find the largest existing number. Allocate sequential numbers from `MAX + 1`. Reserve a contiguous block equal to the count of items you'll file (KEPT + CONVENTION + REFRAMED + AMBIGUOUS).
+Grep `{{lattice.project.backlog.todo}}` for `^### GAP-` and find the largest existing number. Allocate sequential numbers from `MAX + 1`. Reserve a contiguous block equal to the count of items you'll file (KEPT + CONVENTION + REFRAMED + AMBIGUOUS).
 
 Note the block in your scratch state — `GAP-{N}..GAP-{M}`.
 
@@ -97,7 +97,7 @@ For each non-WRONG finding from VALIDATED.md, file using this form:
 
 ## Step 4: Update INDEX.md
 
-Mark the audit's status in `docs/_internal/audits/workflow-audits/INDEX.md` from `VALIDATED` to `FILED ({N} GAPs, {M} INVESTIGATE)`. Reference the GAP-NNN range in a note column.
+Mark the audit's status in `{{lattice.project.docs.workflow_audits_dir}}/INDEX.md` from `VALIDATED` to `FILED ({N} GAPs, {M} INVESTIGATE)`. Reference the GAP-NNN range in a note column.
 
 ## Step 5: Update VALIDATED.md filing summary
 
@@ -121,7 +121,7 @@ Filed YYYY-MM-DD by `/lattice:ux-audit-file`.
 
 Stage 3 does NOT promote themes automatically. Theme promotion requires cross-audit synthesis (a single citation isn't enough to promote a theme). After filing:
 
-- If VALIDATED.md notes new candidate themes touched, append to a "Pending theme review" section in `docs/_internal/audits/workflow-audits/THEMES.md` with the audit citation.
+- If VALIDATED.md notes new candidate themes touched, append to a "Pending theme review" section in `{{lattice.project.docs.workflow_audits_dir}}/THEMES.md` with the audit citation.
 - Tell the user in the hand-off that themes are pending manual review.
 
 ## Step 7: Run autopilot tagger
@@ -129,7 +129,7 @@ Stage 3 does NOT promote themes automatically. Theme promotion requires cross-au
 If the user has the autopilot tagger script available (`scripts/tag-todo-autopilot.py`), suggest running it to re-tag and re-score the new entries:
 
 ```
-python scripts/tag-todo-autopilot.py --in docs/_internal/TODO.md --out-active docs/_internal/TODO.md --out-archive docs/_internal/TODO-archive.md
+python scripts/tag-todo-autopilot.py --in {{lattice.project.backlog.todo}} --out-active {{lattice.project.backlog.todo}} --out-archive docs/_internal/TODO-archive.md
 ```
 
 (Don't run it yourself unless the user authorizes — it rewrites the entire TODO.md.)
@@ -140,8 +140,8 @@ End your turn with:
 
 ```
 FILE COMPLETE — {persona}-{workflow}
-Audit:    docs/_internal/audits/workflow-audits/{persona}-{workflow}/
-Filed to: docs/_internal/TODO.md (GAP-{NNN}..GAP-{MMM})
+Audit:    {{lattice.project.docs.workflow_audits_dir}}/{persona}-{workflow}/
+Filed to: {{lattice.project.backlog.todo}} (GAP-{NNN}..GAP-{MMM})
 
 Breakdown:
   KEPT                 → {K} new GAPs, {X} merged into existing
@@ -168,8 +168,8 @@ Pending manual review:
 
 ## Cross-references
 
-- `docs/_internal/TODO.md` — the destination
-- `docs/_internal/audits/workflow-audits/CORRIGENDA.md` — exemplar GAP-delta document showing recommendation forms
+- `{{lattice.project.backlog.todo}}` — the destination
+- `{{lattice.project.docs.workflow_audits_dir}}/CORRIGENDA.md` — exemplar GAP-delta document showing recommendation forms
 - `.claude/rules/ux-audit-validate.md` — Stage 2 rule file (sections 3 + 4 underpin recommendation forms here)
-- `docs/_internal/capabilities.yaml` — pillar lookup for `[Area: ...]` tagging
+- `{{lattice.project.docs.capabilities}}` — pillar lookup for `[Area: ...]` tagging
 - `docs/_internal/knowledge/autopilot-flow.md` — autopilot scoring rubric (pillars × data × impl)
