@@ -58,6 +58,44 @@ _(no open ENH items at this time — see `docs/decisions/todo-pruned-2026-04-28.
 
 - [ ] **DATA-GAP: dg-agentic-harness effort estimate decomposition** — from peer review of dg-agentic-harness. The "4-6 weeks to first DG plugin port" estimate (08 §4) does not itemize project-pillar authoring cost (component map, API index, typed-fact graph, knowledge files, system manifest). This cost is uncertain (1 day if DG team's existing docs are sufficient; 2+ weeks if not) and must be resolved before committing resources to the timeline. Missing: break-even model for vendor overhead at n=2 vs n=3+ consumers.
 
+### ENH-09: `{{include:optional:project.X.Y}}` template form (Phase 4 prerequisite)
+- **Source:** /lattice:review architect-reviewer agent (finding A1, 2026-05-07) on `feat/sendex-decouple` Phase 0-3a delta.
+- **Problem:** Phase 4 will migrate skills with OPTIONAL multi-paragraph project content (e.g., `review.md` capability_model section, `probe.md` system_manifest fallback). Current `{{include:project.X.Y}}` THROWS on undefined-key/empty-string/missing-file (correct for required content; wrong for optional). Without a degradable form, skill authors will reach for `{{lattice.X.Y}}` (sentinel) for content that should be `{{include:...}}` (file inlining), producing garbled prompts.
+- **Where:** `executor/src/template.ts:resolveInclude` (~15-line addition); add tests for the new path.
+- **Priority:** BLOCKING for Phase 4 (22 skill migrations).
+
+### ENH-10: Thread manifest through reconcile + todo-queue helpers (cleanup)
+- **Source:** /lattice:review architect-reviewer agent (finding A3, 2026-05-07).
+- **Problem:** `resolveArchiveDir(cwd)` in `reconcile.ts` and `findTodoFile(cwd)` in `todo-queue.ts` re-load the manifest from disk on every call. The engine has it loaded already; should pass through.
+- **Where:** add optional `manifest?: Manifest` parameter to both; engine call sites pass through; existing call sites keep working with fallback.
+- **Priority:** Low (cleanup; not blocking).
+
+### ENH-11: Extract `scanString` helper in manifest.ts (cleanup)
+- **Source:** /lattice:review architect-reviewer agent (finding A4, 2026-05-07).
+- **Problem:** String-state tracking duplicated across `arrayClosesOnSameLine` / `stripTrailingComment` / `splitArrayItems` (3 sites in `executor/src/manifest.ts`). After A2 (BUG-042) added the upfront backslash rejection, the duplicated trackers are simpler but still copy-pasted.
+- **Where:** `executor/src/manifest.ts`. Extract a single `scanString(text, pos): { end: number; closed: boolean }` helper.
+- **Priority:** Low (cleanup; not blocking).
+
+### ENH-12: Spec inlinable-content authoring conventions
+- **Source:** /lattice:review on Phase 3b validation prep (2026-05-07).
+- **Problem:** Phase 3b validation surfaced that project-content files referenced via `{{include:project.X.Y}}` need to follow inlinable conventions (no top H1, no meta-blockquote describing the file's role) or they produce structurally-noisy prompts. Caught + fixed in pcc's `bug-pattern-families.md`; the convention is not documented in `docs/lattice-project-spec.md`.
+- **Where:** add a §3 sub-section or §4.10 addendum to `docs/lattice-project-spec.md` covering authoring rules for project content files: start with prose/table content directly, no orphan top-level headings, sub-headings (## or deeper) OK, HTML comments allowed for developer documentation.
+- **Priority:** Medium (Phase 4 will hit this every time a new include lands).
+
+### ENH-13: Trigger re-sync on local project content edits
+- **Source:** /lattice:review on Phase 3b validation prep (2026-05-07).
+- **Problem:** When a project author edits their `lattice-project.toml` or `skill-content/*.md` files locally (without a lattice commit firing), the synced `.claude/commands/*.md` bodies don't re-render automatically. Currently requires manual `bash scripts/sync-skills.sh && lattice resync` invocation.
+- **Possible shapes:** (a) project-side post-commit hook in pcc (and other consumer projects) that calls resync against itself when `lattice-project.toml` or `skill-content/` changes; (b) `lattice render-once` CLI shorthand that wraps sync + resync; (c) document the manual workflow and live with it.
+- **Surfaced when:** fixing the `bug-pattern-families.md` include shape during Phase 3b prep — the resync's idempotency check correctly detected "already-rendered" but the source-of-truth had changed, requiring a manual sync-then-resync cycle.
+- **Priority:** Medium (workflow ergonomics; will recur every time a project author edits their content files).
+
+### ENH-14: Phase 4 — per-skill Pattern A migration for remaining 22 skills
+- **Source:** Decoupling plan §6 Phase 4 (`research/dg-harness/decoupling-handoff.md`).
+- **What:** 22 remaining skill migrations (review, distill, peer-review, architect, probe, synthesize, implement, research, research-cycle, blueprint-cycle, build-cycle, cycle, prioritize, autopilot, extract-learnings, lint-knowledge, lit-triage, design, ux-audit-walk, ux-audit-validate, ux-audit-file, ops:check, ops:explore-data, ops:sweep, ops:impact). Each migration: edit skill body to use templates, ship the corresponding pcc content file (`docs/_internal/skill-content/`), validate by running a cycle that exercises the skill.
+- **Prerequisite:** ENH-09 (`{{include:optional:...}}` form) must land first to give skill authors the right shape for optional multi-paragraph content.
+- **Priority:** High once ENH-09 lands. Phase 3 confirmed Pattern A works; Phase 4 is the bulk of the decoupling value.
+- **Companion:** ENH-12 should land with or before the first Phase 4 skill that has multi-paragraph project content, so authors of pcc's `docs/_internal/skill-content/*.md` files have the inlinable conventions documented.
+
 ---
 
 ## Literature-Sourced Backlog
