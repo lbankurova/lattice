@@ -242,16 +242,35 @@ function ensureSection(root: TomlSection, parts: string[], file: string, lineNo:
   return cur;
 }
 
+/**
+ * Scan past a TOML string literal starting at `pos` (which must point at
+ * the opening `"`). Returns the position immediately after the closing
+ * quote (or end-of-input if unterminated), plus whether the string was
+ * properly closed.
+ *
+ * Backslashes are rejected upstream by parseToml() (BUG-042), so this
+ * scanner does not handle escape sequences -- the first `"` after `pos`
+ * is the close.
+ *
+ * Used by arrayClosesOnSameLine / stripTrailingComment / splitArrayItems
+ * so they share one definition of TOML string boundaries (ENH-11).
+ */
+function scanString(text: string, pos: number): { end: number; closed: boolean } {
+  for (let j = pos + 1; j < text.length; j++) {
+    if (text[j] === '"') return { end: j + 1, closed: true };
+  }
+  return { end: text.length, closed: false };
+}
+
 function arrayClosesOnSameLine(text: string): boolean {
   let depth = 0;
-  let inString = false;
   for (let j = 0; j < text.length; j++) {
     const c = text[j];
-    if (c === '"' && (j === 0 || text[j - 1] !== '\\')) {
-      inString = !inString;
+    if (c === '"') {
+      const { end } = scanString(text, j);
+      j = end - 1; // -1 because the for-loop will ++ it
       continue;
     }
-    if (inString) continue;
     if (c === '[') depth++;
     else if (c === ']') {
       depth--;
@@ -292,14 +311,14 @@ function parseValue(text: string, file: string, lineNo: number): TomlValue {
 }
 
 function stripTrailingComment(text: string): string {
-  let inString = false;
   for (let j = 0; j < text.length; j++) {
     const c = text[j];
-    if (c === '"' && (j === 0 || text[j - 1] !== '\\')) {
-      inString = !inString;
+    if (c === '"') {
+      const { end } = scanString(text, j);
+      j = end - 1;
       continue;
     }
-    if (!inString && c === '#') return text.slice(0, j).trimEnd();
+    if (c === '#') return text.slice(0, j).trimEnd();
   }
   return text;
 }
@@ -307,16 +326,15 @@ function stripTrailingComment(text: string): string {
 function splitArrayItems(inner: string, _file: string, _lineNo: number): string[] {
   const items: string[] = [];
   let buf = '';
-  let inString = false;
   let depth = 0;
   for (let j = 0; j < inner.length; j++) {
     const c = inner[j];
-    if (c === '"' && (j === 0 || inner[j - 1] !== '\\')) {
-      inString = !inString;
-      buf += c;
+    if (c === '"') {
+      const { end } = scanString(inner, j);
+      buf += inner.slice(j, end);
+      j = end - 1;
       continue;
     }
-    if (inString) { buf += c; continue; }
     if (c === '[') depth++;
     else if (c === ']') depth--;
     if (c === ',' && depth === 0) {

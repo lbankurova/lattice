@@ -71,11 +71,12 @@ _(no open ENH items at this time — see `docs/decisions/todo-pruned-2026-04-28.
 - **Where:** add optional `manifest?: Manifest` parameter to both; engine call sites pass through; existing call sites keep working with fallback.
 - **Priority:** Low (cleanup; not blocking).
 
-### ENH-11: Extract `scanString` helper in manifest.ts (cleanup)
+### ~~ENH-11: Extract `scanString` helper in manifest.ts (cleanup)~~ -- DONE
 - **Source:** /lattice:review architect-reviewer agent (finding A4, 2026-05-07).
 - **Problem:** String-state tracking duplicated across `arrayClosesOnSameLine` / `stripTrailingComment` / `splitArrayItems` (3 sites in `executor/src/manifest.ts`). After A2 (BUG-042) added the upfront backslash rejection, the duplicated trackers are simpler but still copy-pasted.
 - **Where:** `executor/src/manifest.ts`. Extract a single `scanString(text, pos): { end: number; closed: boolean }` helper.
 - **Priority:** Low (cleanup; not blocking).
+- **Resolution:** added `scanString(text, pos): { end, closed }` in `manifest.ts`; refactored all 3 call sites to use it. Backslash escape-handling dropped (BUG-042 rejects backslashes upstream, so the tracker simplifies). Existing 239 tests pass unchanged (no behavior change).
 
 ### ~~ENH-12: Spec inlinable-content authoring conventions~~ -- DONE
 - **Source:** /lattice:review on Phase 3b validation prep (2026-05-07).
@@ -84,24 +85,27 @@ _(no open ENH items at this time — see `docs/decisions/todo-pruned-2026-04-28.
 - **Priority:** Medium (Phase 4 will hit this every time a new include lands).
 - **Resolution:** added §3.1 "Authoring conventions for inlinable content" to `docs/lattice-project-spec.md`. 4 rules + canonical template + anti-pattern + cross-reference to the empirical exemplar (pcc's `bug-pattern-families.md` / commit `3f0f249`). Mechanical-check note flags that automated linting is a future enhancement.
 
-### ENH-13: Trigger re-sync on local project content edits
+### ENH-13: Trigger re-sync on local project content edits (option c done; a + b open)
 - **Source:** /lattice:review on Phase 3b validation prep (2026-05-07).
 - **Problem:** When a project author edits their `lattice-project.toml` or `skill-content/*.md` files locally (without a lattice commit firing), the synced `.claude/commands/*.md` bodies don't re-render automatically. Currently requires manual `bash scripts/sync-skills.sh && lattice resync` invocation.
-- **Possible shapes:** (a) project-side post-commit hook in pcc (and other consumer projects) that calls resync against itself when `lattice-project.toml` or `skill-content/` changes; (b) `lattice render-once` CLI shorthand that wraps sync + resync; (c) document the manual workflow and live with it.
+- **Possible shapes:** (a) project-side post-commit hook in pcc (and other consumer projects) that calls resync against itself when `lattice-project.toml` or `skill-content/` changes; (b) `lattice render-once` CLI shorthand that wraps sync + resync; ~~(c) document the manual workflow and live with it.~~
+- **Status:** option (c) **DONE** -- `docs/lattice-project-spec.md` §3.2 documents the manual `sync-skills.sh` + `lattice resync` cycle that project authors must run after local edits to `lattice-project.toml` or `skill-content/`. Idempotency note included; failure-mode triage (errors / sentinels / strays) cross-referenced. Options (a) and (b) remain open as ergonomics improvements.
 - **Surfaced when:** fixing the `bug-pattern-families.md` include shape during Phase 3b prep — the resync's idempotency check correctly detected "already-rendered" but the source-of-truth had changed, requiring a manual sync-then-resync cycle.
-- **Priority:** Medium (workflow ergonomics; will recur every time a project author edits their content files).
+- **Priority:** Medium-Low (option c closes the documentation gap; remaining work is workflow ergonomics).
 
-### ENH-15: Spec inlinable-content Rule 5 -- forbid literal `{{...}}` syntax in include files
+### ~~ENH-15: Spec inlinable-content Rule 5 -- forbid literal `{{...}}` syntax in include files~~ -- DONE
 - **Source:** BUG-043 retro (lattice/pcc decoupling Phase 4 -- review-doc-regen.md template-escape).
 - **Problem:** `lattice-project-spec.md` §3.1 (ENH-12) currently has 4 authoring rules for inlinable content. None forbid literal `{{lattice.X.Y}}` / `{{include:...}}` syntax in the include file body (including HTML comments). Authors who reference template syntax as documentation produce a second-pass UNDEFINED rendering: the literal lands in the rendered skill body once, the next resync treats it as a real template token, sentinel emerges. Caught + fixed in BUG-043 (commits 8c811bf submodule + parent ptr bump).
 - **Where:** `docs/lattice-project-spec.md` §3.1 -- add Rule 5: "No literal `{{...}}` syntax in inlinable content (use backticks or escape)." Include a worked example showing `{{lattice.X.Y}}` rewritten as `` `lattice.X.Y` `` (backticks read as code-quoted prose, don't match `TEMPLATE_RE`).
 - **Priority:** Medium (Phase 4 has ~20 more skill migrations; each one risks re-introducing the bug if the rule isn't documented).
+- **Resolution:** added Rule 5 to `docs/lattice-project-spec.md` §3.1 with explicit BUG-043 exemplar, worked rewrite example (`{{lattice.X.Y}}` -> `` `lattice.X.Y` ``), and a Rule-5 anti-pattern code block showing the survives-first-resync / fails-second-resync failure mode. Canonical-template HTML comment extended with the new bullet. Mechanical-check note updated to reference ENH-16's automated lint (now landed alongside).
 
-### ENH-16: `lattice resync` lint for literal template syntax in include files
+### ~~ENH-16: `lattice resync` lint for literal template syntax in include files~~ -- DONE
 - **Source:** BUG-043 retro -- bullet 5.2.
 - **Problem:** Even with ENH-15's spec rule documented, authors will accidentally re-introduce the literal `{{...}}` pattern. A mechanical lint at sync time would catch the violation before it reaches pcc's rendered body.
 - **Where:** `executor/src/resync.ts` (or a new pre-resolve pass in `executor/src/template.ts`). Scan include-file content for `{{...}}` tokens; warn at resync time if found in non-backtick-quoted positions. Output goes to the resync result alongside `sentinelFiles[]`.
 - **Priority:** Low (ENH-15 documents the rule; the lint is belt-and-suspenders).
+- **Resolution:** added `STRAY_TEMPLATE_RE` scan in `resyncProject()` after substitution; surfaces violations as `ResyncResult.strayTemplateFiles[]` (advisory; doesn't fail the run, mirroring `sentinelFiles[]`). Lint also fires on idempotent re-runs so the warning persists until the include file is fixed. CLI summary line and stderr block extended. +3 tests in `resync.test.ts` covering the BUG-043-style stray, the backtick-fixed shape (no false positive), and the idempotent re-run path. 239 total executor tests pass.
 
 ### ~~ENH-14: Phase 4 — per-skill Pattern A migration for remaining 22 skills~~ -- DONE (2026-05-08)
 - **Source:** Decoupling plan §6 Phase 4 (`research/dg-harness/decoupling-handoff.md`).

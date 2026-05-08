@@ -890,11 +890,20 @@ function cmdResync(): void {
     console.error(`WARNING: ${root}/lattice-project.toml not found; rendered with empty manifest. Tokens became <<UNDEFINED:...>> sentinels.`);
   }
 
-  console.log(`resync: ${result.rendered} rendered, ${result.unchanged} already-template-free, ${result.errors.length} errors, ${result.sentinelFiles.length} with UNDEFINED sentinels`);
+  const strays = result.strayTemplateFiles ?? [];
+  console.log(`resync: ${result.rendered} rendered, ${result.unchanged} already-template-free, ${result.errors.length} errors, ${result.sentinelFiles.length} with UNDEFINED sentinels, ${strays.length} with stray templates`);
 
   if (result.sentinelFiles.length > 0) {
     console.error('Files with UNDEFINED sentinels (manifest key not defined):');
     for (const f of result.sentinelFiles) {
+      const rel = f.startsWith(root) ? f.slice(root.length + 1) : f;
+      console.error(`  ${rel}`);
+    }
+  }
+
+  if (strays.length > 0) {
+    console.error('Files with stray {{...}} template syntax (next resync will mis-substitute -- see lattice-project-spec.md §3.1 Rule 5):');
+    for (const f of strays) {
       const rel = f.startsWith(root) ? f.slice(root.length + 1) : f;
       console.error(`  ${rel}`);
     }

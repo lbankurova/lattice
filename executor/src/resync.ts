@@ -24,8 +24,34 @@ export interface ResyncResult {
   unchanged: number;
   errors: { file: string; reason: string }[];
   sentinelFiles: string[];
+  /**
+   * Files where literal `{{...}}` template syntax survived substitution.
+   * Cause: the rendered body contains a `{{X.Y}}` literal — almost certainly
+   * inherited from an `{{include:...}}` source file that documented template
+   * syntax without escaping it. Advisory; the next resync will mis-substitute
+   * the literal as if it were a real token and emit `<<UNDEFINED:X.Y>>`. See
+   * `lattice-project-spec.md` §3.1 Rule 5 (BUG-043 exemplar).
+   *
+   * Optional for additive-evolution compatibility — `resyncProject()` always
+   * initializes it to `[]`, so consumers of this module's `resyncProject()`
+   * return value can rely on it being defined. The optional marker exists to
+   * preserve backward structural compatibility for external typed consumers
+   * (e.g., test doubles constructed against an earlier `ResyncResult` shape).
+   */
+  strayTemplateFiles?: string[];
   hasManifest: boolean;
 }
+
+/**
+ * Pattern the template engine matches when substituting tokens. Used here
+ * to detect literal `{{...}}` syntax that survived substitution (i.e., was
+ * baked into a rendered file by an upstream include rather than emitted by
+ * the engine itself).
+ *
+ * Sentinels (`<<UNDEFINED:...>>`) are the OK shape for unresolved keys; they
+ * use `<<...>>`, so this regex won't match them.
+ */
+const STRAY_TEMPLATE_RE = /\{\{[^}]+\}\}/;
 
 /**
  * Re-render every `.md` file under <project-root>/.claude/commands/ against
@@ -53,6 +79,7 @@ export function resyncProject(projectRoot: string): ResyncResult {
 
   const result: ResyncResult = {
     rendered: 0, unchanged: 0, errors: [], sentinelFiles: [],
+    strayTemplateFiles: [],
     hasManifest: manifest.hasProject,
   };
 
@@ -69,10 +96,23 @@ export function resyncProject(projectRoot: string): ResyncResult {
       continue;
     }
 
-    if (after === before) { result.unchanged++; continue; }
+    if (after === before) {
+      // Idempotent path: still scan for stray templates introduced by an
+      // earlier resync (so the warning fires even when nothing changed
+      // this run).
+      if (STRAY_TEMPLATE_RE.test(after)) {
+        result.strayTemplateFiles!.push(file);
+      }
+      result.unchanged++;
+      continue;
+    }
 
     if (/<<UNDEFINED:[^>]+>>/.test(after)) {
       result.sentinelFiles.push(file);
+    }
+
+    if (STRAY_TEMPLATE_RE.test(after)) {
+      result.strayTemplateFiles!.push(file);
     }
 
     writeFileSync(file, after, 'utf-8');

@@ -83,6 +83,8 @@ The four rules below are derived from the structural-noise problem caught mid-Ph
 
 **Rule 4: Sub-headings (`##` or deeper) are fine.** They slot under the parent skill's outline cleanly. A long inlinable file can structure its own internal sections with `## Family` / `## Per-family search strategy` / etc. without conflicting with the skill body. **Why:** the skill author can predict where the include site sits in their own outline and structure the surrounding prompt to accommodate `##`-level sub-content.
 
+**Rule 5: No literal `{{...}}` template syntax in inlinable content (including HTML comments).** When you need to *reference* a template token in documentation — e.g., explaining the engine's substitution rules — wrap the token in backticks (`` `{{lattice.X.Y}}` `` becomes `` `lattice.X.Y` ``) or rephrase to omit the braces. **Why:** `lattice resync` substitutes templates non-recursively over the rendered skill body. A literal `{{lattice.X.Y}}` written into an include file (or its HTML comment) survives the first render and lands verbatim in the synced skill body. The next resync pass — fired by any subsequent `sync-skills.sh` trigger — reads the synced body as input, sees the literal as a real template token, and emits `<<UNDEFINED:lattice.X.Y>>` because no such key exists. Backticked text reads as documentation to humans and does not match the template regex. Empirical exemplar: BUG-043 (review-doc-regen.md, Phase 4 of the SENDEX/Lattice decoupling). HTML-comment escape was the fix; see commit `8c811bf` in `pcc/docs/_internal`.
+
 **Canonical template** (anchor: `pcc/docs/_internal/skill-content/bug-pattern-families.md`):
 
 ```markdown
@@ -95,6 +97,8 @@ Authoring rules for inlinable content:
 - No meta-blockquotes describing how the file is consumed.
 - HTML comments like this one are stripped; safe to keep.
 - Sub-headings (## or deeper) are fine -- they slot under the parent skill.
+- No literal {{...}} template syntax -- reference tokens as `lattice.X.Y`
+  in backticks (this comment uses prose-only references on purpose).
 -->
 
 The patterns below are specific to SENDEX's domain ... [content starts here]
@@ -119,7 +123,47 @@ The patterns below are specific to SENDEX's domain ... [content starts here]
 The patterns below ...        <-- content starts here
 ```
 
-Mechanical check: there is currently no automated linter for these conventions. The Phase 4 skill-migration workflow surfaces violations during dog-food validation (the structural-noise is visible when the synced skill body is read after `lattice resync`). A future enhancement could add a content-file lint to `lattice resync` (cross-reference: framework-side TODO).
+**Anti-pattern (Rule 5)** — literal template syntax surviving into the rendered body:
+
+```markdown
+<!--
+The engine substitutes {{lattice.X.Y}} non-recursively, so don't
+nest template tokens inside other tokens.
+-->                            <-- forbidden: the literal {{lattice.X.Y}}
+                                   in this comment will resolve correctly
+                                   on the FIRST resync (project author's
+                                   intent: documentation). On the SECOND
+                                   resync, the rendered body is read as
+                                   input and the now-bare literal becomes
+                                   <<UNDEFINED:lattice.X.Y>>.
+```
+
+Rewrite using backticks (which the template regex doesn't match):
+
+```markdown
+<!--
+The engine substitutes `lattice.X.Y` tokens non-recursively, so don't
+nest template tokens inside other tokens.
+-->                            <-- safe: backticked references read as
+                                   prose to both humans and the regex.
+```
+
+Mechanical check: `lattice resync` performs an advisory scan after substitution and reports literal `{{...}}` tokens (outside backticks) in `ResyncResult.strayTemplateFiles[]` (advisory; does not fail the run). Rules 1-4 are not yet automated; the Phase 4 skill-migration workflow surfaces violations during dog-food validation (structural noise is visible when the synced skill body is read after `lattice resync`).
+
+### 3.2 Re-rendering after local edits to project content
+
+The harness fires `sync-skills.sh` + `lattice resync` automatically on a lattice-side commit (post-commit hook chain). When a project author edits their **own** content locally — `lattice-project.toml` keys, files under `docs/_internal/skill-content/`, or any path referenced by an `{{include:project.X.Y}}` token — the synced `.claude/commands/*.md` bodies do **not** re-render automatically. The skill bodies still hold the values from the last sync.
+
+Re-render manually after a local edit:
+
+```bash
+bash scripts/sync-skills.sh         # copies harness command bodies into .claude/commands/
+node executor/dist/cli.js resync .  # OR: lattice resync . (when the binary is on PATH)
+```
+
+The two-step sequence is idempotent — running it when nothing changed reports `0 rendered, N already-template-free`. If `resync` reports any `errors`, `UNDEFINED sentinels`, or `stray templates`, fix the source content and re-run before invoking the affected skill.
+
+Automated triggering (a project-side post-commit hook that re-runs the cycle when `lattice-project.toml` or `skill-content/**` changes; or a `lattice render-once` CLI shorthand wrapping both steps) is open framework work. Until that ships, the manual cycle above is the contract.
 
 ## 4. Schema buckets (top-level)
 

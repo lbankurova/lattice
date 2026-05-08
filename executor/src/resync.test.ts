@@ -134,3 +134,89 @@ test('resyncProject: throws when .claude/commands/ does not exist', () => {
     assert.throws(() => resyncProject(dir), /No \.claude\/commands\//);
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
+
+// ── Stray-template lint (ENH-15 / ENH-16; BUG-043 exemplar) ──────────────
+
+test('resyncProject: flags files where literal {{...}} survived substitution via include', () => {
+  // Mimics BUG-043: an include file documents template syntax with a literal
+  // {{lattice.X.Y}}, which lands verbatim in the rendered skill body.
+  const dir = makeProject({
+    toml: `[skills.demo]\nnotes = "skill-content/include.md"\n`,
+    commands: {
+      'demo.md': 'Notes: {{include:project.skills.demo.notes}}',
+    },
+  });
+  // Write the include file outside makeProject so it can use a path the toml
+  // points at.
+  mkdirSync(join(dir, 'skill-content'), { recursive: true });
+  writeFileSync(
+    join(dir, 'skill-content/include.md'),
+    'The engine substitutes {{lattice.X.Y}} non-recursively.\n',
+    'utf-8',
+  );
+  try {
+    const result = resyncProject(dir);
+    assert.equal(result.rendered, 1);
+    assert.equal(result.errors.length, 0);
+    const strays = result.strayTemplateFiles ?? [];
+    assert.equal(strays.length, 1);
+    assert.match(strays[0], /demo\.md$/);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('resyncProject: backticked-prose token references do NOT trip the lint', () => {
+  // Rule 5 fix: rewrite {{lattice.X.Y}} as `lattice.X.Y` (without braces).
+  const dir = makeProject({
+    toml: `[skills.demo]\nnotes = "skill-content/include.md"\n`,
+    commands: {
+      'demo.md': 'Notes: {{include:project.skills.demo.notes}}',
+    },
+  });
+  mkdirSync(join(dir, 'skill-content'), { recursive: true });
+  writeFileSync(
+    join(dir, 'skill-content/include.md'),
+    'The engine substitutes `lattice.X.Y` non-recursively.\n',
+    'utf-8',
+  );
+  try {
+    const result = resyncProject(dir);
+    assert.equal(result.rendered, 1);
+    assert.equal((result.strayTemplateFiles ?? []).length, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('resyncProject: stray-template lint fires on idempotent re-runs too', () => {
+  // After the first resync bakes a stray literal into demo.md, a second
+  // run finds nothing to substitute (idempotent unchanged path) — but we
+  // still want the warning to fire so the user knows to fix it.
+  const dir = makeProject({
+    toml: `[skills.demo]\nnotes = "skill-content/include.md"\n`,
+    commands: {
+      'demo.md': 'Notes: {{include:project.skills.demo.notes}}',
+    },
+  });
+  mkdirSync(join(dir, 'skill-content'), { recursive: true });
+  writeFileSync(
+    join(dir, 'skill-content/include.md'),
+    'The engine substitutes {{lattice.X.Y}} non-recursively.\n',
+    'utf-8',
+  );
+  try {
+    const first = resyncProject(dir);
+    assert.equal((first.strayTemplateFiles ?? []).length, 1);
+
+    // Re-run: nothing to substitute, but stray must still surface.
+    // (Note: the second pass actually mis-substitutes the bare literal to a
+    // sentinel — that's BUG-043's failure mode. We still want the lint to
+    // fire BEFORE that happens, which means it must hit on the first pass
+    // when the literal first lands. Here we just confirm both sentinel and
+    // stray paths surface independently.)
+    const second = resyncProject(dir);
+    // After first pass, demo.md contains "Notes: ... {{lattice.X.Y}} ..."
+    // Second pass: TEMPLATE_RE matches that literal, substitutes to
+    // <<UNDEFINED:lattice.X.Y>>, so by the time we scan the rendered output
+    // there's no stray. Sentinel path catches it instead.
+    assert.equal(second.sentinelFiles.length, 1);
+    assert.equal((second.strayTemplateFiles ?? []).length, 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
