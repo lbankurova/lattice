@@ -5,7 +5,7 @@ description: Triage orphan PDFs in research/ — extract content, assess relevan
 
 You are running PDF triage. Orphan PDFs in `research/` need a relevance assessment against the project's load-bearing knowledge surfaces (`knowledge-graph.md`, `methods-index.md`, `species-profiles.md`, `architecture/`). Your output is a candidate register entry, not a literature note. The human verifies your verdict before any promotion.
 
-This skill exists because the corpus-citation-audit (`scripts/audit-corpus-citations.py`) cross-joins orphan PDFs against load-bearing acquisition candidates and surfaces a recurring orphan-PDF list. Triage is the staging step between "PDF on disk" and "literature note in registry".
+This skill exists because the corpus-citation-audit (`{{lattice.project.scripts.audit_corpus_citations}}`) cross-joins orphan PDFs against load-bearing acquisition candidates and surfaces a recurring orphan-PDF list. Triage is the staging step between "PDF on disk" and "literature note in registry".
 
 **Input modes:**
 
@@ -13,17 +13,17 @@ This skill exists because the corpus-citation-audit (`scripts/audit-corpus-citat
 - `<path>` → triage one specific PDF (path relative to repo root or absolute).
 - `--refresh` → re-assess ALL existing register entries regardless of staleness, plus all new orphans. Use after a major knowledge-surface refactor.
 
-**Output:** entries in `docs/_internal/research/literature/PDF-TRIAGE.md`. Each entry carries a `TRIAGE-LLM-ASSESSED` marker and a quote-grounded justification — you must produce verbatim quotes from the PDF, not paraphrases. Paraphrasing is hallucination surface; the human verifier needs the source's own words to confirm your verdict.
+**Output:** entries in `{{lattice.project.research.literature_pdf_triage}}`. Each entry carries a `TRIAGE-LLM-ASSESSED` marker and a quote-grounded justification — you must produce verbatim quotes from the PDF, not paraphrases. Paraphrasing is hallucination surface; the human verifier needs the source's own words to confirm your verdict.
 
 ## Step 0 — Read prerequisites
 
 Read these files before triaging anything. They are the assessment frame:
 
-1. `docs/_internal/research/literature/PDF-TRIAGE.md` — the register file. Read the schema header AND existing entries. You will be appending to or replacing entries here.
-2. `docs/_internal/research/literature/README.md` — literature-registry conventions. The "What goes here" / "What does NOT go here" sections define SENDEX's literature scope.
-3. `docs/_internal/knowledge/knowledge-graph.md` — typed atomic facts. Scan for `derives_from:` entries that already cite literature notes; these are the load-bearing surfaces a relevant paper could anchor.
-4. `docs/_internal/knowledge/methods-index.md` — method registry. A paper that proposes or validates a statistical method could anchor a method here.
-5. `docs/_internal/knowledge/species-profiles.md` — species-specific claims. HCD-style papers often anchor here.
+1. `{{lattice.project.research.literature_pdf_triage}}` — the register file. Read the schema header AND existing entries. You will be appending to or replacing entries here.
+2. `{{lattice.project.research.literature}}/README.md` — literature-registry conventions. The "What goes here" / "What does NOT go here" sections define SENDEX's literature scope.
+3. `{{lattice.project.docs.typed_graph}}` — typed atomic facts. Scan for `derives_from:` entries that already cite literature notes; these are the load-bearing surfaces a relevant paper could anchor.
+4. `{{lattice.project.docs.methods_index}}` — method registry. A paper that proposes or validates a statistical method could anchor a method here.
+5. `{{lattice.project.docs.species_profiles}}` — species-specific claims. HCD-style papers often anchor here.
 6. `.lattice/acquisition-list.md` — current load-bearing acquisition candidates. If your PDF matches a Tier 1 or Tier 2 paper, the verdict is almost always `RELEVANT-NEEDS-NOTE`.
 7. `.lattice/corpus-citation-audit.txt` (most recent) — orphan-PDF list (your input set when no args).
 
@@ -50,14 +50,14 @@ For the no-arg case, the input set is:
 ```
 [ all PDFs in research/ ]
   MINUS
-[ PDFs referenced by `local_pdf:` in research/literature/*.md frontmatter ]
+[ PDFs referenced by `local_pdf:` in {{lattice.project.research.literature}}/*.md frontmatter ]
   MINUS
 [ PDFs already triaged AND not stale (see Staleness) ]
   PLUS
 [ PDFs already triaged AND stale ]
 ```
 
-Use `Glob` for the PDF list. Use `Grep` on `research/literature/*.md` for `local_pdf:` references. Use `Read` on PDF-TRIAGE.md for existing entries.
+Use `Glob` for the PDF list. Use `Grep` on `{{lattice.project.research.literature}}/*.md` for `local_pdf:` references. Use `Read` on PDF-TRIAGE.md for existing entries.
 
 ## Step 2 — Staleness detection (Pick 5 — auto, no flag required)
 
@@ -65,10 +65,10 @@ For each existing entry in PDF-TRIAGE.md, parse its `Triaged:` date. Compare aga
 
 ```bash
 # Run from project root
-git log -1 --format=%cs -- docs/_internal/knowledge/knowledge-graph.md
-git log -1 --format=%cs -- docs/_internal/knowledge/methods-index.md
-git log -1 --format=%cs -- docs/_internal/knowledge/species-profiles.md
-git log -1 --format=%cs -- docs/_internal/architecture/
+git log -1 --format=%cs -- {{lattice.project.docs.typed_graph}}
+git log -1 --format=%cs -- {{lattice.project.docs.methods_index}}
+git log -1 --format=%cs -- {{lattice.project.docs.species_profiles}}
+git log -1 --format=%cs -- {{lattice.project.docs.architecture_dir}}/
 ```
 
 If `max(those four dates) > entry.triaged_date`, the entry is **stale** and must be re-assessed in this run. Why: a paper marked `NOT-RELEVANT` in March may become relevant in May because a new fact entered the knowledge graph. The triage decision is time-bounded.
@@ -148,7 +148,7 @@ Append (or replace, if a stale entry exists for this PDF) under `## Triage entri
 - **Triaged:** YYYY-MM-DD
 - **Marker:** TRIAGE-LLM-ASSESSED
 - **Risk flags:** <subset of: hallucination-suspect, scope-mismatch, superseded, grey-literature> | none
-- **Potential citers:** <comma-separated list of docs/_internal/ paths that COULD cite this if promoted, based on topic overlap> | none-identified
+- **Potential citers:** <comma-separated list of `{{lattice.project.docs.internal_root}}/` paths that COULD cite this if promoted, based on topic overlap> | none-identified
 - **Promotion target:** literature/<author>-<year>-<short-slug>.md | n/a | TBD
 
 **Quote (verbatim from PDF, page N):**
@@ -193,7 +193,7 @@ NOT-RELEVANT (Z):
 UNCERTAIN (W):
   - <filename> — <reason for uncertainty>
 
-Register: docs/_internal/research/literature/PDF-TRIAGE.md
+Register: {{lattice.project.research.literature_pdf_triage}}
 ```
 
 For `RELEVANT-NEEDS-NOTE` entries, suggest the promotion command(s) the user can run next (typically: read the PDF, create `literature/<slug>.md`, set `local_pdf:`, archive the register entry).
