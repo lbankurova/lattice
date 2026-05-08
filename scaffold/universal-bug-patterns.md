@@ -23,6 +23,7 @@
 | `command-injection` | User input flows into a shell command without escaping | grep shell-exec calls with string interpolation of inputs | `exec("git log --grep=" + user_input)` |
 | `time-zone-drift` | Timestamps stored in one zone, displayed in another, compared in a third | grep date / time / timestamp construction; check zone metadata | UTC backend, local-zone frontend, naive-datetime comparison |
 | `int-overflow` | Arithmetic exceeds the integer type's representable range | grep large-multiply / power / bit-shift on bounded ints | int32 multiplied by int32 silently wraps |
+| `subset-parser-divergence` | Parser implementing a documented subset of a spec copies general parsing idioms (escape-handling, comment-stripping, multi-line continuation) without auditing whether they match the subset's stated semantics; silently mis-parses inputs that use excluded features | grep parsers with comments like "subset" or "documented subset"; verify each excluded feature has a reject-test, not just an accept-test | TOML subset parser with naive `text[j-1] !== '\\'` quote-tracking silently mis-parses `"C:\\foo\\"` (BUG-042) |
 
 ## Search-strategy guidance
 
@@ -45,6 +46,7 @@ When Step 3 of bug-stress runs the pattern-search across a fix, use these heuris
 | `command-injection` | All shell-exec call sites |
 | `time-zone-drift` | All datetime construction / parse / compare sites |
 | `int-overflow` | All arithmetic on the affected integer type |
+| `subset-parser-divergence` | Parser modules with comments like "subset of <spec>" or "this parser does not support X"; check whether reject-tests exist for each excluded feature |
 
 ## How project content extends this
 
