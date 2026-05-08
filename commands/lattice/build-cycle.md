@@ -27,7 +27,7 @@ Acquire at Step 1, release at end of Step 4, heartbeat on every `current_step` u
 
 **Topic-based entry:** Reads `.lattice/cycle-state/{topic}.yaml`, verifies `phase: blueprint-complete` or `current_step` >= `build.0`. Extracts the spec path from the blueprint-cycle checkpoint (`blueprint.1` output → synthesis doc path).
 
-**Path-based entry:** `build-cycle docs/_internal/incoming/{spec}.md` — starts directly from a spec without requiring a prior research/blueprint cycle.
+**Path-based entry:** `build-cycle {{lattice.project.specs.incoming}}/{spec}.md` — starts directly from a spec without requiring a prior research/blueprint cycle.
 
 **Revision-checked writes.** See the canonical [revision-checked writes protocol](../../docs/skills-includes/revision-checked-writes.md) — read → work → re-read → write-with-incremented-revision; STOP on mismatch.
 
@@ -64,7 +64,7 @@ Update state: `current_step: build.3`.
 
 After building, check whether this implementation invalidates any downstream specs:
 
-1. **Scan `docs/_internal/incoming/`** for synthesis docs that depend on or reference the subsystems just shipped. Common pattern: Phase 1 synthesis written before Phase 0 implementation reveals reality (field names, data shapes, module locations differ from what synthesis assumed).
+1. **Scan `{{lattice.project.specs.incoming}}/`** for synthesis docs that depend on or reference the subsystems just shipped. Common pattern: Phase 1 synthesis written before Phase 0 implementation reveals reality (field names, data shapes, module locations differ from what synthesis assumed).
 
 2. **For each dependent spec found:** Read the spec and compare against the actual shipped code. Check:
    - Field names and data shapes — does the spec reference fields that exist as shipped?
