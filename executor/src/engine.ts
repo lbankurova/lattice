@@ -16,6 +16,7 @@ import type {
 } from './types.js';
 import { buildExecutionLayers } from './dag.js';
 import { buildInitialContext, resolveTemplate, type TemplateContext } from './template.js';
+import { loadManifest } from './manifest.js';
 import { executeNode, checkTriggerRule } from './nodes.js';
 import { loadPortfolioState, checkCoherence, isTopicSafe, formatReport } from './coherence.js';
 import { resolve } from 'node:path';
@@ -139,8 +140,15 @@ export async function executeWorkflow(
   const stateData = loadStateFile(wf, inputs, cwd);
   const completedKeys = getCompletedCheckpoints(wf, inputs, cwd);
 
+  // Load project + platform manifest (lattice-project.toml, lattice-platform.toml).
+  // Both are optional: greenfield projects with no TOMLs get an empty manifest
+  // and the harness skill bodies emit `<<UNDEFINED:lattice.X.Y>>` sentinels for
+  // any unconfigured key. Each skill is responsible for guarding its own
+  // required keys and aborting with an explanatory message.
+  const manifest = loadManifest(cwd);
+
   // Build context
-  const ctx = buildInitialContext(inputs, stateData, latticeRoot);
+  const ctx = buildInitialContext(inputs, stateData, latticeRoot, manifest);
 
   // Build execution layers
   const layers = buildExecutionLayers(wf);

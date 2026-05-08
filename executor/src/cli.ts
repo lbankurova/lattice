@@ -27,6 +27,7 @@ import {
   formatE2EResult, formatClassification,
 } from './e2e.js';
 import { formatCostSummary, readContextTelemetry, loadBudgetConfig } from './budget.js';
+import { resyncProject, type ResyncResult } from './resync.js';
 import type { WorkflowCost } from './types.js';
 
 // ── Argument parsing ────────────────────────────────────────
@@ -857,6 +858,60 @@ function duration(start: string, end?: string): string {
   return `${(ms / 60_000).toFixed(1)}m`;
 }
 
+// ── resync command ──────────────────────────────────────────
+
+/**
+ * CLI wrapper around `resyncProject` (in resync.ts). Exit codes:
+ *   0 — all files rendered cleanly
+ *   1 — one or more TemplateIncludeError; per-file errors printed to stderr
+ *   2 — usage error (missing arg, project root doesn't exist, no commands dir)
+ */
+function cmdResync(): void {
+  const projectRoot = args[1];
+  if (!projectRoot) {
+    console.error('Usage: lattice resync <project-root>');
+    process.exit(2);
+  }
+  const root = resolve(projectRoot);
+  if (!existsSync(root)) {
+    console.error(`Project root does not exist: ${root}`);
+    process.exit(2);
+  }
+
+  let result: ResyncResult;
+  try {
+    result = resyncProject(root);
+  } catch (err) {
+    console.error(err instanceof Error ? err.message : String(err));
+    process.exit(2);
+  }
+
+  if (!result.hasManifest) {
+    console.error(`WARNING: ${root}/lattice-project.toml not found; rendered with empty manifest. Tokens became <<UNDEFINED:...>> sentinels.`);
+  }
+
+  console.log(`resync: ${result.rendered} rendered, ${result.unchanged} already-template-free, ${result.errors.length} errors, ${result.sentinelFiles.length} with UNDEFINED sentinels`);
+
+  if (result.sentinelFiles.length > 0) {
+    console.error('Files with UNDEFINED sentinels (manifest key not defined):');
+    for (const f of result.sentinelFiles) {
+      const rel = f.startsWith(root) ? f.slice(root.length + 1) : f;
+      console.error(`  ${rel}`);
+    }
+  }
+
+  if (result.errors.length > 0) {
+    console.error('\nFiles that failed to render:');
+    for (const { file, reason } of result.errors) {
+      const rel = file.startsWith(root) ? file.slice(root.length + 1) : file;
+      console.error(`  ${rel}: ${reason}`);
+    }
+    process.exit(1);
+  }
+
+  process.exit(0);
+}
+
 // ── Dispatch ────────────────────────────────────────────────
 
 switch (command) {
@@ -895,6 +950,9 @@ switch (command) {
     break;
   case 'context':
     cmdContext();
+    break;
+  case 'resync':
+    cmdResync();
     break;
   default:
     console.log('Lattice Executor v0.1.0\n');

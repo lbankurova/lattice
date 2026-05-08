@@ -14,9 +14,30 @@
  */
 
 import { execSync } from 'node:child_process';
-import { readFileSync, existsSync } from 'node:fs';
+import { readFileSync, existsSync, readdirSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { atomicWriteFileSync } from './state-io.js';
+import { loadManifest, lookupKey } from './manifest.js';
 import type { TopicState } from './coherence.js';
+
+/**
+ * Resolve the spec-archive directory for a project.
+ *   1. lattice-project.toml [project.specs] archive (when set to non-empty string)
+ *   2. Fallback: <cwd>/docs/_internal/incoming/archive (SENDEX-shape default)
+ *
+ * The fallback is back-compat for the migration window. Phase 6 of the
+ * decoupling plan removes it; new projects must set the key explicitly.
+ *
+ * Exported for testing.
+ */
+export function resolveArchiveDir(cwd: string): string {
+  const m = loadManifest(cwd);
+  const configured = lookupKey(m.project, 'project.specs.archive');
+  if (typeof configured === 'string' && configured !== '') {
+    return resolve(cwd, configured);
+  }
+  return resolve(cwd, 'docs/_internal/incoming/archive');
+}
 
 export interface ReconciliationResult {
   topic: string;
@@ -174,12 +195,11 @@ function loadRetroactiveAnnotations(cwd: string): TopicCommit[] {
 
 function collectArchivedSpecs(cwd: string): Set<string> {
   const archived = new Set<string>();
-  const archiveDir = `${cwd}/docs/_internal/incoming/archive`;
+  const archiveDir = resolveArchiveDir(cwd);
 
   if (!existsSync(archiveDir)) return archived;
 
   try {
-    const { readdirSync } = require('node:fs') as typeof import('node:fs');
     for (const file of readdirSync(archiveDir)) {
       if (!file.endsWith('.md')) continue;
       // Strip -synthesis.md, -spec.md suffixes to get topic name

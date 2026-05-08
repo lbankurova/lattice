@@ -579,9 +579,10 @@ function extractPrerequisites(data: Record<string, unknown>): string[] {
     }
   }
 
-  // Legacy prose-regex paths (kept for backwards-compat with existing YAMLs
-  // like pcc/.lattice/cycle-state/outliers-pane-unified.yaml:23). Migrate to
-  // the array form opportunistically; both paths can coexist in one YAML.
+  // Legacy prose-regex paths — kept for backwards-compat with cycle-state
+  // YAMLs that encode prerequisites as free-form sentences ("X must be ...")
+  // rather than structured arrays. Migrate to the array form opportunistically;
+  // both paths can coexist in one YAML.
   const prereq = data['prerequisite'] as string | undefined;
   if (prereq) {
     const match = prereq.match(/(\S+-\S+)\s+must\s+be/);

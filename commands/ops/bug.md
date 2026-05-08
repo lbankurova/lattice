@@ -1,13 +1,15 @@
 ---
 name: bug
-description: Log a bug into BUG-SWEEP.md. Fast capture during manual QA -- agent parses description, guesses location/category, appends structured entry.
+description: Log a bug into the project's bug log. Fast capture during manual QA -- agent parses description, guesses location/category, appends structured entry.
 ---
 
-You are logging a bug. Fast capture -- get the entry into `docs/_internal/BUG-SWEEP.md` with the right structure so it can be triaged and fixed later. Don't investigate or fix -- just log.
+You are logging a bug. Fast capture -- get the entry into the project's bug log (path resolved via `lattice-project.toml [project.bugs] bug_log`; SENDEX-shape default is `{{lattice.project.bugs.bug_log}}`) with the right structure so it can be triaged and fixed later. Don't investigate or fix -- just log.
+
+The substituted path for THIS project: `{{lattice.project.bugs.bug_log}}`.
 
 **Input:** A short description. Examples:
-- `bug "LOO chart empty on PointCross BW"`
-- `bug "dose label shows raw number instead of mg/kg format"`
+- `bug "chart empty on the canonical fixture endpoint"`
+- `bug "label shows raw value instead of formatted display"`
 - `bug "context panel doesn't update when switching rail items"`
 
 Optional structured input (from bug-fix-cycle classification):
@@ -20,7 +22,7 @@ Optional structured input (from bug-fix-cycle classification):
 
 ### 1. Determine next BUG ID
 
-Read `docs/_internal/BUG-SWEEP.md`. Find the highest BUG-NNN number. Next ID = BUG-{NNN+1}.
+Read `{{lattice.project.bugs.bug_log}}`. Find the highest BUG-NNN number. Next ID = BUG-{NNN+1}.
 
 ### 2. Parse and classify
 
@@ -52,7 +54,7 @@ If severity/category/subsystem were provided as structured input (from bug-fix-c
 
 ### 3. Append entry
 
-Append to `docs/_internal/BUG-SWEEP.md`, at the top of the Bugs section (newest first):
+Append to `{{lattice.project.bugs.bug_log}}`, at the top of the Bugs section (newest first):
 
 ```markdown
 ### BUG-{NNN} -- {short title from description}
@@ -76,7 +78,7 @@ In the Summary section, increment the `open` count by 1.
 ```
 Logged BUG-{NNN}: {short title}
 Category: {value} (guessed -- correct if wrong)
-File: docs/_internal/BUG-SWEEP.md
+File: {{lattice.project.bugs.bug_log}}
 ```
 
 ## Rules
