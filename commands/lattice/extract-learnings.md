@@ -7,20 +7,20 @@ description: Extract durable knowledge from implemented specs into knowledge/ + 
 
 Formalizes CLAUDE.md rule 7 ("Doc lifecycle: specs are disposable, system docs are durable") as an enforceable skill rather than a convention.
 
-**Canonical fire-time:** when a spec is moved from `docs/_internal/incoming/X.md` to `docs/_internal/incoming/archive/.../X.md`. That rename is the durable signal that the spec's implementation has landed and the spec is being retired. Earlier guidance (now removed) wired this skill into `/lattice:review` Step 5d as a per-cycle-close auto-invoke; that was the wrong granularity — most cycle-closes do not archive a spec, and many spec-archives happen outside a cycle (sweep, batch cleanup, manual archival). Per-archive triggering is the correct surface.
+**Canonical fire-time:** when a spec is moved from `{{lattice.project.specs.incoming}}/X.md` to `{{lattice.project.specs.archive}}/.../X.md`. That rename is the durable signal that the spec's implementation has landed and the spec is being retired. Earlier guidance (now removed) wired this skill into `/lattice:review` Step 5d as a per-cycle-close auto-invoke; that was the wrong granularity — most cycle-closes do not archive a spec, and many spec-archives happen outside a cycle (sweep, batch cleanup, manual archival). Per-archive triggering is the correct surface.
 
 The failure mode this catches: a spec lands with novel domain facts, architectural patterns, or contract additions; the spec gets archived; the durable knowledge it surfaced never makes it into `knowledge/` or `architecture/`; the next spec author re-derives it from scratch (or worse, contradicts it). Conflated commits 1370c103 and 521f1d16 are the canonical cases — the conflated commit message didn't trigger anyone's "extract before archive" discipline, so the durable knowledge was lost in commit-laundry.
 
 ## Inputs
 
-- `<spec-path>` — a path under `docs/_internal/incoming/` (the spec being closed out)
+- `<spec-path>` — a path under `{{lattice.project.specs.incoming}}/` (the spec being closed out)
 - OR `--commit <ref>` — a commit reference; the skill resolves the spec path from the commit's `Topic:` trailer or staged spec file
-- OR `--sweep` — scan `docs/_internal/incoming/` for any spec older than 7 days that hasn't been archived; report unprocessed specs
+- OR `--sweep` — scan `{{lattice.project.specs.incoming}}/` for any spec older than 7 days that hasn't been archived; report unprocessed specs
 
 ## When invoked
 
 - **Automatic (project-side hook):** a project's pre-commit (or post-commit) hook detects a spec-archive rename in the staged diff and invokes `/lattice:extract-learnings <archived-spec-path> --apply`. See "Wiring this into a project" below for the rename-detection regex and entry-point. This replaces the earlier `/lattice:review` Step 5d auto-invoke, which fired at the wrong granularity.
-- **Manual:** after implementing a spec but before committing: `/lattice:extract-learnings docs/_internal/incoming/foo-spec.md`. Reviews and applies.
+- **Manual:** after implementing a spec but before committing: `/lattice:extract-learnings {{lattice.project.specs.incoming}}/foo-spec.md`. Reviews and applies.
 - **Sweep:** `/lattice:extract-learnings --sweep` scans for unprocessed specs (in `incoming/` >7 days, none with `[archived]` cross-reference). Useful at the end of a cycle to catch missed extractions.
 
 ## Step 1: Read the spec (or specs in --sweep mode)
@@ -31,18 +31,7 @@ Read the full spec body. Identify the sections that produced durable knowledge �
 
 For each durable item, classify by destination:
 
-| Candidate | Destination | Format |
-|-----------|------------|--------|
-| Numeric threshold (cutoff, magnitude floor, p-value) | `docs/_internal/knowledge/knowledge-graph.md` | Typed YAML fact (CLAUDE.md rule 19) |
-| Species-specific baseline / strain-rate | `docs/_internal/knowledge/knowledge-graph.md` (typed) + `species-profiles.md` (cite fact) | Typed fact + narrative cite |
-| Route / vehicle / regulatory cutoff | `knowledge-graph.md` (typed) | Typed fact |
-| Mechanistic disable-marker (e.g., "no LB → BW concordance is invalid") | `knowledge-graph.md` (typed) | Typed fact with `disable_marker: true` |
-| Statistical method (test, threshold, application logic) | `docs/_internal/knowledge/methods-index.md` | Method row + linked detail file |
-| Field contract addition (new field, enum widening) | `docs/_internal/knowledge/field-contracts.md` + `field-contracts-index.md` + (if multi-site) `contract-triangles.md` | Per-field row + triangle entry |
-| Architectural decision / cross-subsystem pattern | `docs/_internal/architecture/<subsystem>.md` (existing) OR new file with user approval | Decision section + rationale |
-| New design pattern / convention | `.claude/rules/design-decisions.md` (with explicit user approval per CLAUDE.md rule 1) | Table row |
-| Anti-pattern / failure mode | `.claude/rules/audit-checklist.md` (visual) OR `bug-patterns.md` (analytical) | Negative-form rule |
-| Contract triangle drift | `docs/_internal/knowledge/contract-triangles.md` | Triangle entry naming declaration / enforcement / consumption sites |
+{{include:optional:project.skills.extract_learnings.routing_table}}
 
 **Non-durable examples — DO NOT extract:**
 - "We chose React Query over SWR for caching" (one-time tooling choice; no future spec will cite this)
@@ -56,7 +45,7 @@ For each candidate identified in Step 2:
 
 1. **Search the destination registry** for an existing entry that already covers this. If one exists, the spec must either (a) cite it (no extraction needed; the spec body is restating known truth, which is itself a defect under rule 19 if the spec restates rather than cites), or (b) extend it (provide diff to existing entry).
 2. **If no existing entry**, prepare a new entry. Must include source attribution: `<spec-name> (<commit-sha>)`.
-3. **For typed facts**, run `python scripts/audit-knowledge-graph.py --validate-new` against the proposed entry to verify schema compliance before staging.
+3. **For typed facts**, run `{{lattice.runtime.python}} {{lattice.project.scripts.audit_knowledge_graph}} --validate-new` against the proposed entry to verify schema compliance before staging.
 
 ## Step 4: Stage the extractions
 
@@ -72,7 +61,7 @@ Each applied extraction:
 
 ## Step 5: Archive the spec
 
-Move the spec from `docs/_internal/incoming/` to `docs/_internal/incoming/archive/<year>-<month>/<spec-name>.md`. The archived copy:
+Move the spec from `{{lattice.project.specs.incoming}}/` to `{{lattice.project.specs.archive}}/<year>-<month>/<spec-name>.md`. The archived copy:
 - Keeps the back-references inserted in Step 4
 - Adds a header note: `**Archived <date>**. Durable knowledge extracted: <list of destinations>. Implementation commit: <sha>.`
 
@@ -82,7 +71,7 @@ If the spec has no extractable durable knowledge (rare — usually means the spe
 
 Per CLAUDE.md rule 6: "Architecture specs must be updated when their subsystem ships changes — create if missing."
 
-If the spec's implementation modifies a subsystem that has an architecture spec at `docs/_internal/architecture/<subsystem>.md`:
+If the spec's implementation modifies a subsystem that has an architecture spec at `{{lattice.project.docs.architecture_dir}}/<subsystem>.md`:
 - Update "Last validated" date to today.
 - Add a row to the change-log section noting the spec name + commit + summary.
 - If the implementation introduced a new sub-component or invariant, update the relevant section.
@@ -105,7 +94,7 @@ After all extractions are applied (or staged for review):
 ## What this skill does NOT do
 
 - **Does not invent durable knowledge from thin spec content.** If a spec doesn't surface novel domain truth, the skill records that and archives without extraction. Forcing extraction from spec-implementation-detail content is exactly the failure mode "rule 19 prose in two un-typed registries" guards against.
-- **Does not modify code.** Only docs/_internal/ and decisions.log are touched.
+- **Does not modify code.** Only `{{lattice.project.docs.internal_root}}/` and decisions.log are touched.
 - **Does not propose new architecture-spec creation without user approval.** Bound by CLAUDE.md rule 1 (design-system) and rule 8 (no directory sprawl).
 - **Does not run during `/lattice:spike`.** Spikes intentionally skip the doc lifecycle (per `commands/lattice/spike.md`); their learnings are extracted via `/lattice:spec-from-code` followed by a normal cycle close, not via this skill.
 
@@ -132,8 +121,8 @@ The output is a list of archived-spec paths (the destinations). For each one, th
 
 Notes on the regex:
 
-- Source must match `docs/_internal/incoming/<basename>.md` (one path segment after `incoming/`, no further nesting). This avoids re-firing on already-archived specs that are reorganized within `incoming/archive/`.
-- Destination must contain `docs/_internal/incoming/archive/` (further nesting under `archive/<year>-<month>/` is allowed and expected).
+- Source must match `{{lattice.project.specs.incoming}}/<basename>.md` (one path segment after `incoming/`, no further nesting). This avoids re-firing on already-archived specs that are reorganized within `incoming/archive/`.
+- Destination must contain `{{lattice.project.specs.archive}}/` (further nesting under `archive/<year>-<month>/` is allowed and expected).
 - Both anchors use `(^|\/)` to handle relative-path emissions from `git diff` (some hook environments run from a sub-directory).
 
 ### Recommended hook placement
