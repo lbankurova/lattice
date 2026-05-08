@@ -36,9 +36,9 @@ Key files:
 Read the relevant JSON file(s). Use Python to parse if needed:
 
 ```bash
-cd C:/pg/pcc/backend && C:/pg/pcc/backend/venv/Scripts/python.exe -c "
+{{lattice.runtime.python}} -c "
 import json
-data = json.load(open('generated/PointCross/dose_response_metrics.json'))
+data = json.load(open('backend/generated/PointCross/dose_response_metrics.json'))
 # ... query the data
 "
 ```

@@ -12,7 +12,7 @@ Run these checks in parallel where possible, report results:
 ### 1. Build check
 
 ```bash
-cd C:/pg/pcc/frontend && npm run build 2>&1 | tail -20
+{{lattice.runtime.build_command}} 2>&1 | tail -20
 ```
 
 Report: PASS (zero errors) or FAIL (with errors).

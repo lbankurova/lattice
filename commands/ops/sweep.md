@@ -13,7 +13,7 @@ This is mechanical work — recount, cross-reference, archive. Not analytical. T
 
 ## Step 1: TODO.md Recount
 
-Read `docs/_internal/TODO.md` fully. For each section:
+Read `{{lattice.project.backlog.todo}}` fully. For each section:
 
 1. **Count actual open items** — items NOT struck through (`~~`) and NOT marked with a commit hash
 2. **Count actual resolved items** — items with strikethrough or commit hash
@@ -32,8 +32,8 @@ Also flag:
 Count the two machine-readable annotations that distinguish actionable research from other work:
 
 ```bash
-grep -c "^- \*\*Research exhausted:\*\* true" docs/_internal/TODO.md
-grep -c "^- \*\*Category:\*\*.*not a research task" docs/_internal/TODO.md
+grep -c "^- \*\*Research exhausted:\*\* true" {{lattice.project.backlog.todo}}
+grep -c "^- \*\*Category:\*\*.*not a research task" {{lattice.project.backlog.todo}}
 ```
 
 - **`Research exhausted: true`** — research ran, confirmed no public data exists. These are data-acquisition / partnership items, NOT research work. `/lattice:prioritize` filters them out of the research pipeline.
@@ -45,7 +45,7 @@ Report: `TODO.md annotations: {A} research-exhausted (data-acquisition), {B} mis
 
 ROADMAP is the highest-impact index for prioritization accuracy. `/lattice:prioritize` reads it first. Stale ROADMAP entries directly cause bad recommendations (e.g., recommending features that already shipped).
 
-Read `docs/_internal/ROADMAP.md`. For each item:
+Read `{{lattice.project.backlog.roadmap}}`. For each item:
 
 1. **Check linked specs.** If the item references `Spec: incoming/X.md`:
    - Does `incoming/X.md` still exist? → item is active
@@ -62,7 +62,7 @@ Report: `ROADMAP: {N} items — {A} active, {B} done (newly marked), {C} orphane
 
 ## Step 3: incoming/ Spec Audit + ROADMAP Backlink
 
-Read `docs/_internal/incoming/`. For each `.md` file:
+Read `{{lattice.project.specs.incoming}}/`. For each `.md` file:
 
 1. **Check git log** for commits referencing this spec
 2. **Check ROADMAP.md** for entries linking to this spec
@@ -81,7 +81,7 @@ Report: `incoming/: {N} specs — {A} active, {B} archived (implemented), {C} ar
 
 ## Step 4: MANIFEST.md Staleness Check
 
-Read `docs/_internal/MANIFEST.md`. For each tracked asset:
+Read `{{lattice.project.docs.manifest_file}}`. For each tracked asset:
 
 1. Check "Last validated" date
 2. Check "Depends on" files — have any been modified since last validation? (`git log --since="{last_validated}" -- {file}`)
@@ -100,7 +100,7 @@ Read `.lattice/decisions.log`.
 
 ## Step 6: Research INDEX.md
 
-If `docs/_internal/research/INDEX.md` exists:
+If `{{lattice.project.research.index}}` exists:
 
 1. Verify each listed research file still exists at the stated path
 2. Check status markers (active/validated/dormant) against peer review files — a "validated" doc should have R2 review

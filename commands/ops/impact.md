@@ -66,7 +66,7 @@ For each consumer, classify the impact of changing the target:
 ## Step 5: Check generated data pipeline
 
 If the target is in the backend generator or analysis pipeline, also check:
-1. Does the change affect generated JSON shape? → Check `docs/_internal/knowledge/field-contracts.md`
+1. Does the change affect generated JSON shape? → Check `{{lattice.project.docs.field_contracts}}`
 2. Does the change affect generated JSON values? → Flag as engine change, validation needed
 3. Does the frontend consume the affected JSON fields? → Trace through hooks and components
 
