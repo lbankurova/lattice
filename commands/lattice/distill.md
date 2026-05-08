@@ -21,23 +21,7 @@ This skill is fundamentally different from `/lattice:research` (which investigat
 
 This step is mandatory before any mode-specific work. Load the research corpus in layers:
 
-### Layer 0: Meta (always read fully)
-
-1. **Research registry** — `docs/_internal/research/REGISTRY.md`. Get decided/active/dormant streams, cross-stream implications, implementation status.
-2. **System manifest** — `docs/_internal/knowledge/system-manifest.md`. Get subsystem map, data flow, override cascades, invariants.
-3. **Scoring engine model** — `docs/_internal/knowledge/scoring-engine-model.md`. Get the pipeline steps, formulas, design invariants.
-
-### Layer 1: Decided Knowledge (always read fully)
-
-4. **All synthesis documents** — `docs/_internal/incoming/*-synthesis.md`. These are committed positions — research that has been through peer review and architect gate.
-5. **Methods index** — `docs/_internal/knowledge/methods-index.md`. Statistical and algorithmic method catalog.
-6. **Species profiles** — `docs/_internal/knowledge/species-profiles.md`. Species-specific biology and thresholds.
-7. **Vehicle profiles** — `docs/_internal/knowledge/vehicle-profiles.md`. Control group classification.
-
-### Layer 2: Research Index (scan titles + first paragraphs)
-
-8. **Research index** — `docs/_internal/research/INDEX.md` (or list all files in `docs/_internal/research/`). For each research file, note: title, topic, status (from REGISTRY if tracked), approximate scope.
-9. **Peer review index** — list all files in `docs/_internal/research/peer-reviews/`. Note which research they challenge and their verdicts.
+{{include:project.skills.distill.corpus_layers}}
 
 ### Layer 3: Deep Read (purpose-driven selection)
 
@@ -78,7 +62,7 @@ Write a grounded answer that:
 
 ### Output
 
-Present the answer inline (no file output needed for simple questions). If the answer is substantial (>500 words), offer to save to `docs/_internal/research/distillations/{topic}-answer.md`.
+Present the answer inline (no file output needed for simple questions). If the answer is substantial (>500 words), offer to save to `{{lattice.project.research.distillations}}/{topic}-answer.md`.
 
 ---
 
@@ -170,7 +154,7 @@ Assemble the thesis document:
 
 ### Output
 
-Write to `docs/_internal/research/distillations/{topic}-thesis.md`.
+Write to `{{lattice.project.research.distillations}}/{topic}-thesis.md`.
 
 Present a summary inline, then:
 
@@ -264,7 +248,7 @@ then modifications (test assumptions), then new research (fill gaps)]
 
 ### Output
 
-Write to `docs/_internal/research/distillations/{target}-adaptation.md`.
+Write to `{{lattice.project.research.distillations}}/{target}-adaptation.md`.
 
 Present summary inline, then:
 
@@ -289,12 +273,7 @@ Check whether documentation reflects the current state of decided research. Find
 
 Catalog all documentation that should reflect research conclusions:
 
-| Doc | Type | Last updated | Reflects research up to |
-|-----|------|-------------|------------------------|
-| `docs/methods.md` | Public methods reference | [date or git blame] | [which research streams] |
-| `docs/scientific-logic.md` | Public scientific logic | [date or git blame] | [which research streams] |
-| `docs/validation/summary.md` | Validation summary | [date or git blame] | [which validation runs] |
-| `docs/_internal/knowledge/*.md` | Internal knowledge | [per file] | [per file] |
+{{include:optional:project.skills.distill.audit_doc_inventory}}
 
 Use `git log --format="%ai" -1 -- {file}` to get last-modified dates.
 
@@ -341,7 +320,7 @@ For each issue found, specify the fix:
 
 ### Output
 
-Write to `docs/_internal/research/distillations/coherence-audit-{date}.md`.
+Write to `{{lattice.project.research.distillations}}/coherence-audit-{date}.md`.
 
 Present summary inline with counts:
 
@@ -377,7 +356,7 @@ Then:
 
 ## Output Location
 
-All distill artifacts go to `docs/_internal/research/distillations/`:
+All distill artifacts go to `{{lattice.project.research.distillations}}/`:
 
 | Mode | Filename |
 |------|----------|
@@ -425,14 +404,14 @@ For each qualifying candidate, present:
 **Candidate insight (cross-subsystem):**
 [one-paragraph statement of the insight, with the specific subsystems / files it bridges]
 
-**Suggested destination:** new file `docs/_internal/knowledge/{filename}.md`
-                          OR extension of `docs/_internal/knowledge/{existing-file}.md` (section: "{section}")
+**Suggested destination:** new file `{{lattice.project.docs.internal_root}}/knowledge/{filename}.md`
+                          OR extension of `{{lattice.project.docs.internal_root}}/knowledge/{existing-file}.md` (section: "{section}")
 
 Promote to knowledge layer? [yes / no / skip-all]
 ---
 ```
 
-Choose ONE suggested destination per candidate by applying the domain-knowledge-map (see `.claude/rules/domain-knowledge-map.md` if the project ships one, or the project's `CLAUDE.md` "Where Rules Live" table). Prefer extension of an existing file when the insight fits an existing topic; propose a new file only when no existing file's scope covers the bridge.
+Choose ONE suggested destination per candidate by applying the domain-knowledge-map (see `{{lattice.project.docs.domain_knowledge_map}}` if the project ships one, or the project's `CLAUDE.md` "Where Rules Live" table). Prefer extension of an existing file when the insight fits an existing topic; propose a new file only when no existing file's scope covers the bridge.
 
 If the operator answers **yes**: draft the new knowledge entry (or the patch to the existing file) and present it inline for review BEFORE writing. Do not write the file until the operator confirms the draft.
 
@@ -459,14 +438,14 @@ Every distill mode can identify gaps — unanswered questions (default mode Step
 ### Research gaps → REGISTRY.md
 
 For each gap that requires further investigation:
-1. **Read** `docs/_internal/research/REGISTRY.md`
+1. **Read** `{{lattice.project.research.registry}}`
 2. If the gap relates to an existing stream, append to that stream's `open-questions`
 3. If it's a new topic, add a new stream with `source: "distill/{mode}/{topic}"`
 
 ### Data/doc gaps → TODO.md
 
 For each gap that is a missing data problem or a documentation staleness issue:
-1. **Read** `docs/_internal/TODO.md`
+1. **Read** `{{lattice.project.backlog.todo}}`
 2. Append with appropriate tag: `[Area: {relevant}]`
 
 **Mode-specific guidance:**
