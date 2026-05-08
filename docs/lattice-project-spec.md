@@ -202,7 +202,7 @@ archive = "docs/_internal/incoming/archive"
 
 **Behavior when undefined:** the executor falls back to the SENDEX-shape default paths (`docs/_internal/incoming` + `docs/_internal/incoming/archive`) for the migration window. New projects that don't follow the SENDEX layout MUST set these keys explicitly. Once Phase 6 closes the migration window, the fallback is removed.
 
-### 4.10 `[project.lattice]` — lattice-internal project state
+### 4.9 `[project.lattice]` — lattice-internal project state
 
 ```toml
 [project.lattice]
@@ -217,7 +217,7 @@ algorithm_defaults_mode = "empty"  # or "sendex" for back-compat during migratio
 
 **Behavior when undefined:** review's ALGORITHM protocol falls back per `algorithm_defaults_mode` — `empty` makes the protocol advisory only; `sendex` retains today's hardcoded SENDEX paths (for back-compat during the migration window).
 
-### 4.11 `[skills.<name>]` — per-skill content overrides
+### 4.10 `[skills.<name>]` — per-skill content overrides
 
 The largest single contributor to "skill body customization." Each harness skill that needs project-shaped values (persona, domain expertise paragraphs, corpus file lists, exemplar story references, exclusion globs) declares its keys here.
 

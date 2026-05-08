@@ -220,6 +220,45 @@ test('loadManifest: unsupported value type (boolean) throws', () => {
   } finally { rmSync(dir, { recursive: true, force: true }); }
 });
 
+test('loadManifest: backslash in scalar value throws (Windows path footgun)', () => {
+  // The naive string-state tracker would mis-parse "C:\\foo\\" as escaped
+  // quotes; rejecting upfront is safer than silently mis-parsing.
+  const dir = makeProject({ project: `[runtime]\npython = "C:\\\\foo\\\\bar"\n` });
+  try {
+    assert.throws(() => loadManifest(dir), (e: Error) => {
+      assert.ok(e instanceof ManifestError);
+      assert.match(e.message, /Backslash characters are not supported/);
+      assert.match(e.message, /forward slashes/);
+      return true;
+    });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('loadManifest: backslash in array continuation line throws', () => {
+  const dir = makeProject({
+    project: `[skills.x]\nlist = [\n  "ok",\n  "bad\\\\path",\n]\n`,
+  });
+  try {
+    assert.throws(() => loadManifest(dir), (e: Error) => {
+      assert.ok(e instanceof ManifestError);
+      assert.match(e.message, /Backslash characters are not supported in array continuation/);
+      return true;
+    });
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('loadManifest: backslash inside trailing comment is OK (not a value defect)', () => {
+  // Comments aren't parsed as values, so a backslash there shouldn't trigger
+  // the safety check.
+  const dir = makeProject({
+    project: `[runtime]\nbuild_command = "npm run build"  # win path: C:\\foo\\bar\n`,
+  });
+  try {
+    const m = loadManifest(dir);
+    assert.equal(lookupKey(m.project, 'runtime.build_command'), 'npm run build');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 // ── formatValue ────────────────────────────────────────────
 
 test('formatValue: undefined emits sentinel with dotted key', () => {

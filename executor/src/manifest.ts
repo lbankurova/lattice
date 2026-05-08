@@ -178,12 +178,37 @@ function parseToml(input: string, file: string): TomlSection {
     }
 
     let valueText = line.slice(eqIdx + 1).trim();
+
+    // Reject backslashes outright. Our subset doesn't process TOML 1.0 escape
+    // sequences (\\, \", \n, \uXXXX), and the naive string-state trackers below
+    // (arrayClosesOnSameLine, stripTrailingComment, splitArrayItems) would
+    // mis-parse `\"` as "escaped quote" rather than "literal backslash followed
+    // by closing quote." On Windows, a path like "C:\\foo\\" would silently
+    // misparse rather than abort. Refuse upfront with a clear message.
+    // Backslashes in trailing comments are fine -- check only the non-comment
+    // portion of the line.
+    const valueNoComment = stripTrailingComment(valueText);
+    if (valueNoComment.includes('\\')) {
+      throw new ManifestError(
+        `Backslash characters are not supported in values (this TOML subset does not process escape sequences). ` +
+        `Use forward slashes for paths (preferred on all platforms) or migrate to a full TOML 1.0 parser.`,
+        file, lineNo,
+      );
+    }
+
     // Multi-line array? Accumulate continuation lines until brackets balance.
     if (valueText.startsWith('[') && !arrayClosesOnSameLine(valueText)) {
       i++;
       while (i < rawLines.length) {
         const more = rawLines[i].trim();
         if (more === '' || more.startsWith('#')) { i++; continue; }
+        const moreNoComment = stripTrailingComment(more);
+        if (moreNoComment.includes('\\')) {
+          throw new ManifestError(
+            `Backslash characters are not supported in array continuation lines. Use forward slashes.`,
+            file, i + 1,
+          );
+        }
         valueText += ' ' + more;
         if (arrayClosesOnSameLine(valueText)) { i++; break; }
         i++;

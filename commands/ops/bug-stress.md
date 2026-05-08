@@ -174,7 +174,7 @@ COMMIT READY: {yes / no — missing tests}
 
 ## Step 7.5: Bug-pattern registry update (F6 — MANDATORY)
 
-After Step 3 (Pattern search) and before Step 8 (Retrospective), update the project's bug-pattern registry at `docs/_internal/knowledge/bug-patterns.md`:
+After Step 3 (Pattern search) and before Step 8 (Retrospective), update the project's bug-pattern registry at `{{lattice.project.scripts.bug_patterns_registry}}`:
 
 1. **If the pattern matches an existing entry:** append the new instance to that entry's `representative_instances` list with `file`, `line`, `bug_id`, and `note`. Bump `last_updated`.
 2. **If the pattern is new (not in registry):** add a new entry following the schema documented at the top of `bug-patterns.md`. Required fields: `name` (kebab-case), `title`, `status: active`, `root_cause`, `representative_instances`, `applies_to` (glob list), `prevention_property` (F2 link or null), `prevention_fact` (F1 link or null), `prevention_test` (existing test path or null), `introduced`, `last_updated`.
