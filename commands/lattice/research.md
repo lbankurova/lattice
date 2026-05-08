@@ -17,7 +17,7 @@ Research operates in two tiers to avoid boiling the ocean:
 
 **Tier 2: Deep dive (`--deep {branch}`)** — Full gap analysis on a user-selected branch from the landscape. This is where Phases 1-3 below run in full. Branches not selected stay as stubs in the landscape doc — visible but not researched.
 
-**When `--landscape` is the default:** If no landscape exists for this topic yet, always run landscape first. If a landscape already exists (`docs/_internal/research/{topic}.md` with a branch table), skip to deep dive on the requested branch.
+**When `--landscape` is the default:** If no landscape exists for this topic yet, always run landscape first. If a landscape already exists (`{{lattice.project.research.root}}/{topic}.md` with a branch table), skip to deep dive on the requested branch.
 
 **The user controls depth.** The landscape recommends, the user decides. Never auto-expand all branches.
 
@@ -29,13 +29,13 @@ Before writing anything, load what the project already knows about this topic. T
 
 1. **Decision log** (`.lattice/decisions.log`) — check for prior research attempts on this topic. What was tried? What failed? What was validated? Don't repeat failed approaches.
 
-2. **Existing research** (`docs/_internal/research/`) — is there already a landscape or deep dive on this topic or an overlapping topic? Read it. Your job is to EXTEND it, not rewrite it.
+2. **Existing research** (`{{lattice.project.research.root}}/`) — is there already a landscape or deep dive on this topic or an overlapping topic? Read it. Your job is to EXTEND it, not rewrite it.
 
-3. **Knowledge files** — consult the domain knowledge map (`.claude/rules/domain-knowledge-map.md`). For the topic at hand, which knowledge files are relevant? Read them. Everything in species-profiles.md, methods-index.md, vehicle-profiles.md, etc. is ALREADY KNOWN — don't research it again.
+3. **Knowledge files** — consult the domain knowledge map (`{{lattice.project.docs.domain_knowledge_map}}`). For the topic at hand, which knowledge files are relevant? Read them. Knowledge files document what's ALREADY KNOWN — don't research it again.
 
-4. **Peer reviews** (`docs/_internal/research/peer-reviews/`) — if prior peer reviews exist for related topics, read the findings. These contain validated challenges and known limitations that your research should build on, not rediscover.
+4. **Peer reviews** (`{{lattice.project.research.peer_reviews}}/`) — if prior peer reviews exist for related topics, read the findings. These contain validated challenges and known limitations that your research should build on, not rediscover.
 
-5. **Distill corpus check** — if `/lattice:distill` has produced prior analyses on this topic (check `docs/_internal/research/distillations/`), read them. Distill synthesizes across the full corpus — its conclusions are stronger than any single research doc.
+5. **Distill corpus check** — if `/lattice:distill` has produced prior analyses on this topic (check `{{lattice.project.research.distillations}}/`), read them. Distill synthesizes across the full corpus — its conclusions are stronger than any single research doc.
 
 **After loading, write a 3-5 line "Already Known" section at the top of your research output:**
 
@@ -96,7 +96,7 @@ Which branches should I research in depth?
 
 ### L4. Output
 
-Write the landscape to `docs/_internal/research/{topic}.md` with all branches as stubs. Mark the document as `tier: landscape` at the top. Update INDEX.md.
+Write the landscape to `{{lattice.project.research.root}}/{topic}.md` with all branches as stubs. Mark the document as `tier: landscape` at the top. Update `{{lattice.project.research.index}}`.
 
 ---
 
@@ -179,14 +179,7 @@ This check prevents the second most common blind spot: designing for the loudest
 
 **This phase runs ONLY when the research topic is algorithmic** — when it touches mortality classification, NOAEL/LOAEL determination, adversity / treatment-related classification, target-organ flagging, syndrome detection (cross-domain or histopath), severity assignment, recovery verdict, or onset determination, OR when it proposes an algorithm whose implementation will land in a path listed in `.lattice/algorithm-paths.txt`.
 
-For each proposed feature in Phase 3 that produces an algorithmic output, walk the proposal against the validation oracle:
-
-1. **Identify the reference-card assertion** that encodes the expected output. Look in `docs/validation/references/*.yaml` (per-study reference cards) and the matcher dispatch in `frontend/tests/generate-validation-docs.test.ts:checkAssertion()`. If multiple study cards apply, walk the canonical study (PointCross for most surfaces; Nimble for control-mortality; a gene-therapy CBER study for the no-control case).
-2. **If no assertion exists**, draft one under "Proposed Reference Assertion". Tag `GROUND_TRUTH` when the expected output derives from a regulatory standard, knowledge-graph fact, or authoritative documentation; tag `REGRESSION_PIN` when it derives only from current engine output. Cite the source.
-3. **Walk the proposed algorithm against the assertion** using `backend/generated/<study>/unified_findings.json` (or the relevant per-matcher JSON). Document expected-vs-actual with a one-paragraph trace citing pairwise/group values, effect sizes, and dose-response shape.
-4. **If the proposed architecture cannot produce the assertion's expected output mechanically**, the proposal is FLAWED — regardless of internal consistency. Document this as a CONDITIONAL or FLAWED proposal-level finding so peer-review and incorporation propagate it.
-
-**Why this phase exists.** GAP-304 produced a self-consistent design that would have emitted `mortality_loael=null` on PointCross — a study where every regulatory toxicologist would call 200 mg/kg treatment-related (HCC × 2 + Hy's-Law BILI). Two peer reviews and two incorporation rounds let it through because the gates checked internal consistency, not whether the design's output reflected the data. Phase 4 catches that class of failure during research itself, before peer-review or build.
+{{include:optional:project.skills.research.algorithmic_oracle_walk}}
 
 **Output:** an "Oracle Walk" section in the research document, structured as:
 
@@ -207,9 +200,9 @@ For each algorithmic proposal in Phase 3:
 
 ## Output
 
-Write the research document to `docs/_internal/research/{topic}.md`. If a file for this topic already exists, read it first and extend/update rather than overwrite.
+Write the research document to `{{lattice.project.research.root}}/{topic}.md`. If a file for this topic already exists, read it first and extend/update rather than overwrite.
 
-After writing, update `docs/_internal/research/INDEX.md` with the new or updated entry.
+After writing, update `{{lattice.project.research.index}}` with the new or updated entry.
 
 ## NEVER STOP
 
@@ -230,7 +223,7 @@ After writing the research document and before logging, persist all discovered g
 
 For each gap identified in Phase 2 (and Phase 2b uniformity assumptions) that represents an open question needing further investigation:
 
-1. **Read** `docs/_internal/research/REGISTRY.md`
+1. **Read** `{{lattice.project.research.registry}}`
 2. If the gap relates to an existing stream, append to that stream's `open-questions`
 3. If it's a new topic, add a new stream entry:
    ```yaml
@@ -240,17 +233,17 @@ For each gap identified in Phase 2 (and Phase 2b uniformity assumptions) that re
      touches-subsystems: [{if known from source mapping}]
      open-questions: ["{the research question}"]
      source: "research/{topic}"
-     doc: "docs/_internal/research/{topic}.md"
+     doc: "{{lattice.project.research.root}}/{topic}.md"
    ```
 
 ### Data gaps → TODO.md
 
 For each gap in Phase 2 that is a missing data problem (species coverage, validation data, HCD, study types):
 
-1. **Read** `docs/_internal/TODO.md`
+1. **Read** `{{lattice.project.backlog.todo}}`
 2. Append: `- [ ] **DATA-GAP: {title}** — {what's missing}. Impact: {consequence}. Source: research/{topic}. [Area: {relevant}]`
 
-**Research discovers gaps. If those gaps exist only in the research document, they're invisible to prioritization (`/lattice:prioritize`), sweep (`/ops:sweep`), and future sessions. The registry and TODO.md are the durable routing layer.**
+**Research discovers gaps. If those gaps exist only in the research document, they're invisible to prioritization (`/lattice:prioritize`), sweep (`/ops:sweep`), and future sessions. The registry and TODO are the durable routing layer.**
 
 ## Decision Log
 
