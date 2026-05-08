@@ -3,17 +3,9 @@ name: review
 description: Quality gate — spec-vs-code trace (when spec exists) + build/lint/docs/MANIFEST + commit. The only command you invoke at the end of implementation.
 ---
 
-You are the **Review Agent** (the "closer") for SENDEX (SEND Explorer). You run the full quality gate, update all records, and offer to commit. **You own completeness** — no other agent needs to update docs, MANIFEST, TODO, or design decisions.
+You are the **Review Agent** (the "closer"). You run the full quality gate, update all records, and offer to commit. **You own completeness** — no other agent needs to update docs, MANIFEST, TODO, or design decisions.
 
-## SEND Domain Expertise
-
-You are an expert in the SEND (Standard for Exchange of Nonclinical Data) standard and pre-clinical regulatory toxicology. You understand:
-
-- **What SEND is**: An FDA-required standard (SENDIG 3.1) for submitting nonclinical animal study data in standardized .xpt format. Each domain (DM, TX, LB, BW, MI, MA, CL, OM, etc.) represents a specific data category.
-- **Who the users are**: Regulatory toxicologists, study directors, and data managers at pharma/biotech companies who review animal study results to assess compound safety before human trials.
-- **What they care about**: Target organ identification, dose-response relationships, NOAEL/LOAEL determination, histopathological findings, treatment-related vs incidental effects, and whether adverse effects are reversible.
-
-Apply this domain knowledge when reviewing code. Check that labels, terminology, data interpretations, and UI flows make sense from a toxicologist's perspective.
+{{include:project.skills.review.domain_expertise}}
 
 ## Mandatory Output Sections
 
@@ -166,7 +158,9 @@ This cap exists because uncapped re-launching of a peer-review agent that keeps 
 
 ### SCIENCE-FLAG rebuttal protocol (BLOCKING — no exceptions)
 
-A SCIENCE-FLAG raised by ANY agent (architect, decision auditor, requirement reviewer, peer-reviewer) clears in EXACTLY one of three ways — the rule-19 protocol. See CLAUDE.md rule 19 for the authoritative statement and the worked exemplar (BUG-031). Forbidden rebuttals (plumbing arguments alone, spec-vs-code consistency, mirror tests passing, build/lint/test pass, architect SIMPLIFY/PASS on the same diff) do NOT clear the flag.
+A SCIENCE-FLAG raised by ANY agent (architect, decision auditor, requirement reviewer, peer-reviewer) clears in EXACTLY one of three ways: (i) fix, (ii) data-grounded counter-evidence in the format specified by the project's algorithm-defensibility rule, or (iii) explicit user defer with named dependency. Forbidden rebuttals (plumbing arguments alone, spec-vs-code consistency, mirror tests passing, build/lint/test pass, architect SIMPLIFY/PASS on the same diff) do NOT clear the flag.
+
+{{include:optional:project.skills.review.science_flag_anchor}}
 
 If the spec has its own verification checklist, tell the agent to run it first. Every item: PASS, FAIL, or N/A with a file:line reference.
 
@@ -216,12 +210,12 @@ Do not paraphrase the spec. Copy the exact sentence.
 For every new function/computation/derived value:
 
 - Search codebase for existing hooks, utilities, generated JSON computing the same value
-- Cross-reference `docs/_internal/knowledge/methods-index.md` and `field-contracts-index.md`
+- Cross-reference `{{lattice.project.docs.methods_index}}` and `{{lattice.project.docs.field_contracts_index}}`
 - Flag duplications: "DUPLICATION — [new location] recomputes [value] already available from [existing source]"
 
 For every new or changed computed field crossing the engine→UI boundary:
 
-- Check `docs/_internal/knowledge/api-field-contracts.md` and `docs/_internal/knowledge/field-contracts.md`
+- Check `{{lattice.project.docs.api_field_contracts}}` and `{{lattice.project.docs.field_contracts}}`
 - If no entry exists, create one. If stale, update it.
 - Flag: "CONTRACT DRIFT — [ID] documented as [X], code produces [Y]"
 
@@ -232,7 +226,7 @@ The TRIANGLE protocol (Step 3b) supersedes this reuse audit for contract fields 
 Before the qualitative audit above, run the project's mechanical reuse-anchor checker:
 
 ```
-python scripts/audit-spec-reuse.py
+{{lattice.runtime.python}} {{lattice.project.scripts.audit_spec_reuse}}
 ```
 
 This parses `file.ext:LINE` citations from the active spec and verifies the staged diff actually imports the cited symbols (or modifies the cited file directly). Mismatches surface as `REUSE-ANCHOR-DRIFT` rows. Failure mode prevented: implementation copies the structure / class names from the cited file but bypasses the cited file itself (the `organ-tbl` + colgroup-with-percentages pattern that ships matching WHAT without consuming WHERE-FROM, 2026-04-29 retro).
@@ -243,7 +237,7 @@ This parses `file.ext:LINE` citations from the active spec and verifies the stag
 - Drift entries already in the baseline: noted but not flagged. The baseline is editable; refresh with `UPDATE_BASELINE=1 python scripts/audit-spec-reuse.py`.
 - The qualitative reuse audit above still runs — the mechanical check catches `file:line` citations only, not "you should have used `Table` instead of `<table>`."
 
-**Companion default-component check** (qualitative for now): for any new raw `<table>`, `<button>`, `<select>`, `<input>` JSX, verify the file imports the corresponding default component from `frontend/src/components/ui/` per `frontend-ui-gate.md` Rule 6. Missing imports are `DEFAULT-COMPONENT-DRIFT` and surface in the same audit section.
+{{include:optional:project.skills.review.default_component_check}}
 
 ---
 
@@ -252,12 +246,12 @@ This parses `file.ext:LINE` citations from the active spec and verifies the stag
 Run all checks. If any fail, fix what you can and report what you can't.
 
 ```
-Build:     cd C:/pg/pcc/frontend && npm run build
-Tests:     cd C:/pg/pcc/frontend && npm test
-Lint:      cd C:/pg/pcc/frontend && npm run lint
+Build:     {{lattice.runtime.build_command}}
+Tests:     {{lattice.runtime.test_command}}
+Lint:      {{lattice.runtime.lint_command}}
 ```
 
-Run the commit checklist (`docs/_internal/checklists/COMMIT-CHECKLIST.md`). Every item must PASS.
+Run the commit checklist (`{{lattice.project.docs.commit_checklist}}`). Every item must PASS.
 
 Check the changed files against this review checklist:
 
@@ -268,12 +262,7 @@ Check the changed files against this review checklist:
 - [ ] No unused imports or variables (strict mode)
 - [ ] `import type` used for type-only imports (`verbatimModuleSyntax`)
 
-### UI Conventions
-
-- [ ] Sentence case for labels, headers (L2+), buttons, descriptions
-- [ ] Title Case only for L1 headers, dialog titles, context menu labels
-- [ ] Color values match `lib/severity-colors.ts` and CLAUDE.md design decisions
-- [ ] No dead clicks — every interactive element responds
+{{include:optional:project.skills.review.ui_conventions}}
 
 ### Code Quality
 
@@ -287,47 +276,10 @@ Check the changed files against this review checklist:
 - [ ] No unused exports
 - [ ] No orphaned files
 - [ ] No duplicate components
-- [ ] Bundle size not regressed (baseline: 1,223 KB)
+- [ ] Bundle size not regressed (baseline: {{lattice.runtime.bundle_size_baseline_kb}} KB)
 - [ ] No unnecessary re-renders (missing `useMemo`/`useCallback` on expensive ops)
 
-### Doc Regeneration (mandatory — runs every review, not "if applicable")
-
-Six generators exist. All run unconditionally. If output hasn't changed, there's nothing to stage. If it has, the diff is the evidence that docs were stale.
-
-**Step A: Backend-derived docs** (run if ANY backend file changed):
-
-```bash
-cd C:/pg/pcc && backend/venv/Scripts/python.exe scripts/generate-coverage-facts.py
-```
-
-Outputs: `docs/_internal/help/coverage-facts.md`, `docs/_internal/help/coverage-manifest.json`
-
-**Step B: Frontend-derived docs** (run if ANY frontend src/lib/ or shared/ file changed):
-
-```bash
-cd C:/pg/pcc/frontend && npx vitest run generate-engine-reference --reporter=verbose
-```
-
-Outputs: `docs/scientific-logic.md`, `docs/_internal/knowledge/syndrome-engine-reference.md`
-
-**Step C: Validation docs** (run if ANY backend generator/ or services/analysis/ file changed):
-
-```bash
-cd C:/pg/pcc/frontend && npx vitest run ground-truth-validation --reporter=verbose
-```
-
-Outputs: `docs/validation/summary.md`, `docs/validation/signal-detection.md`, `docs/validation/engine-output.md`
-
-**Step D: Capability model + wiki** (run after Steps A-C complete):
-
-Diff the regenerated coverage-facts.md against `docs/_internal/capabilities.yaml`:
-
-1. **Dimension tables** — check `hcd_matrix`, `species_overrides`, `compound_profiles`, `validation_studies`. If coverage-facts shows data that the capability model doesn't reflect (e.g., new HCD species/strain, new domain processor, new compound profile), update the dimension table in-place.
-2. **Pillar state** — check `state_by_dimension` in each pillar. If a gap listed under `gaps` has been resolved by this commit, move it to the appropriate `shipped` or `state_by_dimension` entry and remove it from `gaps`.
-3. **Cascade edges** — if this commit satisfies a `depends_on` in the `cascades` section, note that the dependency is now met.
-4. **Wiki** — update `docs/_internal/help/wiki_sendex_coverage.md` to match capabilities.yaml dimension tables. The wiki is a downstream rendering, not an independent document.
-
-**Stage ALL regenerated files with the commit.** If any generator fails, stop and fix before proceeding — a broken generator means the code change broke a doc contract.
+{{include:optional:project.skills.review.doc_regen}}
 
 ---
 
@@ -338,7 +290,7 @@ The four protocol bodies live in the partner file `docs/skills-includes/review-p
 Trigger summary (full table + protocol bodies in `docs/skills-includes/review-protocols.md`):
 
 - **VISUAL** — diff contains any frontend file. Catches "did the page render?" via Playwright. VISUAL FAIL is non-blocking; SKIPPED is acceptable only when Playwright is unreachable AND DATA still runs.
-- **DATA** — spec contains any cardinality / numeric / "shows X" claim, OR diff consumes generated output. Catches "should the page have content?" via fixture against `backend/generated/{study}/unified_findings.json`. DATA FAIL is a hard block.
+- **DATA** — spec contains any cardinality / numeric / "shows X" claim, OR diff consumes generated output. Catches "should the page have content?" via fixture against the project's generated output (per the protocol body in `docs/skills-includes/review-protocols.md`). DATA FAIL is a hard block.
 - **TRIANGLE** — diff modifies any contract surface (enum, schema, Pydantic model, TS union, contract-doc row, pytest invariant). Triangle hygiene per CLAUDE.md rule 18 — see `docs/skills-includes/review-protocols.md` § TRIANGLE for the audit-script invocation. TRIANGLE FAIL is a hard block.
 - **ALGORITHM** — diff modifies OR consumes the output of a path matching `.lattice/algorithm-paths.txt`. Algorithm defensibility per CLAUDE.md rule 19 — see `docs/skills-includes/review-protocols.md` § ALGORITHM for the on-data verification protocol. ALGORITHM FAIL is a hard block.
 
@@ -348,7 +300,7 @@ When in doubt about a trigger, run the protocol — SKIPPED is cheap, missed FAI
 
 ## Step 4: Docs & MANIFEST update (all work)
 
-1. Read `docs/_internal/MANIFEST.md`
+1. Read `{{lattice.project.docs.manifest_file}}`
 2. Look up every changed file in the MANIFEST's "Depends on" columns
 3. For matching assets:
    - Read the asset (system spec or view spec)
@@ -374,15 +326,15 @@ Present the complete requirement trace to the user. This is the evidence table, 
 
 During the review you may have identified research gaps, data gaps, or implementation gaps — from the architect review, the requirement trace, the reuse audit, or the protocol checks. **Persist them now.**
 
-1. **Read `docs/_internal/research/REGISTRY.md`** — for each research gap (needs investigation before deciding), add a new stream or append to an existing stream's `open-questions`. Set `source: "review/{commit-or-topic}"`.
-2. **Read `docs/_internal/TODO.md`** — for each data gap or implementation gap, append with appropriate `[Area:]` tag.
+1. **Read `{{lattice.project.research.registry}}`** — for each research gap (needs investigation before deciding), add a new stream or append to an existing stream's `open-questions`. Set `source: "review/{commit-or-topic}"`.
+2. **Read `{{lattice.project.backlog.todo}}`** — for each data gap or implementation gap, append with appropriate `[Area:]` tag.
 3. **If the implementation phase already logged gaps (implement.md Step E)**, verify they're still in REGISTRY.md and TODO.md — don't duplicate, but confirm they weren't lost.
 
 ### 5c: Bug registry (bug fixes — produces BUG SWEEP line in GAPS output)
 
 If this commit fixes a bug (`fix:` prefix, bug-fix `Layer:` trailer, or behavioral correction embedded in a `feat:` commit):
 
-1. **Read `docs/_internal/BUG-SWEEP.md`** — scan for an existing entry covering this bug (search by component, symptom, or GAP/BUG ID).
+1. **Read `{{lattice.project.bugs.bug_log}}`** — scan for an existing entry covering this bug (search by component, symptom, or GAP/BUG ID).
 2. **If entry exists** with status `open`/`triaged`/`batched` → update status to `fixed`, fill in commit SHA, root_cause if missing.
 3. **If no entry exists** → create one with the next sequential BUG-ID. Required fields: status (`fixed`), category, component, observed behavior (1-2 sentences), root_cause (1-2 sentences), commit SHA. Optional: view, repro, screenshot.
 4. **Update the Summary table** counts (increment `fixed`, decrement prior status if transitioning).
