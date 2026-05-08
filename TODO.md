@@ -91,6 +91,18 @@ _(no open ENH items at this time — see `docs/decisions/todo-pruned-2026-04-28.
 - **Surfaced when:** fixing the `bug-pattern-families.md` include shape during Phase 3b prep — the resync's idempotency check correctly detected "already-rendered" but the source-of-truth had changed, requiring a manual sync-then-resync cycle.
 - **Priority:** Medium (workflow ergonomics; will recur every time a project author edits their content files).
 
+### ENH-15: Spec inlinable-content Rule 5 -- forbid literal `{{...}}` syntax in include files
+- **Source:** BUG-043 retro (lattice/pcc decoupling Phase 4 -- review-doc-regen.md template-escape).
+- **Problem:** `lattice-project-spec.md` §3.1 (ENH-12) currently has 4 authoring rules for inlinable content. None forbid literal `{{lattice.X.Y}}` / `{{include:...}}` syntax in the include file body (including HTML comments). Authors who reference template syntax as documentation produce a second-pass UNDEFINED rendering: the literal lands in the rendered skill body once, the next resync treats it as a real template token, sentinel emerges. Caught + fixed in BUG-043 (commits 8c811bf submodule + parent ptr bump).
+- **Where:** `docs/lattice-project-spec.md` §3.1 -- add Rule 5: "No literal `{{...}}` syntax in inlinable content (use backticks or escape)." Include a worked example showing `{{lattice.X.Y}}` rewritten as `` `lattice.X.Y` `` (backticks read as code-quoted prose, don't match `TEMPLATE_RE`).
+- **Priority:** Medium (Phase 4 has ~20 more skill migrations; each one risks re-introducing the bug if the rule isn't documented).
+
+### ENH-16: `lattice resync` lint for literal template syntax in include files
+- **Source:** BUG-043 retro -- bullet 5.2.
+- **Problem:** Even with ENH-15's spec rule documented, authors will accidentally re-introduce the literal `{{...}}` pattern. A mechanical lint at sync time would catch the violation before it reaches pcc's rendered body.
+- **Where:** `executor/src/resync.ts` (or a new pre-resolve pass in `executor/src/template.ts`). Scan include-file content for `{{...}}` tokens; warn at resync time if found in non-backtick-quoted positions. Output goes to the resync result alongside `sentinelFiles[]`.
+- **Priority:** Low (ENH-15 documents the rule; the lint is belt-and-suspenders).
+
 ### ENH-14: Phase 4 — per-skill Pattern A migration for remaining 22 skills
 - **Source:** Decoupling plan §6 Phase 4 (`research/dg-harness/decoupling-handoff.md`).
 - **What:** 22 remaining skill migrations (review, distill, peer-review, architect, probe, synthesize, implement, research, research-cycle, blueprint-cycle, build-cycle, cycle, prioritize, autopilot, extract-learnings, lint-knowledge, lit-triage, design, ux-audit-walk, ux-audit-validate, ux-audit-file, ops:check, ops:explore-data, ops:sweep, ops:impact). Each migration: edit skill body to use templates, ship the corresponding pcc content file (`docs/_internal/skill-content/`), validate by running a cycle that exercises the skill.
