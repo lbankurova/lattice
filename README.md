@@ -27,7 +27,8 @@ This README covers:
 
 | Piece | Purpose | Where |
 |---|---|---|
-| **Skills** | Markdown prompt files. One per task type (synthesize, implement, review, etc.). Define how the model performs one operation. | `commands/lattice/*.md`, `commands/ops/*.md` |
+| **Skills** | Markdown prompt files. One per task type (synthesize, implement, review, etc.). Define how the model performs one operation. Skill bodies use Pattern A templating (`{{lattice.X.Y}}` scalars + `{{include:project.X.Y}}` content blocks) so per-project values come from the consumer's `lattice-project.toml` rather than being hardcoded. | `commands/lattice/*.md`, `commands/ops/*.md`; manifest schema at `docs/lattice-project-spec.md` |
+| **Project manifest** | TOML-shaped file in each consumer project (`lattice-project.toml`) that supplies project-specific paths, scripts, and skill content references. The framework's executor loads it once at session start; skill bodies read values via `{{lattice.X.Y}}` (scalars) and `{{include:[optional:]project.X.Y}}` (file inlining). 8 top-level buckets (runtime / project.backlog / project.research / project.docs / project.docs.entry / project.bugs / project.scripts / project.specs / project.lattice) + per-skill namespaces (`[skills.review]`, `[skills.distill]`, etc.). | `lattice-project.toml` (consumer); spec at `docs/lattice-project-spec.md` (framework); loader at `executor/src/manifest.ts` |
 | **Sub-agents** | Independently spawned model instances with their own context window. Used wherever the orchestrator's reasoning would contaminate the answer. Four registered: peer-review, architect-reviewer, decision-auditor, post-impl-reviewer. | `agents/*.md`; spawned via `context: fresh` on a workflow skill node |
 | **Workflows** | YAML DAGs defining what runs when. Reference skills by name; executor resolves topological order and dispatches. Five node types: `bash`, `skill`, `gate`, `approval`, `parallel`. | `workflows/*.yaml`, schema in `workflows/schema.md` |
 | **Verdict-enum registry** | Authoritative declared verdict set per gate-producing node. Workflow loader rejects gates that test a verdict literal not in the producer's enum at validate time — typo enforcement before any node runs. | `workflows/verdict-enums.yaml`, loaded by `executor/src/loader.ts` |
@@ -37,6 +38,40 @@ This README covers:
 | **Coherence engine** | Portfolio-level conflict detection across topics: subsystem overlap, stale blueprint, prerequisite violation, science-flag propagation, cascades. Some conflict types auto-resolve via targeted distill analysis. | `executor/src/coherence.ts`, `executor/src/auto-resolve.ts` |
 | **Audits** | Periodic scans for silent drift not visible at commit time (citation drift, dead code, knowledge-graph contradictions, contract straggler enums). | `scripts/audit-*.py` |
 | **Knowledge artifacts** | Project-authored typed facts, registries, design tables. Live in the consumer project, not the framework. | (consumer-side, e.g., `docs/_internal/knowledge/`) |
+
+---
+
+## Pattern A: project-manifest decoupling
+
+The framework ships skill bodies that work for any consumer; per-project specifics come from the consumer's `lattice-project.toml`. This decouples the framework from any one project's directory layout, tool choices, or domain conventions.
+
+### Two substitution mechanisms
+
+**Scalar substitution (`{{lattice.<bucket>.<key>}}`):** the literal value of `[<bucket>] <key>` in `lattice-project.toml`. Used for paths, commands, single-line config. Missing keys render as `<<UNDEFINED:bucket.key>>` sentinels — visible in the rendered prompt so skill authors can guard with `if "<<UNDEFINED:" in <token>: abort(...)`.
+
+**File inlining (`{{include:project.skills.<name>.<key>}}`):** the full text of the file pointed to by `[skills.<name>] <key>`. Used for multi-paragraph content (personas, domain expertise, project-specific protocols). Two forms:
+- **Required (`include:project.X.Y`)**: throws `TemplateIncludeError` on undefined-key / empty-string / missing-file. Loud failure for content the skill cannot operate without.
+- **Optional (`include:optional:project.X.Y`)**: returns empty string on absence (any of the above) so the skill silently degrades. Wrong-type values still throw — that's a misconfig, not absence.
+
+Inlinable content files follow conventions in `docs/lattice-project-spec.md` §3.1: no top-level `#` heading (skill body owns the outline), no meta-blockquote (use HTML comments for authoring metadata), `##`+ sub-headings OK, no literal `{{...}}` template syntax (escape with backticks).
+
+### Sync vs dispatch
+
+The substitution runs at **sync time**, not dispatch time. When the lattice repo's post-commit hook fires, it copies the templated skill bodies into the consumer project's `.claude/commands/` directory and immediately runs `lattice resync <project>` to substitute the templates against that project's manifest. The synced skill bodies are concrete project-rendered prose by the time the harness loads them.
+
+This avoids two failure modes: (a) the model parsing template literals as content, and (b) substitution-at-dispatch needing the manifest loaded into every skill invocation context.
+
+### Validation
+
+`lattice resync <project>` reports `0 errors, 0 with UNDEFINED sentinels` when the manifest is complete for every template token in the synced skill bodies. Any `<<UNDEFINED:...>>` in the synced output flags a missing manifest key — the consumer either adds the key or the skill body needs an `optional:` include for that surface.
+
+### What this enables
+
+- Same skill bodies work across any consumer project that ships a manifest.
+- Greenfield projects start with a partial manifest and add keys as they wire up more skills; missing optional includes silently no-op.
+- Project-specific knowledge (rule numbers, persona names, audit-script paths) lives in the consumer's `lattice-project.toml` and skill-content includes, not in the framework's skill bodies.
+
+The full schema (8 manifest buckets + per-skill namespace) is documented at [`docs/lattice-project-spec.md`](docs/lattice-project-spec.md). A scaffold template for new consumer projects is at [`scaffold/lattice-project.toml.template`](scaffold/lattice-project.toml.template).
 
 ---
 

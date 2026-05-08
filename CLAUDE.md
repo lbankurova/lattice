@@ -104,6 +104,8 @@ Development cycles are defined as YAML DAGs in `workflows/`. The DAG defines orc
 
 **Schema reference:** `workflows/schema.md` — node types, template expressions, execution rules.
 
+**Project manifest reference:** `docs/lattice-project-spec.md` — `lattice-project.toml` schema (8 manifest buckets + per-skill namespace) consumed by skill bodies via Pattern A templates (`{{lattice.X.Y}}`, `{{include:[optional:]project.X.Y}}`). Loader: `executor/src/manifest.ts`. Sync-time substitution: `executor/src/resync.ts` + CLI `lattice resync <project>`.
+
 **Node types:** `bash` (shell command), `skill` (AI agent with skill prompt), `gate` (conditional routing), `approval` (human decision point), `parallel` (concurrent group with trigger rules).
 
 **Three paths:** The meta-orchestrator (`cycle.yaml`) classifies new topics and routes to: full cycle (research → blueprint → build) for complex/new-domain work, spike cycle (spike → spec-from-code → review) for known-territory work, or bug fix cycle (classify → investigate → fix → stress → review) for defects. All end with the same review quality gate. Classification is presented to the user for confirmation, not auto-decided.
