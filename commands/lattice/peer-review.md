@@ -43,9 +43,7 @@ Run the standard review structure (Sections 1-7 below) focused on:
 - Whether the gap-to-feature mapping is complete (did synthesis miss research findings?)
 - Whether research gaps and data gaps are correctly classified (blocking vs non-blocking)
 
-**Also run the Spec Value Audit** (`docs/_internal/checklists/SPEC-VALUE-AUDIT.md`) per-feature — focus on questions 1 ("what concrete user problem does this solve?"), 2 ("evidence of frequency"), and 4 ("downstream impact when unfixed"). Challenge feature claims from a domain-expert lens: "You claim X is a problem — how often does it actually happen in a real study? What breaks if it goes unfixed?" Features that can't survive these challenges are findings in their own right (CONDITIONAL or FLAWED, depending on how speculative).
-
-**Atomic-fact placement check (CLAUDE.md rule 19).** Scan the synthesis/spec body for restated atomic facts: numeric thresholds, species-specific baselines, route/vehicle constraints, regulatory cutoffs, mechanistic disable-markers. For each one, verify the *value* lives in `docs/_internal/knowledge/knowledge-graph.md` as a typed YAML fact (with `value`, `confidence`, `scope`, `derives_from`, `contradicts`) and the spec body cites the fact id rather than restating the value. Spec bodies that restate without typed-graph backing get a CONDITIONAL finding: "this value must be promoted to the typed knowledge graph before build" — the failure mode prevented is two un-typed registries (or two specs) silently disagreeing on the same threshold. Exemption: descriptive narrative that contextualizes a typed fact (explaining why a threshold exists) belongs in prose; only the *value* must be typed.
+{{include:optional:project.skills.peer_review.spec_review_audits}}
 
 ### If Standalone Claim:
 
@@ -64,78 +62,7 @@ You evaluate a property as if it were a spec:
 
 Properties without a SOUND or CONDITIONAL-with-resolution peer-review verdict MUST NOT be enabled in CI. This routes F2 properties through the same gate F3 routes algorithmic code through, structurally consistent with §20a Review-1's recommended path (b).
 
-## Algorithmic-Tightening Requirements (F3)
-
-When the input is **algorithmic code** (a function in `.lattice/algorithm-paths.txt`) or an **algorithmic spec** (a spec that declares an algorithm in scope, modifies a function in algorithm-paths, or proposes a new analytical method), the following are MANDATORY in addition to the standard review structure:
-
-### A. Query the typed knowledge layer (F1)
-
-For every algorithmic claim under review, run `python scripts/query-knowledge.py` against the relevant scope. At minimum:
-
-```bash
-# For a NOAEL-related claim:
-python scripts/query-knowledge.py --scope species:<species> --kind regulatory_expectation
-python scripts/query-knowledge.py --scope species:<species> --kind gate_criterion --domain <domain>
-
-# For a severity / classification claim:
-python scripts/query-knowledge.py --scope species:<species> --domain <domain> --kind clinical_threshold
-
-# For a syndrome detection claim:
-python scripts/query-knowledge.py --kind disable_marker
-python scripts/query-knowledge.py --scope endpoints:<endpoint>
-```
-
-Cite the returned facts (or the explicit no-fact-found stub) in your review. **A peer-review that does not invoke `query-knowledge.py` for at least one fact in an algorithmic review is incomplete** — re-launch.
-
-When the query returns the no-fact-found stub message ("NO FACT FOUND in domain-truth oracle ..."), that itself is evidence — note in your review that the domain-truth oracle has no typed fact for this scope, fall back to LLM judgment with explicit caveat per the stub instructions, and add the gap to the review's "Persist Gaps" section so a fact gets populated.
-
-### B. Walk the validation reference assertion
-
-When the input touches mortality classification, NOAEL/LOAEL determination, adversity / treatment-related classification, target-organ flagging, syndrome detection (cross-domain or histopath), severity assignment, recovery verdict, or onset determination, the following are MANDATORY in addition to A:
-
-1. **Identify the reference-card assertion** that encodes the expected output for the affected algorithm. Look in `docs/validation/references/*.yaml` (per-study reference cards) and the matcher dispatch in `frontend/tests/generate-validation-docs.test.ts:checkAssertion()`. If multiple study cards apply, walk the canonical study (PointCross for most surfaces; Nimble for control-mortality; a gene-therapy CBER study for the no-control case).
-2. **If no assertion exists**, draft one in this review under a "Proposed Reference Assertion" section. Tag `GROUND_TRUTH` when the expected output derives from a regulatory standard, knowledge-graph fact, or authoritative documentation; tag `REGRESSION_PIN` when the expected output derives only from current engine output. Cite the source.
-3. **Walk the proposed algorithm against the assertion** using `backend/generated/<study>/unified_findings.json` (or the relevant per-matcher JSON). Document expected-vs-actual with a one-paragraph trace citing pairwise/group values, effect sizes, and dose-response shape that drove the result.
-4. **If the proposed architecture cannot produce the assertion's expected output mechanically**, file the finding as `FLAWED` — regardless of internal consistency. The "internal consistency" exception is the GAP-304 lesson: a self-consistent design that would emit `mortality_loael=null` on a study where every regulatory toxicologist would call 200 mg/kg treatment-related is FLAWED at the oracle even when every rationale chain is internally sound.
-
-A peer-review of an algorithmic spec that does not produce an assertion-walk trace for at least one assertion is `INSUFFICIENT` — re-launch.
-
-### C. Mandatory citation for defensibility claims
-
-Any "this is/isn't defensible" claim in your review MUST cite either:
-- A **regulatory standard** (OECD, ICH, FDA, EFSA, EPA — name the document and section), OR
-- A **literature reference** (peer-reviewed paper, with DOI or PMID where possible, OR a knowledge-graph fact ID returned by `query-knowledge.py`), OR
-- An **internal validation result** (named validation reference card from `docs/validation/references/`)
-
-"Generally accepted" / "standard practice" / "tox common sense" is NOT a citation. A defensibility claim without a citation is downgraded to OPINION and does not count as a finding.
-
-### D. Verdict format and blocking semantics
-
-`SOUND` and `CONDITIONAL` and `FLAWED` and `INSUFFICIENT` are unchanged (see Section 6 below). The peer-review verdict enum is canonically defined in [`docs/skills-includes/verdict-enums.md`](../../docs/skills-includes/verdict-enums.md) (`enums.peer-review`); workflow YAMLs that test this verdict declare `verdict_enum: peer-review` and the loader rejects typos at validate time. For algorithmic peer-review specifically:
-
-| Verdict | Effect on the parent gate (review.md or architect.md) |
-|---------|--------------------------------------------------------|
-| `SOUND` | Parent gate proceeds. Verdict logged. |
-| `CONDITIONAL` | **BLOCKS** the parent gate. The "what would fix it" must be addressed (fix code/spec, OR cite the missing fact via query-knowledge after populating it, OR the user explicitly defers with a named dependency). |
-| `FLAWED` | **BLOCKS** the parent gate unconditionally. Fix the algorithmic defect and re-launch peer-review. |
-| `INSUFFICIENT` | **BLOCKS** the parent gate. Provide the requested information and re-launch. |
-
-This is the §5.1 wiring: F3 becomes a hard gate at algorithmic-paths commits and at incoming/ algorithmic specs.
-
-### E. Persist verdict via attestation
-
-After completing an algorithmic peer-review, the parent gate (review.md Step 1 or architect.md Step 0.5) records the verdict using the SIMPLIFY-1 unified attestation format:
-
-```bash
-bash scripts/append-attestation.sh \
-  peer-review \
-  "{topic-or-spec-or-skill-ref}" \
-  "{SOUND|CONDITIONAL|FLAWED|INSUFFICIENT}" \
-  "{one-line summary citing key fact(s) returned by query-knowledge.py and why the verdict is what it is}" \
-  "peer-review-{topic}-{timestamp}"
-```
-
-The rationale must be ≥10 chars, must not be a trivial value (`n/a` / `idk` / `tbd` / etc.), and must reference at least one cited fact or "no fact found" stub. The attestation lands in `.lattice/pending-attestations.json`; `write-review-gate.sh` validates it before the gate file is written; pcc's pre-commit hook verifies a `kind=peer-review` attestation exists when staged paths match the algorithmic-paths regex.
+{{include:optional:project.skills.peer_review.algorithmic_tightening}}
 
 ---
 
@@ -228,7 +155,7 @@ falsification:
   - claim_id: LBC-2
     verdict: bounded-negative
     search_bounds:
-      databases: ["PubMed", "knowledge-graph fact_kinds: [translational_concordance, hcd_baseline]", "docs/_internal/research/literature/"]
+      databases: ["PubMed", "knowledge-graph fact_kinds: [translational_concordance, hcd_baseline]", "{{lattice.project.research.literature}}/"]
       time_range: "2010-2026"
       languages: ["English"]
       query_terms: ["preclinical translational concordance", "animal-to-human SOC LR+", "Olson 2000 follow-up"]
@@ -331,7 +258,7 @@ Pre-2026-05-02 reviews are exempt (the audit script's `--standard-mode-strict` f
 This mode is for Round 2 reviews. Standard peer review uses well-cited, established sources. Novel mode deliberately hunts for what Round 1 missed — recent, niche, contrarian, or underindexed work.
 
 **Mandatory constraints in novel mode:**
-1. **No source overlap.** If a prior review exists for this topic (`docs/_internal/research/peer-reviews/{topic}-review.md`), read it and DO NOT cite any source already cited there. Force discovery of new sources.
+1. **No source overlap.** If a prior review exists for this topic (`{{lattice.project.research.peer_reviews}}/{topic}-review.md`), read it and DO NOT cite any source already cited there. Force discovery of new sources.
 2. **Recency bias.** Prioritize publications from the last 2-3 years. Older sources are allowed only if they are niche/underindexed (not top-cited).
 3. **Source diversity.** Search specifically for:
    - Preprints (bioRxiv, medRxiv, arXiv) — methods not yet through peer review but potentially ahead of the field
@@ -361,7 +288,7 @@ Verification outcomes:
 
 | Outcome | Action |
 |---------|--------|
-| **VERIFIED** | Paper exists with matching title + authors + journal + year. Cell records the verification method and what matched (e.g., "VERIFIED via DOI 10.1007/s00204-022-03278-2 → Sewell 2022 'A re-evaluation of dose-level selection in repeat-dose studies' Arch Toxicol 96:1921-1934"). Source may be cited freely. **AND** create a literature note stub at `docs/_internal/research/literature/<author>-<year>-<short-slug>.md` per the project's literature-registry schema (see `research/literature/README.md`); minimum stub form is acceptable (`status: cited-not-read`, frontmatter with `title` / `authors` / `year` / `url` / `inbound_refs:` pointing at this peer-review file). The literature note is the durable verification artifact -- future re-audits read it instead of re-fetching. **AND** for paywalled sources (SAGE, Elsevier, Wiley) or at-risk sources (preprints, blog posts, conference talks, lab websites), download the local PDF to a path under `research/` per the literature-registry's PDF policy and set `local_pdf:` in the literature-note frontmatter. Try WebFetch first; if 403/429/captcha, retry via Playwright MCP per the Web Source Access Protocol; if both fail, leave `local_pdf: null` and add an entry to the literature note's `## Open` section noting the acquisition gap. |
+| **VERIFIED** | Paper exists with matching title + authors + journal + year. Cell records the verification method and what matched (e.g., "VERIFIED via DOI 10.1007/s00204-022-03278-2 → Sewell 2022 'A re-evaluation of dose-level selection in repeat-dose studies' Arch Toxicol 96:1921-1934"). Source may be cited freely. **AND** create a literature note stub at `{{lattice.project.research.literature}}/<author>-<year>-<short-slug>.md` per the project's literature-registry schema (see `research/literature/README.md`); minimum stub form is acceptable (`status: cited-not-read`, frontmatter with `title` / `authors` / `year` / `url` / `inbound_refs:` pointing at this peer-review file). The literature note is the durable verification artifact -- future re-audits read it instead of re-fetching. **AND** for paywalled sources (SAGE, Elsevier, Wiley) or at-risk sources (preprints, blog posts, conference talks, lab websites), download the local PDF to a path under `research/` per the literature-registry's PDF policy and set `local_pdf:` in the literature-note frontmatter. Try WebFetch first; if 403/429/captcha, retry via Playwright MCP per the Web Source Access Protocol; if both fail, leave `local_pdf: null` and add an entry to the literature note's `## Open` section noting the acquisition gap. |
 | **BLOCKED** | Verification call returned 403/429/captcha. Log to `.lattice/blocked-urls.log` per the Web Source Access Protocol AND retry via Playwright MCP browser. If browser retry also fails, mark `PROVISIONAL — verification blocked` in the cell, persist a research gap to `REGISTRY.md` for build-phase re-verification, and the source CANNOT be cited as a primary anchor in the verdict — only as a "would strengthen if verified" note. |
 | **NOT-FOUND** | DOI does not resolve, PubMed returns no hits, or the resolved paper is the wrong paper-type / wrong year / wrong authors. **DO NOT cite this source.** Remove it from the table entirely OR replace with a verified alternative. If the underlying claim depended on this source, the claim itself must be retracted from the review. |
 
@@ -374,7 +301,7 @@ Hard rules (enforced by structural quality gate at the bottom of this skill):
 - A row in the Novel Source Discovery table without a populated `Verification` cell is a defect → the orchestrator MUST re-launch the review.
 - A source marked `PROVISIONAL` cannot appear in the verdict's "anchor base" or "five independent sources" rationale — only verified sources count toward anchor density.
 - A source marked `NOT-FOUND` that the reviewer wants to KEEP for honesty (to flag the failed search) must be moved out of the table into a `### Searched-but-Not-Found` subsection so it cannot be mistaken for a citation.
-- A source marked `VERIFIED` without a corresponding literature note at `docs/_internal/research/literature/<author>-<year>-<short-slug>.md` (with this peer-review file in `inbound_refs:`) is a defect → the orchestrator MUST re-launch with instruction to create the note. The literature note is the durable verification artifact; without it, future re-audits depend on re-running the network call (which may fail / return different results / be blocked).
+- A source marked `VERIFIED` without a corresponding literature note at `{{lattice.project.research.literature}}/<author>-<year>-<short-slug>.md` (with this peer-review file in `inbound_refs:`) is a defect → the orchestrator MUST re-launch with instruction to create the note. The literature note is the durable verification artifact; without it, future re-audits depend on re-running the network call (which may fail / return different results / be blocked).
 - For a VERIFIED source whose PDF would be downloaded per the literature-registry policy (paywalled SAGE / Elsevier / Wiley / at-risk preprint / blog post / conference talk), if BOTH WebFetch AND Playwright MCP browser retry fail to retrieve the PDF, the orchestrator MUST STOP and explicitly ASK THE USER to acquire the paper manually. The ask must include: full paper title, authors, year, journal + volume/issue/pages, DOI, the article landing-page URL, and the target save path under `research/literature/`. Do NOT silently leave `local_pdf: null` and proceed — that hides the acquisition gap and the literature note loses its durability promise. The literature note's `## Open` section must record the hand-off with a date, so a follow-up sweep can detect any user-ask that went unfulfilled.
 
 This gate exists because `--novel` mode actively hunts recent / niche / underindexed sources — precisely the failure surface for hallucinated citations. Hallucinations of this class pass surface-plausibility checks (correct journal name, plausible author last names, defensible-sounding titles) and slip past intuitive review; only mechanical verification (DOI resolves or doesn't, PubMed returns a hit or doesn't) catches them reliably. The gate's design assumptions: a single verification call per novel source is cheap, surface-plausibility is not evidence, and structural enforcement (the Verification column) beats honor-system review. (See `.lattice/decisions.log` and pcc `TODO.md` for historical incidents that motivated the gate.)
@@ -405,8 +332,8 @@ If the review generated alternative hypotheses that are plausible, summarize the
 ## Output
 
 Write the review to:
-- Standard mode: `docs/_internal/research/peer-reviews/{topic}-review.md`
-- Novel mode: `docs/_internal/research/peer-reviews/{topic}-review-novel.md`
+- Standard mode: `{{lattice.project.research.peer_reviews}}/{topic}-review.md`
+- Novel mode: `{{lattice.project.research.peer_reviews}}/{topic}-review-novel.md`
 
 If the input was a file, derive the topic from the filename. If pasted content, ask the user for a short topic name.
 
@@ -464,12 +391,12 @@ Peer review discovers gaps that the original research missed — broken assumpti
 For each CONDITIONAL or FLAWED finding that implies additional research or data is needed:
 
 1. **Research gap** (the finding raises a question that needs investigation):
-   - **Read** `docs/_internal/research/REGISTRY.md`
+   - **Read** `{{lattice.project.research.registry}}`
    - Append to the reviewed topic's stream `open-questions`, or create a new stream if the gap is outside that topic's scope
    - Set `source: "peer-review/{topic}"`
 
 2. **Data gap** (the finding identifies missing validation data, species coverage, or test cases):
-   - **Read** `docs/_internal/TODO.md`
+   - **Read** `{{lattice.project.backlog.todo}}`
    - Append: `- [ ] **DATA-GAP: {title}** — from peer review of {topic}. {what's missing}. [Area: {relevant}]`
 
 Not every finding is a gap — SOUND findings and confirmed limitations don't need routing. But CONDITIONAL findings that say "sound IF {assumption} holds" imply the assumption needs verification (= research gap), and FLAWED findings that say "wrong because {missing data}" imply data needs (= data gap).
