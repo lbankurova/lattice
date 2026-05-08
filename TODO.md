@@ -103,12 +103,13 @@ _(no open ENH items at this time — see `docs/decisions/todo-pruned-2026-04-28.
 - **Where:** `executor/src/resync.ts` (or a new pre-resolve pass in `executor/src/template.ts`). Scan include-file content for `{{...}}` tokens; warn at resync time if found in non-backtick-quoted positions. Output goes to the resync result alongside `sentinelFiles[]`.
 - **Priority:** Low (ENH-15 documents the rule; the lint is belt-and-suspenders).
 
-### ENH-14: Phase 4 — per-skill Pattern A migration for remaining 22 skills
+### ~~ENH-14: Phase 4 — per-skill Pattern A migration for remaining 22 skills~~ -- DONE (2026-05-08)
 - **Source:** Decoupling plan §6 Phase 4 (`research/dg-harness/decoupling-handoff.md`).
 - **What:** 22 remaining skill migrations (review, distill, peer-review, architect, probe, synthesize, implement, research, research-cycle, blueprint-cycle, build-cycle, cycle, prioritize, autopilot, extract-learnings, lint-knowledge, lit-triage, design, ux-audit-walk, ux-audit-validate, ux-audit-file, ops:check, ops:explore-data, ops:sweep, ops:impact). Each migration: edit skill body to use templates, ship the corresponding pcc content file (`docs/_internal/skill-content/`), validate by running a cycle that exercises the skill.
 - **Prerequisite:** ENH-09 (`{{include:optional:...}}` form) must land first to give skill authors the right shape for optional multi-paragraph content.
 - **Priority:** High once ENH-09 lands. Phase 3 confirmed Pattern A works; Phase 4 is the bulk of the decoupling value.
 - **Companion:** ENH-12 should land with or before the first Phase 4 skill that has multi-paragraph project content, so authors of pcc's `docs/_internal/skill-content/*.md` files have the inlinable conventions documented.
+- **Resolution:** All 25 skills migrated (handoff said 22; actual was 25 -- 3 additional surfaced as part of "rest of the list"). ENH-09 landed `a5a78e4`, ENH-12 landed `7627897`, ENH-15+16 follow-ups landed `66ce851`. BUG-043 (review-doc-regen template-escape false positive) caught + fixed mid-stream. Each migration verified via `lattice resync C:/pg/pcc` -- final state: 0 errors, 0 UNDEFINED sentinels, 25 rendered skill bodies. Pcc submodule has 13 SENDEX skill-content include files. Pcc parent's `lattice-project.toml` carries the full project manifest with 8 buckets + 11 per-skill namespaces.
 
 ---
 
