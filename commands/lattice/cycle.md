@@ -82,10 +82,10 @@ When there's no state file, classify the work to determine which path to take. R
 
 **Check signals:**
 1. Does the topic description sound like a bug report?
-2. Does `docs/_internal/BUG-SWEEP.md` have an existing entry?
-3. Does `docs/_internal/research/` have existing research on this topic?
+2. Does `{{lattice.project.bugs.bug_log}}` have an existing entry?
+3. Does `{{lattice.project.research.root}}/` have existing research on this topic?
 4. Does the topic name suggest engine/pipeline work?
-5. Is there an existing spec in `docs/_internal/incoming/`?
+5. Is there an existing spec in `{{lattice.project.specs.incoming}}/`?
 
 **Apply classification deterministically.** Evaluate signals in priority order:
 
