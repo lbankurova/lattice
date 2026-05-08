@@ -23,7 +23,7 @@ Determine what to audit:
 
 ### Step 2: Read guardrails
 
-If `docs/_internal/knowledge/code-quality-guardrails.md` exists, read it. This tells you:
+If `{{lattice.project.docs.guardrails}}` exists, read it. This tells you:
 - Which modules are domain-critical (essential complexity — don't simplify)
 - Which patterns are canonical (reuse, don't reinvent)
 - Known technical debt items (already tracked)
@@ -59,7 +59,7 @@ Review a synthesis or implementation plan before code gets written. This is the 
 ### Step 1: Read the plan
 
 Read the synthesis/spec file fully. Also read:
-- `docs/_internal/knowledge/code-quality-guardrails.md` (if exists)
+- `{{lattice.project.docs.guardrails}}` (if exists)
 - The files the plan proposes to modify (to understand current state)
 
 ### Step 1.25: Algorithmic-spec detection + peer-review (F3 — BLOCKING for algorithmic specs)
@@ -67,7 +67,7 @@ Read the synthesis/spec file fully. Also read:
 Before any other gate fires, classify the spec on the algorithmic axis. The spec is **algorithmic** if any of:
 
 1. The spec body declares an algorithm in scope (NOAEL/LOAEL, scoring, classification, syndrome detection, severity assignment, onset determination, dose-response pattern detection, statistical-test selection, adversity classification, target-organ identification).
-2. The spec proposes modifications to a function in `.lattice/algorithm-paths.txt` (defaults: derive-summaries.ts, endpoint-confidence.ts, findings-rail-engine.ts, cross-domain-syndromes.ts, syndrome-rules.ts, backend/services/analysis/**/*.py).
+2. The spec proposes modifications to a function in `.lattice/algorithm-paths.txt` (the project's algorithmic-paths regex registry).
 3. The spec proposes a new analytical method (statistical test, threshold rule, classification scheme, derived metric).
 
 If the spec is non-algorithmic (UI / plumbing / documentation / refactor with no analytical-output change), skip this step and proceed to Step 1.5.
@@ -89,49 +89,9 @@ If algorithmic:
 
 This is the §5.1 "Trigger B — Spec write" wiring. Without it, the spec author can ship an algorithmic spec that the architect-reviewer waves through on architectural-merit grounds (BUG-031 spec was the canonical example).
 
-### Step 1.4: Spec lint (F5 — BLOCKING when --strict)
+{{include:optional:project.skills.architect.spec_lint_protocol}}
 
-Before any other gate, run the spec linter against the incoming spec:
-
-```bash
-python scripts/lint-spec.py --strict <spec-path>
-```
-
-Per spec §7.1, the linter enforces four criteria:
-
-1. **Empirical claims must cite data.** Numeric / factual claims about generated output (e.g., `"NOAEL reads X"`, `"shows N rows"`, `"header reads Y"`) must reference a generated JSON path, fixture test, or baseline. This catches the BUG-031 anti-pattern where the spec author treated `"BW reads below tested range"` as desired without citing data.
-2. **Behavioral requirements must have tests.** Sentences with `must` / `shall` / `requires` / `>=N` must reference a test, gate, rule, or knowledge-fact -- except inside `Acceptance criteria` / `Non-goals` sections (which use these words as spec contracts, not per-feature requirements).
-3. **Multi-feature specs must reference SPEC-VALUE-AUDIT.md** (per CLAUDE.md rule 17).
-4. **Algorithmic specs must cite domain truth** -- at least one knowledge-graph fact (`HCD-FACT-*`, `NOAEL-FACT-*`, etc.) or `scripts/query-knowledge.py` invocation per spec body.
-5. **Atomic-fact placement** (CLAUDE.md rule 19) -- if the spec body restates a numeric threshold, species-specific baseline, route/vehicle constraint, regulatory cutoff, or mechanistic disable-marker, that *value* must live in `docs/_internal/knowledge/knowledge-graph.md` as a typed YAML fact (with `value`, `confidence`, `scope`, `derives_from`, `contradicts`). The spec may *cite* the fact id; it must not be the authoritative home. Specs that introduce a new numeric value need to either (a) add it to the typed graph in the same change set, or (b) cite an existing fact that already covers it. Asking the placement question once at architect prevents the silent-disagreement failure mode that arises when two un-typed registries restate the same threshold and drift apart.
-
-The linter errs toward flagging (false-positive tolerant per spec §7.4); architect-reviewer is the final judge. But `--strict` makes any defect block this step. Resolution paths per criterion:
-
-| Criterion | Defect | Resolution |
-|---|---|---|
-| 1 | Empirical claim without citation | Add the citation in the same paragraph, OR move the claim into an `## Acceptance criteria` section. |
-| 2 | Behavioral `must` without test ref | Cite the test file / gate / rule / knowledge-fact in the paragraph, OR move into `## Acceptance criteria`. |
-| 3 | Multi-feature spec without SPEC-VALUE-AUDIT reference | Add a `## Spec Value Audit` section citing `docs/_internal/checklists/SPEC-VALUE-AUDIT.md` and run the audit per-feature (per rule 17). |
-| 4 | Algorithmic spec without knowledge-fact citation | Run `python scripts/query-knowledge.py --kind <relevant> --scope <relevant>` and cite the returned fact id (or the explicit no-fact-found stub) per major decision point. |
-| 5 | Spec body restates a numeric / species / route / regulatory / mechanism value without promoting it to the typed graph | Add a typed YAML fact in `docs/_internal/knowledge/knowledge-graph.md` (with `value`, `confidence`, `scope`, `derives_from`, `contradicts`) in the same change set, then replace the inline restatement with a citation of the fact id. If an existing fact already covers it, cite that fact instead. |
-
-If lint passes (`rc=0`), proceed to Step 1.5. If lint fails AND the user explicitly waives a defect with cited reason (architect-reviewer-style memo), record the waiver in `decisions.log` (`spec-lint-waiver` event) and proceed -- but the unwaived defects must still be addressed.
-
-### Step 1.5: Spec Value Audit (first pass)
-
-Before launching the architect-reviewer agent, run `docs/_internal/checklists/SPEC-VALUE-AUDIT.md` against the spec. This is the anti-featuritis gate — it catches specs that propose N features on categorical reasoning ("every inferred X should be overridable") rather than per-feature evidence.
-
-**Triggered when** the spec proposes more than one feature, UI surface, override, or pane. For single-feature specs, questions 1-3 still apply but the audit is lighter.
-
-Produce one of three verdicts:
-
-| Verdict | Action |
-|---------|--------|
-| **PASS** | Proceed to Step 2 (architect-reviewer agent). |
-| **SCOPE REDUCTION REQUIRED** | STOP. Write a scope-challenge doc in `docs/_internal/incoming/{spec-name}-scope-challenge.md` enumerating which features fail which audit questions. Return the challenge to the user; do NOT proceed to architect-reviewer. The spec needs rework first. |
-| **EVIDENCE GAP** | STOP. Tell the user which frequency / impact data is missing and where it would come from (validation corpus pull, user interview, production telemetry). Do not proceed until evidence is provided or the unknown is explicitly accepted. |
-
-A spec that can't answer audit questions 1-10 for every proposed feature should not absorb deeper architect-review attention. Deep architecture review on featuritis wastes the review slot and lets scope slip through.
+{{include:optional:project.skills.architect.spec_value_audit_protocol}}
 
 ### Step 2: Launch architect-reviewer agent
 
@@ -172,7 +132,7 @@ This mode is non-interactive — it produces a report that `/lattice:review` inc
 
 ## Guardrails Document
 
-The architect skill maintains `docs/_internal/knowledge/code-quality-guardrails.md`. Structure:
+The architect skill maintains `{{lattice.project.docs.guardrails}}`. Structure:
 
 ```markdown
 # Code Quality Guardrails
@@ -184,7 +144,7 @@ The architect skill maintains `docs/_internal/knowledge/code-quality-guardrails.
 [pattern — where it's implemented — when to use it]
 
 ## Known Hotspots (tracked debt, not findings)
-[file — issue — TODO.md reference]
+[file — issue — `{{lattice.project.backlog.todo}}` reference]
 
 ## Complexity Budget
 [per-directory line count baselines and thresholds]
