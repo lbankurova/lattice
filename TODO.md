@@ -58,11 +58,12 @@ _(no open ENH items at this time — see `docs/decisions/todo-pruned-2026-04-28.
 
 - [ ] **DATA-GAP: dg-agentic-harness effort estimate decomposition** — from peer review of dg-agentic-harness. The "4-6 weeks to first DG plugin port" estimate (08 §4) does not itemize project-pillar authoring cost (component map, API index, typed-fact graph, knowledge files, system manifest). This cost is uncertain (1 day if DG team's existing docs are sufficient; 2+ weeks if not) and must be resolved before committing resources to the timeline. Missing: break-even model for vendor overhead at n=2 vs n=3+ consumers.
 
-### ENH-09: `{{include:optional:project.X.Y}}` template form (Phase 4 prerequisite)
+### ~~ENH-09: `{{include:optional:project.X.Y}}` template form (Phase 4 prerequisite)~~ -- DONE
 - **Source:** /lattice:review architect-reviewer agent (finding A1, 2026-05-07) on `feat/sendex-decouple` Phase 0-3a delta.
 - **Problem:** Phase 4 will migrate skills with OPTIONAL multi-paragraph project content (e.g., `review.md` capability_model section, `probe.md` system_manifest fallback). Current `{{include:project.X.Y}}` THROWS on undefined-key/empty-string/missing-file (correct for required content; wrong for optional). Without a degradable form, skill authors will reach for `{{lattice.X.Y}}` (sentinel) for content that should be `{{include:...}}` (file inlining), producing garbled prompts.
 - **Where:** `executor/src/template.ts:resolveInclude` (~15-line addition); add tests for the new path.
 - **Priority:** BLOCKING for Phase 4 (22 skill migrations).
+- **Resolution:** `optional:` prefix detected in `resolveInclude`; absence paths (undefined key, no manifest, empty-string marker, missing file) emit empty string. Wrong-type values still throw (misconfig, not absence). Spec §3 table + footnote updated. +7 tests in `template.lattice.test.ts` (236 total, all green).
 
 ### ENH-10: Thread manifest through reconcile + todo-queue helpers (cleanup)
 - **Source:** /lattice:review architect-reviewer agent (finding A3, 2026-05-07).

@@ -52,7 +52,8 @@ Skill bodies reference TOML values via Mustache-style template tokens:
 | Form | Resolves to | Use when |
 |---|---|---|
 | `{{lattice.<bucket>.<key>}}` | The literal value of `[<bucket>] <key>` in `lattice-project.toml` | Single-line values: paths, commands, scalar config |
-| `{{include:project.skills.<name>.<key>}}` | The full text of the file pointed to by `[skills.<name>] <key>` | Multi-paragraph content: persona, domain expertise, pattern families, exemplar lists |
+| `{{include:project.skills.<name>.<key>}}` | The full text of the file pointed to by `[skills.<name>] <key>` | Multi-paragraph content (REQUIRED): persona, domain expertise, pattern families, exemplar lists |
+| `{{include:optional:project.skills.<name>.<key>}}` | Same as `{{include:project.*}}` but emits empty string when the key is absent / unset / points to a missing file | Multi-paragraph content (OPTIONAL): capability model, system manifest, project-supplied advisories the skill can operate without |
 | `{{platform.<bucket>.<key>}}` | Same as `{{lattice.*}}` but reads from `lattice-platform.toml` | Platform-pack composition; out of scope for this doc |
 
 **Resolution timing:** the executor's `template.ts` substitutes tokens in skill bodies at dispatch time, AFTER the harness loads `lattice-project.toml` (and `lattice-platform.toml` if present) at session start. Substituted bodies are passed to the model; the original templates stay on disk.
@@ -64,7 +65,9 @@ Skill bodies reference TOML values via Mustache-style template tokens:
 
 Each per-skill section in §6 below names which keys are required vs optional and the abort/skip behavior.
 
-**`{{include:...}}` semantics:** the file path resolves relative to the project root. The file's full contents are inlined into the skill body as a single block. The substitution **throws `TemplateIncludeError`** when (a) the manifest key is undefined, (b) the value is an empty string (intentionally-undefined marker — skills must guard before referencing), (c) the value is not a string path, or (d) the file does not exist. The throw is intentional and louder than a sentinel: silent sentinels in inlined-content positions produce corrupted prompts the model may not flag. Skills that legitimately want a no-content-when-undefined shape should reference `{{lattice.X.Y}}` instead (which DOES emit a sentinel) and let the skill body conditionally include using its own templating.
+**`{{include:...}}` semantics:** the file path resolves relative to the project root. The file's full contents are inlined into the skill body as a single block. The required form (`{{include:project.X.Y}}`) **throws `TemplateIncludeError`** when (a) the manifest key is undefined, (b) the value is an empty string (intentionally-undefined marker — skills must guard before referencing), (c) the value is not a string path, or (d) the file does not exist. The throw is intentional and louder than a sentinel: silent sentinels in inlined-content positions produce corrupted prompts the model may not flag.
+
+**Optional form (`{{include:optional:project.X.Y}}`):** for content the skill can operate without — e.g., review's `[project.docs] capability_model` (skipped at Step 3D when absent), probe's `[project.docs] system_manifest` (fallback narrative), distill's project-side advisories. Absence (undefined key, empty-string marker, missing file, or no manifest at all) silently renders as empty string. Wrong-type values (key present but not a string) STILL throw — that's a misconfiguration, not absence. Choose the optional form when the surrounding skill body has natural conditional structure ("if any project content for X, prepend it"); choose the required form when absence would corrupt the prompt.
 
 ## 4. Schema buckets (top-level)
 

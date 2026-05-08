@@ -245,7 +245,103 @@ test('include: rejects non-project namespaces (e.g. include:platform.X)', () => 
       () => resolveTemplate('{{include:platform.platform.name}}', ctx),
       (e: Error) => {
         assert.ok(e instanceof TemplateIncludeError);
-        assert.match(e.message, /only 'include:project\.X\.Y' is supported/);
+        assert.match(e.message, /only 'include:project\.X\.Y'/);
+        return true;
+      },
+    );
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+// ── {{include:optional:project.x.y}} resolution (ENH-09) ───
+
+test('include:optional inlines the file when the key resolves (positive case)', () => {
+  const dir = makeProject({
+    project: `[skills.review]\ncapability_model = "skill-content/caps.md"\n`,
+    files: {
+      'skill-content/caps.md': 'Pillar 1: x\nPillar 2: y',
+    },
+  });
+  try {
+    const m = loadManifest(dir);
+    const ctx = buildInitialContext({}, {}, undefined, m);
+    const out = resolveTemplate('Caps:\n{{include:optional:project.skills.review.capability_model}}', ctx);
+    assert.equal(out, 'Caps:\nPillar 1: x\nPillar 2: y');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('include:optional returns empty string when the manifest key is undefined', () => {
+  const dir = makeProject({
+    project: `[skills.review]\npersona = "x"\n`,
+  });
+  try {
+    const m = loadManifest(dir);
+    const ctx = buildInitialContext({}, {}, undefined, m);
+    const out = resolveTemplate('A[{{include:optional:project.skills.review.capability_model}}]B', ctx);
+    assert.equal(out, 'A[]B');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('include:optional returns empty string when the key is set to ""', () => {
+  const dir = makeProject({
+    project: `[skills.review]\ncapability_model = ""\n`,
+  });
+  try {
+    const m = loadManifest(dir);
+    const ctx = buildInitialContext({}, {}, undefined, m);
+    const out = resolveTemplate('[{{include:optional:project.skills.review.capability_model}}]', ctx);
+    assert.equal(out, '[]');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('include:optional returns empty string when the file does not exist', () => {
+  const dir = makeProject({
+    project: `[skills.review]\ncapability_model = "skill-content/missing.md"\n`,
+  });
+  try {
+    const m = loadManifest(dir);
+    const ctx = buildInitialContext({}, {}, undefined, m);
+    const out = resolveTemplate('[{{include:optional:project.skills.review.capability_model}}]', ctx);
+    assert.equal(out, '[]');
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('include:optional returns empty string when no manifest is loaded', () => {
+  const ctx = buildInitialContext({}, {}, undefined);
+  const out = resolveTemplate('[{{include:optional:project.skills.review.capability_model}}]', ctx);
+  assert.equal(out, '[]');
+});
+
+test('include:optional STILL throws when the value is wrong type (misconfig, not absence)', () => {
+  const dir = makeProject({
+    project: `[skills.review]\ncapability_model = 42\n`,
+  });
+  try {
+    const m = loadManifest(dir);
+    const ctx = buildInitialContext({}, {}, undefined, m);
+    assert.throws(
+      () => resolveTemplate('{{include:optional:project.skills.review.capability_model}}', ctx),
+      (e: Error) => {
+        assert.ok(e instanceof TemplateIncludeError);
+        assert.match(e.message, /is not a string path/);
+        return true;
+      },
+    );
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('include:optional rejects non-project namespaces', () => {
+  const dir = makeProject({
+    project: `[runtime]\nbuild_command = "x"\n`,
+    platform: `[platform]\nname = "datagrok"\n`,
+  });
+  try {
+    const m = loadManifest(dir);
+    const ctx = buildInitialContext({}, {}, undefined, m);
+    assert.throws(
+      () => resolveTemplate('{{include:optional:platform.platform.name}}', ctx),
+      (e: Error) => {
+        assert.ok(e instanceof TemplateIncludeError);
+        assert.match(e.message, /only 'include:project\.X\.Y'/);
         return true;
       },
     );

@@ -88,6 +88,13 @@ export function resolveTemplates<T>(obj: T, ctx: TemplateContext): T {
  *                           reads that file's contents and returns them inline.
  *                           Throws TemplateIncludeError if the key is undefined,
  *                           empty, or points to a missing file.
+ *   include:optional:project.X.Y
+ *                         - same as include:project but emits empty string
+ *                           (instead of throwing) when the key is undefined,
+ *                           the manifest is absent, the value is the empty-string
+ *                           marker, or the file does not exist. A wrong-type
+ *                           value (key present but not a string) STILL throws --
+ *                           that's a misconfiguration, not absence.
  */
 function resolveExpression(expr: string, ctx: TemplateContext): string | undefined {
   // include:project.x.y - file content inclusion (separate from dot-namespace dispatch).
@@ -187,27 +194,40 @@ function resolveExpression(expr: string, ctx: TemplateContext): string | undefin
  * whether to abort the whole skill dispatch or fall back. The previous text-only
  * sentinel approach made it possible for skill bodies to silently substitute
  * `<<UNDEFINED:...>>` and run anyway with corrupted prompts.
+ *
+ * Optional form: `{{include:optional:project.X.Y}}` (ENH-09) -- absence is
+ * silently rendered as empty string. Wrong-type values (key present but not a
+ * string) still throw, since that's a misconfiguration rather than absence.
  */
 function resolveInclude(payload: string, fullExpr: string, ctx: TemplateContext): string {
+  let optional = false;
+  if (payload.startsWith('optional:')) {
+    optional = true;
+    payload = payload.slice('optional:'.length);
+  }
   if (!payload.startsWith('project.')) {
-    throw new TemplateIncludeError(fullExpr, `only 'include:project.X.Y' is supported (got 'include:${payload}')`);
+    throw new TemplateIncludeError(fullExpr, `only 'include:project.X.Y' (or 'include:optional:project.X.Y') is supported (got 'include:${optional ? 'optional:' : ''}${payload}')`);
   }
   const dotted = payload.slice('project.'.length);
   if (!ctx.manifest) {
+    if (optional) return '';
     throw new TemplateIncludeError(fullExpr, 'no manifest loaded; cannot resolve include');
   }
   const path = lookupKey(ctx.manifest.project, dotted);
   if (path === undefined) {
+    if (optional) return '';
     throw new TemplateIncludeError(fullExpr, `manifest key 'project.${dotted}' is undefined`);
   }
   if (typeof path !== 'string') {
     throw new TemplateIncludeError(fullExpr, `manifest key 'project.${dotted}' is not a string path`);
   }
   if (path === '') {
+    if (optional) return '';
     throw new TemplateIncludeError(fullExpr, `manifest key 'project.${dotted}' is empty (intentionally undefined; skill must guard before referencing)`);
   }
   const abs = resolve(ctx.manifest.projectRoot, path);
   if (!existsSync(abs)) {
+    if (optional) return '';
     throw new TemplateIncludeError(fullExpr, `file not found: ${abs}`);
   }
   return readFileSync(abs, 'utf-8');
