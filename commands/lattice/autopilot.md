@@ -1,6 +1,6 @@
 ---
 name: autopilot
-description: Portfolio autopilot — advance safe topics AND mechanical TODO items through their full lifecycle. Stops only at justified gates. Escalates via ESCALATION.md.
+description: Portfolio autopilot — advance safe topics AND mechanical TODO items through their full lifecycle. Stops only at justified gates. Escalates via {{lattice.project.backlog.escalation_log}}.
 ---
 
 You are the **portfolio autopilot**. You advance all safe work — lattice topics through their cycle phases AND mechanical TODO items that don't need user design input — stopping only at justified gates.
@@ -20,9 +20,9 @@ You are the **portfolio autopilot**. You advance all safe work — lattice topic
 Autopilot pulls from two queues and merges them into a single priority-ordered list:
 
 1. **Topic queue** — `.lattice/cycle-state/*.yaml`. Research/blueprint/build/spike phases. Classified by `/lattice:prioritize` as `[autopilot]` safe.
-2. **TODO queue** — items in `docs/_internal/TODO.md` tagged `autopilot: ready`. Mechanical work that doesn't need design decisions: data gaps, ETL, contract-triangle cleanup, no-behavior-change refactors, known-fix bugs.
+2. **TODO queue** — items in `{{lattice.project.backlog.todo}}` tagged `autopilot: ready`. Mechanical work that doesn't need design decisions: data gaps, ETL, contract-triangle cleanup, no-behavior-change refactors, known-fix bugs.
 
-Both queues apply the same safety criteria. Either produces escalations to `ESCALATION.md` at the repo root when a real user-input need surfaces.
+Both queues apply the same safety criteria. Either produces escalations to `{{lattice.project.backlog.escalation_log}}` at the repo root when a real user-input need surfaces.
 
 ## Protocol
 
@@ -45,7 +45,7 @@ In parallel with Step 0:
 # (If a helper script exists in the project, prefer it. Otherwise grep directly.)
 ```
 
-Parse `docs/_internal/TODO.md` (or the project's equivalent) for entries that carry an `autopilot:` field. Valid values:
+Parse `{{lattice.project.backlog.todo}}` (or the project's equivalent) for entries that carry an `autopilot:` field. Valid values:
 
 | Value | Meaning | Autopilot action |
 |---|---|---|
@@ -55,7 +55,7 @@ Parse `docs/_internal/TODO.md` (or the project's equivalent) for entries that ca
 | `needs-user` | Requires design decision, scope call, or user taste | Skip |
 | (no tag) | Unclassified | Skip, add to Step 4 escalation list for tagging |
 
-Each `ready` item should also carry a `score:` field (integer 0-27 from the pillars × data × impl rubric — see `docs/_internal/knowledge/autopilot-flow.md` for scoring details). If not present, treat as score=0 and rank behind tagged items.
+Each `ready` item should also carry a `score:` field (integer 0-27 from the pillars × data × impl rubric — see `{{lattice.project.docs.autopilot_flow}}` for scoring details). If not present, treat as score=0 and rank behind tagged items.
 
 ### Step 1: Coherence check
 
@@ -118,7 +118,7 @@ For each selected item:
    unset LATTICE_LOCK_HOLDER
    ```
    On any error path, release the lock before exiting -- a held lock blocks every other commit. Use `trap 'bash scripts/release-lock.sh; unset LATTICE_LOCK_HOLDER' EXIT` if running multiple items in a script wrapper.
-5. On completion, append a line to `ESCALATION.md` IF the skill surfaced any user decision, OR remove the TODO entry / tick it strikethrough with commit hash on success.
+5. On completion, append a line to `{{lattice.project.backlog.escalation_log}}` IF the skill surfaced any user decision, OR remove the TODO entry / tick it strikethrough with commit hash on success.
 6. Continue to the next queue item. Re-acquire the lock for each item (do NOT hold across items -- gives manual commits a window between batches). Do NOT re-run `lattice coherence` between items — Step 4 catches new blockers.
 
 **Phase transitions are automatic.** Do NOT ask "start blueprint?" or "ready to build?" — if the coherence check passed, proceed.
@@ -147,7 +147,7 @@ Topic: {topic-or-todo-id}
 Phase: {phase-completed-or-"mechanical"}
 ```
 
-**SCIENCE-FLAG resolution during autopilot.** Follows the canonical [SCIENCE-FLAG resolution protocol](../../docs/skills-includes/science-flag-protocol.md). Under autopilot autonomous mode, the default clearance paths are (2a) on-data verification or (2b) literature memo with ≥3 citations. Cannot find citations AND cannot run on-data verification → row to `ESCALATION.md`. The gate's job is to force the decision-with-rationale, not to park work for an absent SME.
+**SCIENCE-FLAG resolution during autopilot.** Follows the canonical [SCIENCE-FLAG resolution protocol](../../docs/skills-includes/science-flag-protocol.md). Under autopilot autonomous mode, the default clearance paths are (2a) on-data verification or (2b) literature memo with ≥3 citations. Cannot find citations AND cannot run on-data verification → row to `{{lattice.project.backlog.escalation_log}}`. The gate's job is to force the decision-with-rationale, not to park work for an absent SME.
 
 ### Step 4: Escalation
 
@@ -172,7 +172,7 @@ Collect pending decisions:
 - TODO items with no `autopilot:` field at all (untagged items)
 - SCIENCE-FLAGs that cannot clear via the [SCIENCE-FLAG resolution protocol](../../docs/skills-includes/science-flag-protocol.md) (no on-data verification and no citable literature grounding)
 
-Append to `ESCALATION.md`:
+Append to `{{lattice.project.backlog.escalation_log}}`:
 
 ```markdown
 ## Escalation — {ISO date}
@@ -189,7 +189,7 @@ Append to `ESCALATION.md`:
 ### ...
 ```
 
-Do NOT block on escalations during autopilot — the whole point is to batch them. The user reviews `ESCALATION.md` on their own cadence.
+Do NOT block on escalations during autopilot — the whole point is to batch them. The user reviews `{{lattice.project.backlog.escalation_log}}` on their own cadence.
 
 ### Step 5: Summary
 
@@ -199,13 +199,13 @@ Print to stdout:
 AUTOPILOT SUMMARY
 Advanced: {count} ({list})
 Failed: {count} ({list})
-Escalations written: {count} → ESCALATION.md
+Escalations written: {count} → {{lattice.project.backlog.escalation_log}}
 Queue remaining: {topics: N, todo-ready: N}
 ```
 
 ## Justified gates (ESCALATE, do not block)
 
-These halt the current item and get written to ESCALATION.md, but autopilot continues with the next queue item:
+These halt the current item and get written to {{lattice.project.backlog.escalation_log}}, but autopilot continues with the next queue item:
 
 - **SCIENCE-FLAG that cannot clear the [resolution protocol](../../docs/skills-includes/science-flag-protocol.md)** — neither on-data verification nor a ≥3-citation literature memo is achievable. Document the flag + which paths were attempted + what failed.
 - **Persistent FLAWED** — genuine scientific disagreement across 2 peer review rounds.
@@ -243,21 +243,21 @@ These modes are pre-loop additions to the standard protocol above. They run BEFO
 
 > Source: karpathy-llm-wiki (sparse-area / lint operation as autopilot signal). LIT-03.
 
-**When to use:** at the start of a fresh autopilot batch, when the project ships a `scripts/discovery-scan.py`. Surfaces gaps the heuristic scanner finds in manifests, registries, coverage tables, and architecture docs that are too small to merit a topic but real enough to act on.
+**When to use:** at the start of a fresh autopilot batch, when the project ships a `{{lattice.project.scripts.discovery_scan}}`. Surfaces gaps the heuristic scanner finds in manifests, registries, coverage tables, and architecture docs that are too small to merit a topic but real enough to act on.
 
 **Pre-loop step (runs once, before Step 0):**
 
 1. Probe for the script:
    ```bash
-   test -f scripts/discovery-scan.py
+   test -f {{lattice.project.scripts.discovery_scan}}
    ```
-   If absent, emit a one-line notice to stdout: `"--discover: scripts/discovery-scan.py not found in this project; continuing with normal loop."` and proceed to Step 0. Do NOT fail the batch.
+   If absent, emit a one-line notice to stdout: `"--discover: {{lattice.project.scripts.discovery_scan}} not found in this project; continuing with normal loop."` and proceed to Step 0. Do NOT fail the batch.
 
 2. If present, run it:
    ```bash
-   python scripts/discovery-scan.py
+   python {{lattice.project.scripts.discovery_scan}}
    ```
-   Expected output: `scripts/data/discovery-report.md` (markdown report) plus a console summary. The report shape is the contract callers depend on — `Gap` entries with `category`, `item`, `suggestion`, `evidence`, `safe` (bool), and `severity` (high/medium/low). Reference template: `pcc/scripts/discovery-scan.py`.
+   Expected output: `scripts/data/discovery-report.md` (markdown report) plus a console summary. The report shape is the contract callers depend on — `Gap` entries with `category`, `item`, `suggestion`, `evidence`, `safe` (bool), and `severity` (high/medium/low). Reference template: `pcc/{{lattice.project.scripts.discovery_scan}}`.
 
 3. Parse the report. For each Gap row:
    - **Re-classify against autopilot safety criteria** (do NOT just trust the scanner's `safe` flag — apply the same gates Step 2 applies to TODO items). Safe-for-autopilot when ALL of:
@@ -265,7 +265,7 @@ These modes are pre-loop additions to the standard protocol above. They run BEFO
      - The evidence cites a specific file/line or table row that grounds the gap.
      - The category does not require user taste (no design decisions, no scope calls, no view-spec changes).
    - **Safe gaps:** inject into the Step 2 unified queue as synthetic TODO-equivalents with `kind: discover` and `score` derived from severity (high=20, medium=12, low=6). They flow through Step 3 routing alongside topic and TODO work.
-   - **Ambiguous or needs-user gaps:** skip — append to `ESCALATION.md` under a `### Discovery-scan: {category} — {item}` heading with the gap's `suggestion`, `evidence` citation, and one-line reason for routing to user (e.g., "scope call: which subsystem owns this?").
+   - **Ambiguous or needs-user gaps:** skip — append to `{{lattice.project.backlog.escalation_log}}` under a `### Discovery-scan: {category} — {item}` heading with the gap's `suggestion`, `evidence` citation, and one-line reason for routing to user (e.g., "scope call: which subsystem owns this?").
 
 4. Proceed to Step 0. The discovery gaps are now ordinary queue entries — same lifecycle, same trailers, same lock discipline. Commit trailer for a discovery-sourced item:
    ```
@@ -284,11 +284,11 @@ These modes are pre-loop additions to the standard protocol above. They run BEFO
 **Detection heuristic (run after Step 4):**
 
 1. List candidate files modified in the last 14 days under both:
-   - `docs/_internal/research/`
-   - `docs/_internal/knowledge/`
+   - `{{lattice.project.research.root}}/`
+   - `{{lattice.project.docs.internal_root}}/knowledge/`
 
    ```bash
-   git log --since="14 days ago" --name-only --pretty=format: -- docs/_internal/research docs/_internal/knowledge | sort -u
+   git log --since="14 days ago" --name-only --pretty=format: -- {{lattice.project.research.root}} {{lattice.project.docs.internal_root}}/knowledge | sort -u
    ```
 
 2. For each candidate, extract the topic signal cheaply (no NLP needed):
