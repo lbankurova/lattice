@@ -7,8 +7,8 @@ You are performing **cross-impact analysis** on a change, decision, or research 
 
 **Input:** A description of what changed, a file path, a research finding, or a decision. Examples:
 - `probe "effect size threshold changed from 0.3 to 0.5"`
-- `probe backend/services/analysis/classification.py`
-- `probe docs/_internal/research/organ-weight-normalization.md`
+- `probe <path/to/changed/file>` (any code or doc file)
+- `probe <research-or-decision-doc>`
 - `probe --integrity` (full system integrity scan)
 - `probe --safety` (pre-change safety check on staged/uncommitted changes)
 
@@ -32,7 +32,7 @@ Read staged/uncommitted changes (`git diff`, `git diff --cached`). For each chan
 
 ## Step 1: Load system manifest
 
-Read the system manifest (`docs/_internal/knowledge/system-manifest.md`). This gives you:
+Read the system manifest (`{{lattice.project.docs.system_manifest}}`). This gives you:
 - All subsystems and their primary files
 - Data flow adjacency (source -> consumers)
 - Override cascade paths
@@ -79,7 +79,7 @@ For each affected subsystem, classify the implication. The probe verdict enum (`
 
 ## Step 4: Check research registry
 
-If a research registry exists (`docs/_internal/research/REGISTRY.md` or `docs/_internal/research/INDEX.md`):
+If a research registry exists (`{{lattice.project.research.registry}}` or `{{lattice.project.research.index}}`):
 
 1. Are there active research streams that touch the affected subsystems?
 2. Would this change invalidate conclusions from completed research?
@@ -176,16 +176,16 @@ Rules:
 
 For each BREAKS or SCIENCE-FLAG finding:
 
-1. **Read** `docs/_internal/research/REGISTRY.md`
+1. **Read** `{{lattice.project.research.registry}}`
    - If the broken subsystem has an active research stream, append the implication to its `open-questions`
    - If not, create a new stream with `status: researching`, `source: "probe/{input-description}"`
-2. **Read** `docs/_internal/TODO.md`
+2. **Read** `{{lattice.project.backlog.todo}}`
    - Append: `- [ ] **PROBE: {subsystem} {BREAKS|SCIENCE-FLAG}** — {what breaks and why}. Fix: {suggested fix}. Source: probe on {input}. [Area: {relevant}]`
 
 ### STALE → TODO.md
 
 For each STALE finding:
-- Append to `docs/_internal/TODO.md`: `- [ ] **MANIFEST-STALE: {connection}** — {what's stale}. [Area: Architecture]`
+- Append to `{{lattice.project.backlog.todo}}`: `- [ ] **MANIFEST-STALE: {connection}** — {what's stale}. [Area: Architecture]`
 
 ### PROPAGATES → informational only
 
