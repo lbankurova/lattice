@@ -54,24 +54,39 @@ fi
 # either unset the override or run install-hooks.sh against the override
 # path explicitly. Silently succeeding here was the prior failure mode.
 HOOKS_PATH_OVERRIDE="$(cd "$TARGET_ROOT" && git config --get core.hooksPath 2>/dev/null || true)"
+SKIP_GIT_HOOKS=false
 if [ -n "$HOOKS_PATH_OVERRIDE" ] && [ "$HOOKS_PATH_OVERRIDE" != ".git/hooks" ]; then
-    echo "ERROR: core.hooksPath is set to '$HOOKS_PATH_OVERRIDE' in $TARGET_ROOT."
-    echo "       Writing to $HOOKS_DIR would produce dead hooks (git would still"
-    echo "       resolve to the override path)."
-    echo ""
-    echo "       Fix one of:"
-    echo "         (a) git -C \"$TARGET_ROOT\" config --unset core.hooksPath"
-    echo "         (b) re-run with the override path:"
-    echo "             bash scripts/install-hooks.sh \"$HOOKS_PATH_OVERRIDE/..\""
-    if [ -d "$TARGET_ROOT/.githooks" ]; then
-        echo "         (c) source-direct model: '$TARGET_ROOT' already has a .githooks/"
-        echo "             directory. Skip install-hooks.sh entirely and point git at it:"
-        echo "                 git -C \"$TARGET_ROOT\" config core.hooksPath .githooks"
-        echo "             Hooks fire from .githooks/ on every commit; no copy step."
+    if [ "$ENABLE_R0" = "true" ]; then
+        # R0 registration only patches .claude/settings.json, independent of
+        # git hooks. If the project manages its git hooks via core.hooksPath
+        # (e.g., pcc's .githooks/ directory), skip the git-hook copy step
+        # but still proceed to the R0 PreToolUse registration below.
+        echo "NOTE: core.hooksPath is '$HOOKS_PATH_OVERRIDE' -- skipping git-hook copy step"
+        echo "      (project manages git hooks elsewhere). Proceeding to R0 registration only."
+        SKIP_GIT_HOOKS=true
+    else
+        echo "ERROR: core.hooksPath is set to '$HOOKS_PATH_OVERRIDE' in $TARGET_ROOT."
+        echo "       Writing to $HOOKS_DIR would produce dead hooks (git would still"
+        echo "       resolve to the override path)."
+        echo ""
+        echo "       Fix one of:"
+        echo "         (a) git -C \"$TARGET_ROOT\" config --unset core.hooksPath"
+        echo "         (b) re-run with the override path:"
+        echo "             bash scripts/install-hooks.sh \"$HOOKS_PATH_OVERRIDE/..\""
+        if [ -d "$TARGET_ROOT/.githooks" ]; then
+            echo "         (c) source-direct model: '$TARGET_ROOT' already has a .githooks/"
+            echo "             directory. Skip install-hooks.sh entirely and point git at it:"
+            echo "                 git -C \"$TARGET_ROOT\" config core.hooksPath .githooks"
+            echo "             Hooks fire from .githooks/ on every commit; no copy step."
+        fi
+        echo ""
+        echo "       For R0-only registration (no git-hook install), pass --enable-r0:"
+        echo "         bash scripts/install-hooks.sh \"$TARGET_ROOT\" --enable-r0"
+        exit 1
     fi
-    exit 1
 fi
 
+if [ "$SKIP_GIT_HOOKS" = "false" ]; then
 if [ ! -d "$HOOKS_SOURCE" ]; then
     echo "ERROR: No hooks/ directory found at $HOOKS_SOURCE or $LATTICE_ROOT/hooks"
     exit 1
@@ -115,6 +130,7 @@ done
 echo ""
 echo "Done. $INSTALLED hook(s) installed in $HOOKS_DIR"
 echo "Source: $HOOKS_SOURCE"
+fi  # end SKIP_GIT_HOOKS guard
 
 # ── Worktree-isolation R0: optional PreToolUse hook registration ──
 #
@@ -142,9 +158,33 @@ if [ "$ENABLE_R0" = "true" ]; then
     fi
 
     HOOK_SOURCE="$LATTICE_ROOT/hooks/preToolUse/require-worktree.sh"
-    if [ ! -f "$HOOK_SOURCE" ] && [ ! -f "$TARGET_ROOT/$HOOK_REL" ]; then
-        echo "ERROR: require-worktree.sh not found at $HOOK_SOURCE or $TARGET_ROOT/$HOOK_REL." >&2
+    if [ ! -f "$HOOK_SOURCE" ]; then
+        echo "ERROR: require-worktree.sh not found at $HOOK_SOURCE." >&2
         exit 1
+    fi
+
+    # Copy the hook script into the target so the PreToolUse command can
+    # resolve it via $ROOT/hooks/preToolUse/require-worktree.sh. (We
+    # cannot reference lattice's copy via absolute path because lattice's
+    # location is per-machine; the hook command is committed to the
+    # project's .claude/settings.json and must work for everyone who clones
+    # the project.) Skip when source == target (running install-hooks
+    # against lattice itself).
+    TARGET_HOOK_DIR="$TARGET_ROOT/hooks/preToolUse"
+    TARGET_HOOK_PATH="$TARGET_HOOK_DIR/require-worktree.sh"
+    HOOK_SOURCE_REAL="$(cd "$(dirname "$HOOK_SOURCE")" && pwd)/$(basename "$HOOK_SOURCE")"
+    if [ -f "$TARGET_HOOK_PATH" ]; then
+        TARGET_HOOK_REAL="$(cd "$(dirname "$TARGET_HOOK_PATH")" && pwd)/$(basename "$TARGET_HOOK_PATH")"
+    else
+        TARGET_HOOK_REAL=""
+    fi
+    if [ "$HOOK_SOURCE_REAL" = "$TARGET_HOOK_REAL" ]; then
+        echo "  require-worktree.sh source == target (lattice self-install) -- skipping copy"
+    else
+        mkdir -p "$TARGET_HOOK_DIR"
+        cp "$HOOK_SOURCE" "$TARGET_HOOK_PATH"
+        chmod +x "$TARGET_HOOK_PATH"
+        echo "  Copied require-worktree.sh -> $TARGET_HOOK_DIR/"
     fi
 
     # Idempotent registration: refuse to add a second matcher for the same
@@ -165,7 +205,12 @@ if [ "$ENABLE_R0" = "true" ]; then
     # they must be ordered BEFORE the existing commit-lock matcher so users
     # see the structural fix message before the lock-contention message
     # (probe Target 1 in synthesis).
-    HOOK_CMD="bash $HOOK_REL" \
+    #
+    # Hook command uses git-rev-parse to resolve the repo root at fire time,
+    # not a relative path. This is the same pattern pcc uses for the
+    # design-mode-gate entry -- the comment there documents that relative-
+    # path hook commands silently fail to fire on Windows (VERIFY-DS-01).
+    HOOK_CMD="bash -c 'ROOT=\"\$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; bash \"\$ROOT/$HOOK_REL\"'" \
     SETTINGS_PATH="$SETTINGS" \
     "$PYTHON" - <<'PYEOF'
 import json

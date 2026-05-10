@@ -2,6 +2,26 @@
   "hooks": {
     "PreToolUse": [
       {
+        "matcher": "Bash(git add*|git commit*|git stash*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; bash \"$ROOT/hooks/preToolUse/require-worktree.sh\"'",
+            "_comment": "Worktree-isolation R0. BLOCKS Edit/Write/Bash(git add|commit|stash) at canonical root unless allowlisted or exempted. See .lattice/worktree-isolation-protocol.md."
+          }
+        ]
+      },
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; bash \"$ROOT/hooks/preToolUse/require-worktree.sh\"'",
+            "_comment": "Worktree-isolation R0. BLOCKS Edit/Write/Bash(git add|commit|stash) at canonical root unless allowlisted or exempted. See .lattice/worktree-isolation-protocol.md."
+          }
+        ]
+      },
+      {
         "matcher": "Write|Edit",
         "hooks": [
           {
