@@ -88,7 +88,10 @@ python scripts/query-knowledge.py --scope species:<species> --kind regulatory_ex
 python scripts/query-knowledge.py --scope species:<species> --domain <domain> --kind clinical_threshold
 python scripts/query-knowledge.py --kind disable_marker
 python scripts/query-knowledge.py --scope endpoints:<endpoint>
+python scripts/query-knowledge.py --kind <fact_kind> --value <axis>:<value>
 ```
+
+`--scope KEY:VALUE` matches the fact's `scope:` block (species, sex, endpoints, study_types, pharmacological_context, etc.). `--value KEY:VALUE` matches the fact's `value:` block — required for fact_kinds whose discriminating axis lives in `value`, not `scope`. Canonical example: vehicle-classification-boundary facts encode their `component_family` discriminator (polysorbate, histidine, sucrose, etc.) in `value`, not `scope`; querying with `--scope component_family:polysorbate` returns NO FACT FOUND, while `--value component_family:polysorbate` returns the boundary facts. **If a `--scope` query returns NO FACT FOUND for a fact_kind whose discriminator should live in `value` (vehicle classification, baseline shifts, endpoint confounds, or any kind where the value-block carries enum-typed axis fields), retry with `--value` before concluding the fact is missing.**
 
 Cite the returned facts (or the explicit no-fact-found stub) in your review. **A peer-review that does not invoke `query-knowledge.py` for at least one fact in an algorithmic review is incomplete** — the orchestrator MUST re-launch.
 
