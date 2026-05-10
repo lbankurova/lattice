@@ -390,8 +390,12 @@ def main() -> int:
     report = audit_dir(root)
     print(report)
 
-    # Also persist to .lattice/peer-review-citation-audit.txt if .lattice exists
-    lattice_dir = Path(".lattice")
+    # Also persist to .lattice/peer-review-citation-audit.txt if .lattice exists.
+    # D1 worktree-aware: prefer LATTICE_PROJECT_ROOT when set (env-var fallback
+    # for sessions running in a worktree without symlink support).
+    import os
+    lattice_root = os.environ.get("LATTICE_PROJECT_ROOT", ".")
+    lattice_dir = Path(lattice_root) / ".lattice"
     if lattice_dir.is_dir():
         out = lattice_dir / "peer-review-citation-audit.txt"
         out.write_text(report, encoding="utf-8")

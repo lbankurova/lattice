@@ -15,7 +15,14 @@
 
 set -euo pipefail
 
-LOCK_DIR=".lattice/commit.lock"
+# D1 worktree-aware path resolution. When called from a session worktree in
+# env-var fallback mode (Windows-without-Developer-Mode -- no .lattice
+# symlink), redirect shared-lattice-state writes to the canonical repo
+# specified by LATTICE_PROJECT_ROOT. In symlink mode and from canonical
+# itself, fall back to git's repo root (which resolves through the symlink
+# to canonical's .lattice/ when in a worktree).
+LATTICE_ROOT="${LATTICE_PROJECT_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+LOCK_DIR="$LATTICE_ROOT/.lattice/commit.lock"
 HOLDER="${1:-unknown}"
 POLL=false
 POLL_INTERVAL=30     # seconds between retries
@@ -71,10 +78,10 @@ log_force_clear() {
     local age="$3"
     local ts
     ts=$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S)
-    if [ -d ".lattice" ]; then
+    if [ -d "$LATTICE_ROOT/.lattice" ]; then
         printf '%s\tacquire-lock.sh\tFORCED\tcommit-lock\treason=%s\tprev_holder=%s\tage_s=%s\tnew_holder=%s\n' \
             "$ts" "$reason" "$prev_holder" "$age" "$HOLDER" \
-            >> .lattice/decisions.log 2>/dev/null || true
+            >> "$LATTICE_ROOT/.lattice/decisions.log" 2>/dev/null || true
     fi
 }
 
@@ -183,7 +190,7 @@ show_holder() {
 }
 
 # Ensure .lattice/ exists
-mkdir -p .lattice
+mkdir -p "$LATTICE_ROOT/.lattice"
 
 # Try to acquire
 if acquire; then

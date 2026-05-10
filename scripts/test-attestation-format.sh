@@ -24,6 +24,12 @@
 
 set -e
 
+# D1 worktree-isolation: each case below creates its own temp git repo and
+# runs write-review-gate.sh / append-attestation.sh against it. Unset
+# LATTICE_PROJECT_ROOT so the SUTs don't redirect their .lattice/ writes
+# back to a parent session's canonical when this test runs from a worktree.
+unset LATTICE_PROJECT_ROOT
+
 # Locate the script dir so we can find the canonical write-review-gate.sh /
 # append-attestation.sh regardless of which repo this is invoked from.
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"

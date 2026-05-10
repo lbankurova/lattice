@@ -312,7 +312,66 @@ empirical_claim_example = ""
 
 
 # =============================================================================
-# 11. PLATFORM POINTER (optional)
+# 11. PROJECT.WORKTREE -- session worktree isolation
+# =============================================================================
+# Worktree-isolation R0 (PreToolUse hook + session-spawn helpers). When
+# enforce_worktree_isolation = true, the require-worktree.sh hook (registered
+# via install-hooks.sh) refuses Edit/Write/Bash(git add|commit|stash) at the
+# canonical repo root, forcing every write-capable session into its own git
+# worktree spawned by lattice-session-start.sh.
+#
+# Default OFF in v1: R0 deployment is gated by R1 (autopilot-only) clearing
+# five named observables; per-project flip-on via this key.
+# See lattice/.lattice/worktree-isolation-protocol.md for full contract.
+
+[project.worktree]
+# Master switch. true = R0 hook active; false (default) = R1 + R2 + R3 only.
+#!sendex enforce_worktree_isolation = false
+enforce_worktree_isolation = false
+
+# Canonical repo root identifier. Default "." resolves at runtime via
+# git rev-parse --show-toplevel. Override only when canonical lives outside
+# the project (rare; docs-only repos).
+#!sendex canonical_root = "."
+canonical_root = "."
+
+# Allowlist of repo-relative paths the hook permits to be written from
+# canonical without ceremony. Trust docs and lattice state are always
+# allowlisted by the hook itself; this list is for per-project additions.
+#!sendex
+# allow_main_tree_paths = [
+#   "TODO.md",
+#   "docs/scientific-logic.md",
+# ]
+allow_main_tree_paths = []
+
+# .lattice/ cross-worktree visibility strategy. "symlink" (default) creates
+# a relative symlink from each worktree to canonical's .lattice/. "env_var"
+# forces LATTICE_PROJECT_ROOT mode (Windows-without-Developer-Mode fallback).
+# lattice-session-start.sh attempts symlink first, falls back automatically.
+#!sendex lattice_state_strategy = "symlink"
+lattice_state_strategy = "symlink"
+
+# Worktree parent directory. Default <canonical-parent>/.worktrees/
+# (gitignored, sibling of canonical). Override with absolute path.
+#!sendex
+# worktree_parent = "/home/user/.cache/lattice-worktrees"
+worktree_parent = ""
+
+# Crashed-session prune staleness threshold (days).
+#!sendex staleness_days = 7
+staleness_days = 7
+
+# Trivial-rationale rejection list additions (the hook bakes in a default of
+# ["fix", "test", "wip", "edit", "update"]). Add per-project trivial words
+# you want rejected.
+#!sendex
+# additional_trivial_rationales = ["chore", "tweak"]
+additional_trivial_rationales = []
+
+
+# =============================================================================
+# 12. PLATFORM POINTER (optional)
 # =============================================================================
 # When this project sits on a platform with its own skill pack (e.g. Datagrok),
 # the harness reads lattice-platform.toml at session start to discover the pack.

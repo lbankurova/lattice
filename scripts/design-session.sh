@@ -35,10 +35,13 @@ set -e
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_ROOT=$(cd "$(dirname "$0")/.." && pwd)
 cd "$REPO_ROOT" || { echo "ERROR: cannot resolve repo root for design session script." >&2; exit 1; }
 
-LOCK=".lattice/design-mode.lock"
+# D1 worktree-aware: design-mode lock lives in shared lattice state. From a
+# session worktree in env-var fallback mode, redirect to canonical.
+LATTICE_ROOT="${LATTICE_PROJECT_ROOT:-$REPO_ROOT}"
+LOCK="$LATTICE_ROOT/.lattice/design-mode.lock"
 
 ensure_lattice_dir() {
-  mkdir -p .lattice
+  mkdir -p "$LATTICE_ROOT/.lattice"
 }
 
 case "$1" in

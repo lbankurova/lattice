@@ -81,6 +81,9 @@ export interface E2EResult {
   verdict: 'pass' | 'fail' | 'skip' | 'error';
   durationMs: number;
   error?: string;
+  /** Non-fatal advisory surfaced to the caller. R3: foreign WIP outside
+   *  diff scope when running in branch-mode (no longer blocks the run). */
+  advisory?: string;
 }
 
 // ── Config Loading ──────────────────────────────────────────
@@ -610,6 +613,9 @@ export function runBranchComparison(
   const mode = detectComparisonMode(effectiveBase, cwd);
   let originalBranch = '';
   let stashed = false;
+  // Worktree-isolation R3: track detached worktrees created for branch-mode
+  // so the finally block can guarantee teardown even on error paths.
+  const e2eWorktrees: string[] = [];
 
   const result: E2EResult = {
     timestamp: new Date().toISOString(),
@@ -642,51 +648,64 @@ export function runBranchComparison(
     let baseResults: SuiteRunResult[];
     let featureResults: SuiteRunResult[];
 
-    // Foreign-state guard (HIGH-2 fix, 2026-05-04 audit). e2e mutates the
-    // working tree (stash, checkout base, run suites, restore). Pre-fix
-    // versions ran an unscoped `git stash push` that captured ANY dirty
-    // path -- including a parallel session's uncommitted work -- and on
-    // stash-pop conflict left it in a stash the operator had to recover
-    // manually. Now: refuse to run when the working tree contains paths
-    // not in the diff scope this e2e is testing. The framework's other
-    // safety guarantees (lock ownership, autopilot foreign-state respect)
-    // assume each session can recognize and refuse to mutate state it
-    // doesn't own; e2e was the missing instance.
+    // Foreign-state guard (HIGH-2 fix, 2026-05-04 audit; downgraded to
+    // advisory in 2026-05-09 worktree-isolation R3). e2e in branch-mode no
+    // longer mutates the user's working tree -- detached worktrees provide
+    // the isolation that previously required stash+checkout. The advisory
+    // is kept so users notice when WIP exists outside the diff scope (it
+    // may indicate a forgotten file from a prior session), but does NOT
+    // refuse the run.
+    //
+    // For uncommitted-mode (Phase 1 last-resort comparator), the stash
+    // dance is still required, so the refusal stays. last-commit mode is
+    // unaffected (no working-tree mutation).
     const dirtyPaths = captureDirtyPaths(cwd);
     const expectedScope = new Set(changedFiles);
     const foreign = [...dirtyPaths].filter(p => !expectedScope.has(p));
-    if (foreign.length > 0 && (mode === 'branch' || mode === 'uncommitted')) {
+    if (foreign.length > 0 && mode === 'uncommitted') {
       const sample = foreign.slice(0, 5).join(', ');
       const more = foreign.length > 5 ? ` (and ${foreign.length - 5} more)` : '';
       result.error =
-        `e2e refused to run: working tree has ${foreign.length} dirty path(s) outside the diff scope. ` +
+        `e2e refused to run (uncommitted-mode): working tree has ${foreign.length} dirty path(s) outside the diff scope. ` +
         `These look foreign (parallel session, manual edits, or unrelated WIP). ` +
         `Commit, stash, or discard them before running e2e. Foreign paths: ${sample}${more}`;
       result.verdict = 'error';
       result.durationMs = Date.now() - start;
       return result;
     }
+    if (foreign.length > 0 && mode === 'branch') {
+      // Advisory only: branch-mode runs in detached worktrees, so foreign
+      // WIP is left untouched. Surface it so the user sees what's
+      // outstanding without blocking the run.
+      const sample = foreign.slice(0, 3).join(', ');
+      const more = foreign.length > 3 ? ` (+${foreign.length - 3} more)` : '';
+      result.advisory =
+        `Notice: ${foreign.length} dirty path(s) outside diff scope detected (${sample}${more}). ` +
+        `Branch-mode runs in detached worktrees so these are left untouched -- consider committing them when convenient.`;
+    }
 
     switch (mode) {
       case 'branch': {
-        // Stash any dirty work (now known to be in-scope), checkout base,
-        // run, checkout feature, run.
-        const dirty = git(['status', '--porcelain'], cwd).trim();
-        if (dirty) {
-          git(['stash', 'push', '-m', 'lattice-e2e-gate'], cwd);
-          stashed = true;
-        }
+        // Worktree-isolation R3 (2026-05-09): replace stash+checkout dance
+        // with two detached worktrees. The user's canonical tree is never
+        // mutated -- foreign WIP, current branch, and stash list are all
+        // left alone. Each detached worktree runs validation in its own
+        // cwd. Concurrent e2e runs against different feature branches no
+        // longer contend for the user's working tree.
+        const baseSha = git(['rev-parse', effectiveBase], cwd).trim();
+        const featureSha = git(['rev-parse', originalBranch], cwd).trim();
+        const tmpBase = makeE2EWorktreePath(cwd, 'base');
+        const tmpFeature = makeE2EWorktreePath(cwd, 'feature');
 
-        git(['checkout', effectiveBase], cwd);
-        baseResults = runWithSetupTeardown(config, cwd);
+        // Track for finally cleanup. workTrees array is outside the switch
+        // so the finally block can iterate; declared at function scope.
+        e2eWorktrees.push(tmpBase, tmpFeature);
 
-        git(['checkout', originalBranch], cwd);
-        if (stashed) {
-          try { git(['stash', 'pop'], cwd); stashed = false; } catch {
-            result.error = 'WARNING: git stash pop failed (conflict). Run `git stash pop` manually.';
-          }
-        }
-        featureResults = runWithSetupTeardown(config, cwd);
+        git(['worktree', 'add', '--detach', tmpBase, baseSha], cwd);
+        git(['worktree', 'add', '--detach', tmpFeature, featureSha], cwd);
+
+        baseResults = runWithSetupTeardown(config, tmpBase);
+        featureResults = runWithSetupTeardown(config, tmpFeature);
         break;
       }
 
@@ -744,6 +763,14 @@ export function runBranchComparison(
       try { git(['stash', 'pop'], cwd); } catch { /* best-effort */ }
     }
 
+    // Guarantee: remove all detached worktrees created in branch-mode (R3).
+    // git worktree remove --force handles dirty trees (test setup may have
+    // generated artifacts). If removal fails (rare), git worktree prune on
+    // next invocation cleans up.
+    for (const wt of e2eWorktrees) {
+      try { git(['worktree', 'remove', '--force', wt], cwd); } catch { /* best-effort */ }
+    }
+
     // Guarantee: run teardown
     if (config.teardown) {
       try {
@@ -755,6 +782,23 @@ export function runBranchComparison(
   }
 
   return result;
+}
+
+/**
+ * Build a path for a detached e2e worktree (R3). Anchored under the canonical
+ * tree's parent directory's `.worktrees/` so it siblings the project root and
+ * stays out of the user's repo.
+ */
+function makeE2EWorktreePath(cwd: string, kind: 'base' | 'feature'): string {
+  // cwd is the canonical repo root. Place under <parent>/.worktrees/<repo>-e2e-<kind>-<ts>.
+  const parent = resolve(cwd, '..');
+  const repoName = cwd.split(/[\\/]/).filter(Boolean).pop() || 'repo';
+  const ts = new Date().toISOString().replace(/[:.]/g, '-');
+  const worktreeParent = resolve(parent, '.worktrees');
+  if (!existsSync(worktreeParent)) {
+    mkdirSync(worktreeParent, { recursive: true });
+  }
+  return resolve(worktreeParent, `${repoName}-e2e-${kind}-${ts}`);
 }
 
 /** Run setup → all suites → teardown. Returns suite results. */

@@ -9,6 +9,12 @@ set -uo pipefail
 LATTICE_REAL=$(cd "$(dirname "$0")/../.." && pwd)
 ORIG_PWD=$(pwd)
 
+# D1 worktree-isolation: tests run lock scripts inside per-case temp repos.
+# Unset LATTICE_PROJECT_ROOT so the SUTs don't redirect their writes to a
+# parent session's canonical .lattice/ when tests run from a session
+# worktree.
+unset LATTICE_PROJECT_ROOT
+
 cd "$(mktemp -d)"
 mkdir -p .lattice/cycle-lock
 

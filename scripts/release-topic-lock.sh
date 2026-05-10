@@ -29,6 +29,9 @@
 
 set -uo pipefail
 
+# D1 worktree-aware path resolution. See acquire-lock.sh for rationale.
+LATTICE_ROOT="${LATTICE_PROJECT_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+
 if [ -z "${1:-}" ]; then
     echo "Usage: release-topic-lock.sh <topic> [holder] [--force]" >&2
     exit 2
@@ -47,7 +50,7 @@ for arg in "$@"; do
 done
 EXPECTED_HOLDER="${HOLDER_ARG:-${LATTICE_LOCK_HOLDER:-}}"
 
-LOCK_DIR=".lattice/cycle-lock/$TOPIC"
+LOCK_DIR="$LATTICE_ROOT/.lattice/cycle-lock/$TOPIC"
 META_FILE="$LOCK_DIR/meta"
 
 if [ ! -d "$LOCK_DIR" ]; then
@@ -82,10 +85,10 @@ fi
 if [ "$FORCE_FLAG" = "--force" ]; then
     TS=$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S)
     CALLER="${EXPECTED_HOLDER:-unknown-caller}"
-    if [ -d ".lattice" ]; then
+    if [ -d "$LATTICE_ROOT/.lattice" ]; then
         printf '%s\trelease-topic-lock.sh\tFORCED\t%s\theld_by=%s\tforced_by=%s\n' \
             "$TS" "$TOPIC" "${RECORDED_HOLDER:-unknown}" "$CALLER" \
-            >> .lattice/decisions.log 2>/dev/null || true
+            >> "$LATTICE_ROOT/.lattice/decisions.log" 2>/dev/null || true
     fi
     echo "FORCED TOPIC LOCK RELEASE: $TOPIC (was held by '${RECORDED_HOLDER:-unknown}')"
 fi

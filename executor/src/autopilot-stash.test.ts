@@ -108,3 +108,54 @@ test('stashWorkflowOutput returns "no-changes" on a clean tree', () => {
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+test('stashWorkflowOutput operates correctly inside a session worktree (R1 AC6)', () => {
+  // R1 AC6: under autopilot R1, stashWorkflowOutput is invoked with cwd =
+  // the spawned worktree path, not the canonical. The stash lands in the
+  // worktree's stash list (which is the canonical's, since worktrees share
+  // the stash store) but the dirty-path scoping operates against the
+  // worktree's git status -- isolated from canonical's staged set.
+  const canonical = mkRepo();
+  try {
+    const sh = (cmd: string, cwd: string) =>
+      execSync(cmd, { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+
+    // Spawn a session worktree on a fresh branch.
+    sh('git worktree add -b session/r1-ac6-test ../test-wt HEAD', canonical);
+    const wt = join(canonical, '..', 'test-wt');
+
+    try {
+      // Foreign state in CANONICAL (the user's main checkout) -- must NOT
+      // be touched by stashWorkflowOutput operating in the worktree.
+      writeFileSync(join(canonical, 'foreign-canonical.txt'), 'parallel session work\n');
+      const canonicalDirtyBefore = execSync('git status --porcelain', {
+        cwd: canonical, encoding: 'utf-8',
+      }).trim();
+      assert.ok(canonicalDirtyBefore.includes('foreign-canonical.txt'),
+        'precondition: canonical should have foreign WIP');
+
+      // Workflow runs in the worktree. From the worktree's perspective,
+      // git status only shows its own changes (the canonical foreign file
+      // does not appear -- worktrees see only their own working tree).
+      const preWorkflow = captureDirtyPaths(wt);
+      assert.equal(preWorkflow.size, 0,
+        'worktree should see clean tree even when canonical has foreign WIP');
+
+      writeFileSync(join(wt, 'autopilot-output.txt'), 'this is autopilot work\n');
+      const result = stashWorkflowOutput(wt, preWorkflow, 'completed', 'topic', 'r1-test');
+      assert.ok(typeof result === 'string' && result.startsWith('autopilot-completed-'),
+        `expected stash label; got: ${result}`);
+
+      // Post-state: canonical's foreign WIP is untouched.
+      const canonicalDirtyAfter = execSync('git status --porcelain', {
+        cwd: canonical, encoding: 'utf-8',
+      }).trim();
+      assert.ok(canonicalDirtyAfter.includes('foreign-canonical.txt'),
+        `canonical foreign WIP must be untouched by worktree-scoped stash; got:\n${canonicalDirtyAfter}`);
+    } finally {
+      try { execSync('git worktree remove --force ../test-wt', { cwd: canonical, stdio: 'ignore' }); } catch { /* */ }
+    }
+  } finally {
+    rmSync(canonical, { recursive: true, force: true });
+  }
+});

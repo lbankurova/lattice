@@ -103,7 +103,25 @@ For each selected item, determine the action:
 
 ### Step 3: Execute
 
-For each selected item:
+**Step 3.0 -- Spawn worktree (R1, worktree-isolation):** Before processing any items, the autopilot batch spawns its own git worktree so its index is isolated from the user's canonical tree and from any parallel autopilot batch. When invoked via the executor with `LATTICE_AUTOPILOT_WORKTREE=1`, this is automatic in `runAutopilot` (`executor/src/autopilot.ts`). When invoked manually:
+
+```bash
+BATCH_ID="autopilot-$(date -u +%Y%m%dT%H%M%SZ)"
+bash scripts/lattice-session-start.sh "$BATCH_ID" --skip-deps
+# operate from the printed worktree path; cd into it before running items
+```
+
+The session-spawn helper handles `.lattice/` cross-worktree visibility (symlink primary, `LATTICE_PROJECT_ROOT` env-var fallback on Windows-without-Developer-Mode), submodule init, and project-setup auto-detection. Failures are non-fatal -- session-creation errors land in `.lattice/session-creation-errors.log`. See `.lattice/worktree-isolation-protocol.md` for the full contract.
+
+**Step 3.6 -- End the session:** after the last item commits (or the batch errors out), tear the worktree down:
+
+```bash
+bash scripts/lattice-session-end.sh "$BATCH_ID" --merge-back
+```
+
+`--merge-back` fast-forwards the session branch into the base (default master/main) and removes the worktree. If the base has advanced past the session's merge-base (multi-day batch), `--merge-back` aborts and the protocol doc instructs `--branch-as-pr` for branch-as-PR review. The R1 tests (`executor/src/autopilot-worktree.test.ts`) verify that two concurrent batches each commit to their own branch with master untouched -- the conflation precedents (`1370c103`, `521f1d16`, `a47ee865`, `abdb31c9`) cannot recur under R1.
+
+**Step 3.1 -- per item:** for each selected item:
 1. Announce: `"Advancing {name} ({source}/{phase-or-kind}) via {route}"`
 2. **Acquire the commit lock BEFORE staging** (CRITICAL — prevents conflation with concurrent manual commits or other autopilot batches):
    ```bash

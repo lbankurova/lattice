@@ -40,3 +40,15 @@ while IFS= read -r project; do
         bash "$FRAMEWORK_ROOT/scripts/sync-skills.sh" "$project" 2>/dev/null | sed "s/^/  [sync] /"
     fi
 done < "$PROJECTS_FILE"
+
+# Worktree-isolation D3: chain lattice-worktree-prune.sh every N=10 commits
+# to clean up worktrees whose branches merged back. --auto-confirm-merged-only
+# is conservative -- only worktrees on merged branches auto-remove; stale
+# unmerged worktrees only show in the report.
+if [ -x "$FRAMEWORK_ROOT/scripts/lattice-worktree-prune.sh" ]; then
+    TOTAL_COMMITS=$(git -C "$FRAMEWORK_ROOT" rev-list --count HEAD 2>/dev/null || echo 0)
+    if [ "$((TOTAL_COMMITS % 10))" = "0" ] && [ "$TOTAL_COMMITS" != "0" ]; then
+        bash "$FRAMEWORK_ROOT/scripts/lattice-worktree-prune.sh" \
+            --auto-confirm-merged-only 2>/dev/null | sed "s/^/  [prune] /" || true
+    fi
+fi

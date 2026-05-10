@@ -19,9 +19,12 @@
 
 set -euo pipefail
 
+# D1 worktree-aware path resolution. See acquire-lock.sh for rationale.
+LATTICE_ROOT="${LATTICE_PROJECT_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"
+
 TOPIC="${1:?Usage: acquire-topic-lock.sh <topic> [holder-name]}"
 HOLDER="${2:-agent}"
-LOCK_DIR=".lattice/cycle-lock/$TOPIC"
+LOCK_DIR="$LATTICE_ROOT/.lattice/cycle-lock/$TOPIC"
 # Holder PID -- see acquire-lock.sh for rationale. Default 0 means
 # clock-based stale only; pass LATTICE_LOCK_PID=$$ from the workflow
 # that brackets acquire/release to opt in to PID-liveness override.
@@ -37,7 +40,7 @@ HOLDER_PID="${LATTICE_LOCK_PID:-0}"
 STALE_THRESHOLD=3600
 
 # Ensure parent exists
-mkdir -p .lattice/cycle-lock
+mkdir -p "$LATTICE_ROOT/.lattice/cycle-lock"
 
 write_meta() {
     # pid records HOLDER_PID (caller's long-lived workflow PID via
@@ -83,10 +86,10 @@ log_force_clear() {
     local age="$3"
     local ts
     ts=$(date -Iseconds 2>/dev/null || date +%Y-%m-%dT%H:%M:%S)
-    if [ -d ".lattice" ]; then
+    if [ -d "$LATTICE_ROOT/.lattice" ]; then
         printf '%s\tacquire-topic-lock.sh\tFORCED\t%s\treason=%s\tprev_holder=%s\tage_s=%s\tnew_holder=%s\n' \
             "$ts" "$TOPIC" "$reason" "$prev_holder" "$age" "$HOLDER" \
-            >> .lattice/decisions.log 2>/dev/null || true
+            >> "$LATTICE_ROOT/.lattice/decisions.log" 2>/dev/null || true
     fi
 }
 

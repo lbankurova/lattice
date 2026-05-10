@@ -47,11 +47,17 @@
 set -e
 
 REPO_ROOT="$(git rev-parse --show-toplevel)"
-GATE_FILE="$REPO_ROOT/.lattice/review-gate.json"
-GATE_DIR="$REPO_ROOT/.lattice"
+# D1 worktree-aware path resolution. EXECUTOR_DIR is part of the working tree
+# (exists in worktrees), so it resolves from REPO_ROOT. Shared lattice state
+# (.lattice/*) lives in canonical -- use LATTICE_PROJECT_ROOT when set
+# (fallback mode); otherwise REPO_ROOT works for canonical and for
+# symlink-mode worktrees (the symlink resolves to canonical's .lattice/).
+LATTICE_ROOT="${LATTICE_PROJECT_ROOT:-$REPO_ROOT}"
+GATE_FILE="$LATTICE_ROOT/.lattice/review-gate.json"
+GATE_DIR="$LATTICE_ROOT/.lattice"
 EXECUTOR_DIR="$REPO_ROOT/executor"
-ALGO_PATHS_FILE="$REPO_ROOT/.lattice/algorithm-paths.txt"
-PENDING_ATTESTATIONS_FILE="$REPO_ROOT/.lattice/pending-attestations.json"
+ALGO_PATHS_FILE="$LATTICE_ROOT/.lattice/algorithm-paths.txt"
+PENDING_ATTESTATIONS_FILE="$LATTICE_ROOT/.lattice/pending-attestations.json"
 
 # D7 (2026-05-05): mandatory 7-section anchor enforcement.
 # The review skill (commands/lattice/review.md:18-30) declares 7 mandatory
@@ -67,7 +73,7 @@ PENDING_ATTESTATIONS_FILE="$REPO_ROOT/.lattice/pending-attestations.json"
 # does not exist (e.g., a skip-review trivial-fix invocation), the check
 # is SKIPPED. When the file exists, the check is ENFORCED. Skill prose
 # discipline still requires the side-channel file for full reviews.
-LAST_REVIEW_OUTPUT_FILE="$REPO_ROOT/.lattice/last-review-output.md"
+LAST_REVIEW_OUTPUT_FILE="$LATTICE_ROOT/.lattice/last-review-output.md"
 
 VERDICT="${1:-pass}"
 SUMMARY="${2:-Review passed}"

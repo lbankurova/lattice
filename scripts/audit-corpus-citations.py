@@ -923,7 +923,11 @@ def main() -> int:
     report = audit_corpus(root)
     print(report)
 
-    lattice_dir = Path(".lattice")
+    # D1 worktree-aware: prefer LATTICE_PROJECT_ROOT when set (env-var fallback
+    # for sessions running in a worktree without symlink support).
+    import os
+    lattice_root = os.environ.get("LATTICE_PROJECT_ROOT", ".")
+    lattice_dir = Path(lattice_root) / ".lattice"
     if lattice_dir.is_dir():
         out = lattice_dir / "corpus-citation-audit.txt"
         out.write_text(report, encoding="utf-8")

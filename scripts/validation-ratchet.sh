@@ -16,7 +16,11 @@
 set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-LATTICE_DIR="$REPO_ROOT/.lattice"
+# D1 worktree-aware path resolution. validation summary lives in the working
+# tree (REPO_ROOT). Shared lattice state (.lattice/) lives in canonical when
+# LATTICE_PROJECT_ROOT is set (env-var fallback mode).
+LATTICE_ROOT="${LATTICE_PROJECT_ROOT:-$REPO_ROOT}"
+LATTICE_DIR="$LATTICE_ROOT/.lattice"
 BASELINE_FILE="$LATTICE_DIR/validation-baseline.json"
 SUMMARY_FILE="$REPO_ROOT/docs/validation/summary.md"
 DECISIONS_LOG="$LATTICE_DIR/decisions.log"

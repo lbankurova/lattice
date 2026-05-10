@@ -15,6 +15,11 @@ set -uo pipefail
 LATTICE_REAL=$(cd "$(dirname "$0")/../.." && pwd)
 ORIG_PWD=$(pwd)
 
+# D1 worktree-isolation: SUTs (acquire-lock.sh, release-lock.sh) honor
+# LATTICE_PROJECT_ROOT and would write to canonical's .lattice/ if this env
+# var leaked from a parent session. Unset for test isolation.
+unset LATTICE_PROJECT_ROOT
+
 cd "$(mktemp -d)"
 mkdir -p .lattice
 

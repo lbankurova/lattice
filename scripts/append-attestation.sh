@@ -61,9 +61,15 @@ VERDICT="$3"
 RATIONALE="$4"
 AGENT_ID="${5:-user-direct}"
 
-REPO_ROOT="$(git rev-parse --show-toplevel)"
-PENDING_FILE="$REPO_ROOT/.lattice/pending-attestations.json"
-mkdir -p "$REPO_ROOT/.lattice"
+# D1 worktree-aware path resolution. From a session worktree without symlink
+# support (Windows fallback), LATTICE_PROJECT_ROOT points at the canonical
+# repo where shared lattice state lives. Otherwise use git's repo root --
+# which resolves through the .lattice/ symlink to canonical's pending-
+# attestations.json when in a symlink-mode worktree.
+LATTICE_ROOT="${LATTICE_PROJECT_ROOT:-$(git rev-parse --show-toplevel)}"
+REPO_ROOT="$LATTICE_ROOT"
+PENDING_FILE="$LATTICE_ROOT/.lattice/pending-attestations.json"
+mkdir -p "$LATTICE_ROOT/.lattice"
 
 export _PENDING_FILE="$PENDING_FILE"
 export _KIND="$KIND"

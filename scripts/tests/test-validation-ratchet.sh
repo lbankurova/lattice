@@ -37,6 +37,12 @@ fi
 LATTICE_REAL=$(cd "$(dirname "$0")/../.." && pwd)
 ORIG_PWD=$(pwd)
 
+# D1 worktree-isolation: tests run validation-ratchet.sh inside per-case temp
+# git repos. Unset LATTICE_PROJECT_ROOT so the SUT writes its baseline +
+# decisions.log into the temp repo's .lattice/ rather than (potentially) a
+# parent session's canonical .lattice/.
+unset LATTICE_PROJECT_ROOT
+
 ok=0; fail=0
 check() {
     local desc="$1"; shift

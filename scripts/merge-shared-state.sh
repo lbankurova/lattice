@@ -21,6 +21,14 @@
 
 set -euo pipefail
 
+# D1 worktree-aware: this script's relative-path operations work correctly
+# under symlink mode (.lattice/ in worktree resolves to canonical's via the
+# symlink) AND under env-var fallback (the file-existence check below
+# silently skips the worktree's missing .lattice/decisions.log; canonical's
+# autopilot merges it during its own cycle). No active LATTICE_PROJECT_ROOT
+# consumption needed -- the existence check is the gate. (Architect F1,
+# 2026-05-09: unused LATTICE_ROOT removed; behavior unchanged.)
+
 # Shared state files — paths relative to repo root
 SHARED_FILES=(
     "docs/_internal/research/REGISTRY.md"

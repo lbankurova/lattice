@@ -303,8 +303,60 @@ function getAdvanceAction(topic: TopicState): AdvanceAction | null {
  * - no progress was made in the last iteration (steady state)
  */
 export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotResult> {
-  const { cwd, latticeRoot, adapter, maxAdvancePerLoop, dryRun, singlePass } = opts;
+  const { latticeRoot, adapter, maxAdvancePerLoop, dryRun, singlePass } = opts;
   const maxLoops = opts.maxLoops ?? 50;
+
+  // Worktree-isolation R1: when LATTICE_AUTOPILOT_WORKTREE=1, spawn a session
+  // worktree at startup and run the entire batch from there. Closes the
+  // CONFLATED-COMMIT class -- autopilot's git index is now isolated from the
+  // user's canonical tree and from any parallel autopilot batch (each gets
+  // its own worktree).
+  //
+  // When unset (or =0), autopilot runs in-canonical-tree as it did pre-R1.
+  // This is the rollback path -- existing commit-intent + acquire-lock
+  // discipline is the only safety net.
+  let cwd = opts.cwd;
+  let spawnedWorktree: { topic: string; path: string } | null = null;
+  if (process.env.LATTICE_AUTOPILOT_WORKTREE === '1') {
+    const batchTopic = `autopilot-${new Date().toISOString().replace(/[:.]/g, '-')}`;
+    const startScript = resolve(latticeRoot, 'scripts/lattice-session-start.sh');
+    if (existsSync(startScript)) {
+      try {
+        const result = spawnSync('bash', [startScript, batchTopic], {
+          cwd: opts.cwd,
+          encoding: 'utf-8',
+          timeout: 120_000, // cold cache npm install can take ~60s
+        });
+        if (result.status === 0 && result.stdout) {
+          // Extract the worktree path from the script's output. The script
+          // prints "  Path:      <path>" near the end; parse defensively.
+          const m = result.stdout.match(/Path:\s+([^\r\n]+)/);
+          if (m && m[1] && existsSync(m[1].trim())) {
+            const wtPath = m[1].trim();
+            cwd = wtPath;
+            spawnedWorktree = { topic: batchTopic, path: wtPath };
+            await adapter.sendMessage(`Worktree-isolation R1: autopilot batch running in ${wtPath}`);
+          } else {
+            await adapter.sendMessage(
+              `WARNING: lattice-session-start.sh succeeded but worktree path not parseable. Falling back to in-canonical-tree mode.`,
+            );
+          }
+        } else {
+          await adapter.sendMessage(
+            `WARNING: lattice-session-start.sh failed (exit ${result.status}). Falling back to in-canonical-tree mode.\n${result.stderr ?? ''}`,
+          );
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        await adapter.sendMessage(`WARNING: worktree spawn failed (${msg}). Falling back to in-canonical-tree mode.`);
+      }
+    } else {
+      await adapter.sendMessage(
+        `WARNING: LATTICE_AUTOPILOT_WORKTREE=1 set but ${startScript} not found. Falling back to in-canonical-tree mode.`,
+      );
+    }
+  }
+
   const stateDir = resolve(cwd, '.lattice/cycle-state');
 
   const result: AutopilotResult = {
@@ -821,6 +873,32 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
   await adapter.sendMessage(`Auto-resolved: ${result.autoResolved.length}`);
   await adapter.sendMessage(`Pending decisions: ${result.pendingDecisions.length}`);
   await adapter.sendMessage(`Blocked topics: ${result.coherenceReport.blocked.length}`);
+
+  // Worktree-isolation R1: tear down the spawned worktree if R1 mode was
+  // active. lattice-session-end.sh handles the FF-merge contract (D2). On
+  // failure (e.g., non-FF), leaves the worktree + branch in place for user
+  // recovery -- the next prune cycle reports it.
+  if (spawnedWorktree) {
+    try {
+      const endScript = resolve(latticeRoot, 'scripts/lattice-session-end.sh');
+      const result = spawnSync('bash', [endScript, spawnedWorktree.topic, '--merge-back'], {
+        cwd: opts.cwd, // run end script from canonical, not from inside the worktree we're tearing down
+        encoding: 'utf-8',
+        timeout: 60_000,
+      });
+      if (result.status !== 0) {
+        await adapter.sendMessage(
+          `Worktree-isolation R1: lattice-session-end.sh exit ${result.status}. ` +
+          `Worktree at ${spawnedWorktree.path} left in place; recover with lattice-worktree-prune.sh.\n${result.stderr ?? ''}`,
+        );
+      } else {
+        await adapter.sendMessage(`Worktree-isolation R1: session merged back and worktree removed.`);
+      }
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : String(err);
+      await adapter.sendMessage(`Worktree-isolation R1: teardown error (${msg}). Worktree at ${spawnedWorktree.path} left in place.`);
+    }
+  }
 
   return result;
 }

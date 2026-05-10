@@ -24,7 +24,10 @@ REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null) || REPO_ROOT=$(cd "$(dirn
 # something outside any repo, which is unusual but not a design-gate concern.
 cd "$REPO_ROOT" 2>/dev/null || exit 0
 
-LOCK=".lattice/design-mode.lock"
+# D1 worktree-aware: design-mode lock lives in shared lattice state. From a
+# session worktree in env-var fallback mode, redirect to canonical.
+LATTICE_ROOT="${LATTICE_PROJECT_ROOT:-$REPO_ROOT}"
+LOCK="$LATTICE_ROOT/.lattice/design-mode.lock"
 STALE_SEC=3600
 
 # No session -> no enforcement

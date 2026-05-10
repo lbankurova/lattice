@@ -4,13 +4,29 @@
 # Uses symlinks on Unix, copies on Windows. Re-run after pulling updates.
 #
 # Usage:
-#   bash scripts/install-hooks.sh                    # install in current repo
-#   bash scripts/install-hooks.sh /path/to/project   # install in another repo
+#   bash scripts/install-hooks.sh                       # install git hooks
+#   bash scripts/install-hooks.sh /path/to/project      # in another repo
+#   bash scripts/install-hooks.sh --enable-r0           # ALSO register the
+#                                                       # require-worktree
+#                                                       # PreToolUse hook in
+#                                                       # .claude/settings.json
+#                                                       # (R0 worktree
+#                                                       # isolation enforcement;
+#                                                       # only run after R1
+#                                                       # stop-light passes)
 #
 
 set -euo pipefail
 
-TARGET_ROOT="${1:-.}"
+TARGET_ROOT="."
+ENABLE_R0=false
+for arg in "$@"; do
+    case "$arg" in
+        --enable-r0) ENABLE_R0=true ;;
+        --*) echo "ERROR: unknown flag '$arg'" >&2; exit 1 ;;
+        *) TARGET_ROOT="$arg" ;;
+    esac
+done
 TARGET_ROOT="$(cd "$TARGET_ROOT" && pwd)"
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -99,3 +115,114 @@ done
 echo ""
 echo "Done. $INSTALLED hook(s) installed in $HOOKS_DIR"
 echo "Source: $HOOKS_SOURCE"
+
+# ── Worktree-isolation R0: optional PreToolUse hook registration ──
+#
+# Per worktree-isolation-synthesis.md, the require-worktree.sh hook is only
+# safe to register AFTER R1 (autopilot beachhead) clears five named
+# observables (zero orphan worktrees > 24h, zero non-FF aborts, zero
+# .lattice/ symlink failures or audited fallback, zero session-creation
+# failures, hook block-event count > 0 confirming the hook fires). The
+# --enable-r0 flag is the operational gate: invoking it is the user's
+# attestation that R1 has cleared.
+#
+# When invoked WITHOUT --enable-r0 (default), this section is skipped --
+# the hook stays as a built artifact at hooks/preToolUse/require-worktree.sh
+# but is NOT registered in .claude/settings.json.
+
+if [ "$ENABLE_R0" = "true" ]; then
+    SETTINGS="$TARGET_ROOT/.claude/settings.json"
+    HOOK_REL="hooks/preToolUse/require-worktree.sh"
+
+    if [ ! -f "$SETTINGS" ]; then
+        echo "ERROR: $SETTINGS not found; cannot register R0 hook." >&2
+        echo "       The project needs a .claude/settings.json with at least an empty" >&2
+        echo "       hooks.PreToolUse array before --enable-r0 can patch it." >&2
+        exit 1
+    fi
+
+    HOOK_SOURCE="$LATTICE_ROOT/hooks/preToolUse/require-worktree.sh"
+    if [ ! -f "$HOOK_SOURCE" ] && [ ! -f "$TARGET_ROOT/$HOOK_REL" ]; then
+        echo "ERROR: require-worktree.sh not found at $HOOK_SOURCE or $TARGET_ROOT/$HOOK_REL." >&2
+        exit 1
+    fi
+
+    # Idempotent registration: refuse to add a second matcher for the same
+    # hook command. Detection uses python (available on all lattice
+    # consumer projects per lattice-project-spec.md [runtime] python).
+    PYTHON="${PYTHON:-python}"
+    if ! command -v "$PYTHON" >/dev/null 2>&1; then
+        PYTHON="python3"
+    fi
+
+    if ! command -v "$PYTHON" >/dev/null 2>&1; then
+        echo "ERROR: python required to patch settings.json idempotently; not found." >&2
+        exit 1
+    fi
+
+    # Patch script reads settings.json, adds two PreToolUse matcher entries
+    # if absent, writes back. Both matchers dispatch to the same script;
+    # they must be ordered BEFORE the existing commit-lock matcher so users
+    # see the structural fix message before the lock-contention message
+    # (probe Target 1 in synthesis).
+    HOOK_CMD="bash $HOOK_REL" \
+    SETTINGS_PATH="$SETTINGS" \
+    "$PYTHON" - <<'PYEOF'
+import json
+import os
+import sys
+
+settings_path = os.environ["SETTINGS_PATH"]
+hook_cmd = os.environ["HOOK_CMD"]
+
+with open(settings_path, "r", encoding="utf-8") as f:
+    config = json.load(f)
+
+config.setdefault("hooks", {}).setdefault("PreToolUse", [])
+existing = config["hooks"]["PreToolUse"]
+
+def has_matcher(matcher_pattern, command):
+    for entry in existing:
+        if entry.get("matcher") == matcher_pattern:
+            for h in entry.get("hooks", []):
+                if h.get("command") == command:
+                    return True
+    return False
+
+new_matchers = [
+    ("Edit|Write", hook_cmd),
+    ("Bash(git add*|git commit*|git stash*)", hook_cmd),
+]
+
+added = 0
+for matcher, cmd in new_matchers:
+    if has_matcher(matcher, cmd):
+        continue
+    new_entry = {
+        "matcher": matcher,
+        "hooks": [{
+            "type": "command",
+            "command": cmd,
+            "_comment": "Worktree-isolation R0. BLOCKS Edit/Write/Bash(git add|commit|stash) at canonical root unless allowlisted or exempted. See .lattice/worktree-isolation-protocol.md.",
+        }],
+    }
+    # Insert at BEGINNING of array (probe Target 1: fire before commit-lock).
+    existing.insert(0, new_entry)
+    added += 1
+
+if added > 0:
+    with open(settings_path, "w", encoding="utf-8") as f:
+        json.dump(config, f, indent=2)
+        f.write("\n")
+    print(f"  Registered {added} require-worktree matcher(s) in {settings_path}")
+else:
+    print(f"  require-worktree matchers already registered in {settings_path}")
+
+PYEOF
+
+    echo ""
+    echo "R0 worktree isolation: ENABLED in $TARGET_ROOT/.claude/settings.json"
+    echo "  The hook will fire on Edit/Write/Bash(git add|commit|stash) at canonical root."
+    echo "  See .lattice/worktree-isolation-protocol.md for the full contract."
+    echo "  To disable: edit .claude/settings.json and remove the require-worktree entries."
+fi
