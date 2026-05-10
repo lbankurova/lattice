@@ -11,3 +11,4 @@
 2026-05-07T22:12:34-04:00	review	PASS	a5a78e4	files:4 deviations:0 deferred:1	ENH-09 {{include:optional:project.X.Y}} template form -- Phase 4 unblocked; ENH-12 (authoring conventions) remains queued
 
 2026-05-09T00:00:00Z	peer-review	CONDITIONAL	worktree-isolation-synthesis-r2	findings:6 FLAWED:1 CONDITIONAL:4 SOUND:4	R1 findings verified (F1/F4/F6 SOUND; F2 gate-sentence wording gap; F3/F5 introduced new issues); new FLAWED NI-3 (npm install contradicts <2s AC4 overhead budget); NI-1 symlink false-positive + NI-2 Bash staging bypass + NI-4 failure handling all CONDITIONAL
+2026-05-10T01:11:50Z	review	PASS	7e3bb1d	files:44 deviations:3 deferred:1	worktree-isolation R1+R2+R3 active; R0 artifacts gated; D1 16-script LATTICE_PROJECT_ROOT migration; 248+14 tests pass
