@@ -340,7 +340,62 @@ algorithm_defaults_mode = "empty"  # or "sendex" for back-compat during migratio
 
 **Behavior when undefined:** review's ALGORITHM protocol falls back per `algorithm_defaults_mode` — `empty` makes the protocol advisory only; `sendex` retains today's hardcoded SENDEX paths (for back-compat during the migration window).
 
-### 4.10 `[skills.<name>]` — per-skill content overrides
+### 4.10 `[project.worktree]` — session worktree isolation
+
+Per-project tunables for the worktree-isolation prevention layer (CLAUDE.md rule 21, `.lattice/worktree-isolation-protocol.md`). The R0 PreToolUse hook (`hooks/preToolUse/require-worktree.sh`) and the session-spawn / session-end / prune helpers consult these values; baseline behavior is hardcoded so projects that never set the block still get safe defaults.
+
+```toml
+[project.worktree]
+# Master switch. true = R0 hook active (registered via install-hooks.sh
+# --enable-r0); false (default) = R1 + R3 only (hook artifacts present
+# but not registered in .claude/settings.json).
+enforce_worktree_isolation = false
+
+# Canonical repo root identifier. Default "." resolves at runtime via
+# `git rev-parse --show-toplevel`. Override only when canonical lives
+# outside the project (rare; docs-only repos that nest a project).
+canonical_root = "."
+
+# Per-project additions to the Tier 1 allowlist (paths the hook permits
+# at canonical root without ceremony). Trust docs (CLAUDE.md, README.md,
+# ROADMAP.md, LICENSE, NOTICE), .claude/**, .lattice/**, docs/**, and
+# .gitignore/.gitattributes/.gitmodules are baked into the hook itself.
+allow_main_tree_paths = [
+  "TODO.md",
+  "docs/scientific-logic.md",
+]
+
+# .lattice/ cross-worktree visibility strategy.
+#   "symlink"  -- worktree's .lattice/ is a relative symlink to canonical's
+#                 (default; works on Linux/macOS unconditionally and on
+#                 Windows with Developer Mode enabled).
+#   "env_var"  -- forces LATTICE_PROJECT_ROOT mode at session-start time
+#                 (Windows-without-Developer-Mode fallback path).
+# `lattice-session-start.sh` attempts symlink first, falls back to env_var
+# automatically on permission failure; this key is the per-project
+# preference when both are available.
+lattice_state_strategy = "symlink"
+
+# Where session worktrees are created. Default <canonical-parent>/.worktrees/
+# (sibling of canonical, gitignored). Override with absolute path.
+worktree_parent = ""
+
+# Crashed-session prune threshold. lattice-worktree-prune.sh reports
+# session worktrees older than this as candidates for removal.
+staleness_days = 7
+
+# Per-project additions to the trivial-rationale rejection list. The
+# hook bakes in ["fix", "test", "wip", "edit", "update"]; this extends
+# it. Use for project-specific filler words that should not satisfy
+# LATTICE_EXEMPTION_RATIONALE.
+additional_trivial_rationales = ["chore", "tweak"]
+```
+
+**Required for:** R0 hook activation (`bash scripts/install-hooks.sh --enable-r0`). The R1 + R3 paths run without consulting this block — autopilot worktree spawning and e2e branch worktrees are unconditional.
+
+**Behavior when undefined:** R1 + R3 active by default; R0 not registered (default for R0 activation is `enforce_worktree_isolation = false`, requiring an explicit `install-hooks.sh --enable-r0` invocation per project). Other keys fall back to hardcoded defaults documented in the protocol.
+
+### 4.11 `[skills.<name>]` — per-skill content overrides
 
 The largest single contributor to "skill body customization." Each harness skill that needs project-shaped values (persona, domain expertise paragraphs, corpus file lists, exemplar story references, exclusion globs) declares its keys here.
 
