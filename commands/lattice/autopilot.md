@@ -103,7 +103,7 @@ For each selected item, determine the action:
 
 ### Step 3: Execute
 
-**Step 3.0 -- Spawn worktree (R1, worktree-isolation):** Before processing any items, the autopilot batch spawns its own git worktree so its index is isolated from the user's canonical tree and from any parallel autopilot batch. When invoked via the executor with `LATTICE_AUTOPILOT_WORKTREE=1`, this is automatic in `runAutopilot` (`executor/src/autopilot.ts`). When invoked manually:
+**Step 3.0 -- Spawn worktree (R1, worktree-isolation):** Before processing any items, the autopilot batch spawns its own git worktree so its index is isolated from the user's canonical tree and from any parallel autopilot batch. When invoked via the executor, this is automatic and ON by default in `runAutopilot` (`executor/src/autopilot.ts`); set `LATTICE_AUTOPILOT_WORKTREE=0` only as a rollback path. When invoked manually:
 
 ```bash
 BATCH_ID="autopilot-$(date -u +%Y%m%dT%H%M%SZ)"

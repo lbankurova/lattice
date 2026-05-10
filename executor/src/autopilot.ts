@@ -306,18 +306,17 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
   const { latticeRoot, adapter, maxAdvancePerLoop, dryRun, singlePass } = opts;
   const maxLoops = opts.maxLoops ?? 50;
 
-  // Worktree-isolation R1: when LATTICE_AUTOPILOT_WORKTREE=1, spawn a session
-  // worktree at startup and run the entire batch from there. Closes the
-  // CONFLATED-COMMIT class -- autopilot's git index is now isolated from the
-  // user's canonical tree and from any parallel autopilot batch (each gets
-  // its own worktree).
+  // Worktree-isolation R1: spawn a session worktree at startup and run the
+  // entire batch from there. Closes the CONFLATED-COMMIT class -- autopilot's
+  // git index is now isolated from the user's canonical tree and from any
+  // parallel autopilot batch (each gets its own worktree).
   //
-  // When unset (or =0), autopilot runs in-canonical-tree as it did pre-R1.
-  // This is the rollback path -- existing commit-intent + acquire-lock
-  // discipline is the only safety net.
+  // Default ON per synthesis Section 1: "default true once R1 lands". Set
+  // LATTICE_AUTOPILOT_WORKTREE=0 to opt out (rollback path -- existing
+  // commit-intent + acquire-lock discipline becomes the only safety net).
   let cwd = opts.cwd;
   let spawnedWorktree: { topic: string; path: string } | null = null;
-  if (process.env.LATTICE_AUTOPILOT_WORKTREE === '1') {
+  if (process.env.LATTICE_AUTOPILOT_WORKTREE !== '0') {
     const batchTopic = `autopilot-${new Date().toISOString().replace(/[:.]/g, '-')}`;
     const startScript = resolve(latticeRoot, 'scripts/lattice-session-start.sh');
     if (existsSync(startScript)) {

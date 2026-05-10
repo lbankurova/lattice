@@ -66,9 +66,9 @@ Each worktree has its own `.git` reference (a linked-worktree pointer back to th
 
 ---
 
-## R1 -- Autopilot beachhead (active)
+## R1 -- Autopilot beachhead (active, default ON)
 
-When `LATTICE_AUTOPILOT_WORKTREE=1`, `runAutopilot` (`executor/src/autopilot.ts`) calls `lattice-session-start.sh` at startup, runs the entire batch from the spawned worktree, and tears down via `lattice-session-end.sh --merge-back` on completion.
+`runAutopilot` (`executor/src/autopilot.ts`) calls `lattice-session-start.sh` at startup, runs the entire batch from the spawned worktree, and tears down via `lattice-session-end.sh --merge-back` on completion. **Default behavior** -- the conflation prevention is on for every autopilot run unless explicitly opted out with `LATTICE_AUTOPILOT_WORKTREE=0` (rollback path: existing commit-intent + acquire-lock discipline becomes the only safety net).
 
 Manual invocation:
 
