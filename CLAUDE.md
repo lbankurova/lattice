@@ -260,6 +260,21 @@ This prevents lost updates when two agents hold valid context but one overwrites
 
 Orphaned and stale locks are auto-released during sweep.
 
+### Stale Bundled-TODO Sweep
+
+`scripts/sweep-stale-bundled-todos.py` walks every `.lattice/cycle-state/*.yaml` with `phase: complete` and reports TODO entries that should be strikethrough but aren't. Catches the gap `find-bundled-cycle.sh` leaves: the dispatcher's dedup script skips its own state file (correct for "don't re-cycle MY topic", wrong for "find every stale child"), so the parent topic itself and same-cycle `PROBE: SF-*` entries fall through.
+
+**Three verdict tiers:**
+- `RESOLVED-SCIENCE-FLAG` — `PROBE: SF-*` whose cycle-state `science_flags[].status: resolved`. Auto-applicable via `--apply-confident`.
+- `PARENT-CANDIDATE` — cycle topic whose TODO header is still open. NOT auto-apply safe: a topic can have successive cycles (one iteration each), TODO stays open for the next.
+- `BUNDLED-CANDIDATE` — child ID listed in cycle `scope`/`gaps_persisted.todo`/`todo_verified.entries`/`bundled_bugs`. NOT auto-apply safe: legitimately-open spawned work ("NOT BLOCKING", design-cycle handoff, named-dependency-defer) and shipped-but-not-flipped both end up here.
+
+**Path resolution:** `LATTICE_PROJECT_ROOT` env → `lattice-project.toml [project.backlog].todo` → `docs/_internal/TODO.md` → `TODO.md`. ID-prefix allowlist extensible via `LATTICE_TODO_ID_PREFIXES="FOO-,BAR-"` for project-specific work-item conventions.
+
+**Wiring at the consumer-project side:** consumer projects can wire the sweep into their post-commit hook (gated on `.lattice/cycle-state/*.yaml` having changed in the commit) so a freshly-closed cycle surfaces its stale children immediately. Exemplar: `pcc/.githooks/post-commit` runs `LATTICE_PROJECT_ROOT="$REPO_ROOT" python scripts/sweep-stale-bundled-todos.py` in report-only mode when the commit touched cycle state.
+
+Incident that drove the wiring: 2026-05-11 `/lattice:cycle DATA-GAP-VEH-5-A` hit user-facing dedup STOP on already-shipped work because the parent `GAP-VEHICLE-5` build close (2026-05-09) hadn't flipped the child TODO. The sweep closes that latency window.
+
 ## Web Source Access Protocol
 
 Research skills (research, peer-review, distill) fetch external sources. Many academic and regulatory sites return 403/429/captcha errors for programmatic access. **Silently skipping blocked sources is a research gap — the source may contain the critical finding.**
