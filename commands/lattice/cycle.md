@@ -33,6 +33,22 @@ If there's a COMPLETED entry for the **same phase** that would be dispatched, an
 
 > "Topic `{topic}` was already completed by {skill} at {timestamp}. Are you sure you want to re-run? If yes, re-invoke with `--force`."
 
+**Step 0a-bundled: Check for bundled-cycle coverage (mandatory).** Direct grep above misses cases where the requested topic was scoped inside a bundled parent cycle — e.g. `gap-vehicle` covering `GAP-VEHICLE-2/3/4`, where decisions.log only carries `COMPLETED\tgap-vehicle`. Run:
+
+```bash
+bash scripts/find-bundled-cycle.sh {topic}
+```
+
+Exit 0 means a bundled parent cycle has this topic in its `scope:` array. Output is `<bundled_topic>\t<phase>\t<state_file>` — one line per match. Then:
+
+- **Bundled `phase: complete`** → STOP and warn:
+  > "Topic `{topic}` was bundled into parent cycle `{bundled_topic}` (state: {state_file}, phase: complete). Verify completion against the parent cycle's COMPLETED entry in decisions.log. If you still want to re-run, invoke with `--force`."
+- **Bundled `phase` ∈ {research, research-complete, blueprint, blueprint-complete, build}** → STOP and inform:
+  > "Topic `{topic}` is in-flight as part of bundled cycle `{bundled_topic}` (phase: {phase}). Re-invoke as `/lattice:cycle {bundled_topic}` to resume the bundle, or `--force` to start an independent cycle for `{topic}` (rare; usually wrong)."
+- **Exit 1 (no bundled match)** → proceed to Step 0b.
+
+This dedup is unbypassable except via `--force`, same as Step 0a's direct-grep path. Why mandatory: the failure mode is silent re-research/re-build of work that already shipped, costing tokens and producing conflicting state.
+
 **Step 0b: Acquire topic lock.** If dedup passes (or `--force` was specified):
 
 ```bash
@@ -55,6 +71,8 @@ Read `.lattice/cycle-state/{topic}.yaml`:
 | `phase: build` | `/lattice:build-cycle {topic}` (resumes mid-phase) |
 | `phase: complete` | Report: "Cycle complete for {topic}." |
 | No state file | **→ Step 2: Classify** |
+
+**No state file under exact name?** Step 0a-bundled already ran `find-bundled-cycle.sh` and STOPped if a bundled parent matched. If execution reached this point with no exact-name file, no bundled parent exists either — proceed to Step 2 (Classify) without re-checking.
 
 ### 2. Classify — new topics only
 

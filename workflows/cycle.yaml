@@ -55,7 +55,7 @@ workflow:
         - condition: "{{inputs.force}} == true"
           route: detect-phase
         - condition: "{{nodes.dedup-check.output}}.contains('NO_RECENT_COMPLETION')"
-          route: detect-phase
+          route: bundled-dedup-check
         - condition: default
           route: dedup-approval
 
@@ -71,6 +71,55 @@ workflow:
           route: detect-phase
         - id: no
           label: "No, abort"
+          route: cycle-aborted
+
+    # Bundled-cycle dedup. Catches the case where {{inputs.topic}} (e.g.
+    # GAP-VEHICLE-2) was scoped inside a parent bundle (e.g. gap-vehicle).
+    # Direct grep above only matches `COMPLETED\t{{topic}}` literally, so
+    # bundled completions slip past it. find-bundled-cycle.sh scans every
+    # cycle-state YAML's `scope:` array. Exit 0 = match (output is
+    # `<bundled_topic>\t<phase>\t<state_file>`); exit 1 = no match.
+
+    bundled-dedup-check:
+      type: bash
+      command: |
+        if BUNDLED=$(bash scripts/find-bundled-cycle.sh "{{inputs.topic}}" 2>/dev/null); then
+          echo "BUNDLED_MATCH"
+          echo "$BUNDLED"
+        else
+          echo "NO_BUNDLED_MATCH"
+        fi
+      on_failure: continue
+
+    bundled-dedup-gate:
+      type: gate
+      depends_on: [bundled-dedup-check]
+      evaluate:
+        - condition: "{{nodes.bundled-dedup-check.output}}.contains('NO_BUNDLED_MATCH')"
+          route: detect-phase
+        - condition: default
+          route: bundled-dedup-approval
+
+    bundled-dedup-approval:
+      type: approval
+      depends_on: [bundled-dedup-gate]
+      prompt: >
+        Topic {{inputs.topic}} is covered by a bundled parent cycle
+        (see bundled-dedup-check output for {bundled_topic}, phase, file).
+        If phase is `complete`, re-running is almost certainly wrong;
+        verify against the parent's COMPLETED entry first.
+        If phase is in-flight, you usually want
+        `/lattice:cycle {bundled_topic}` to resume the bundle.
+        Override?
+      options:
+        - id: bundle
+          label: "Resume bundled parent cycle (recommended for in-flight)"
+          route: cycle-aborted
+        - id: force
+          label: "Start independent cycle for {{inputs.topic}} anyway"
+          route: detect-phase
+        - id: no
+          label: "Abort"
           route: cycle-aborted
 
     cycle-aborted:
