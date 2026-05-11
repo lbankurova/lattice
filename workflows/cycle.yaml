@@ -74,11 +74,17 @@ workflow:
           route: cycle-aborted
 
     # Bundled-cycle dedup. Catches the case where {{inputs.topic}} (e.g.
-    # GAP-VEHICLE-2) was scoped inside a parent bundle (e.g. gap-vehicle).
-    # Direct grep above only matches `COMPLETED\t{{topic}}` literally, so
-    # bundled completions slip past it. find-bundled-cycle.sh scans every
-    # cycle-state YAML's `scope:` array. Exit 0 = match (output is
-    # `<bundled_topic>\t<phase>\t<state_file>`); exit 1 = no match.
+    # GAP-VEHICLE-2, DATA-GAP-VEH-5-CITATION-HYGIENE) was scoped inside a
+    # parent bundle (e.g. gap-vehicle, GAP-VEHICLE-5). Direct grep above
+    # only matches `COMPLETED\t{{topic}}` literally, so bundled completions
+    # slip past it. find-bundled-cycle.sh scans every YAML list item in
+    # every cycle-state file (at any nesting depth), matching the topic
+    # against three patterns: whole-item (`- TOPIC`, e.g. `scope:`),
+    # colon-prefix (`- TOPIC: description`, e.g. `known_gap_anchors:` /
+    # `todo_verified.entries:`), and id-field (`- id: TOPIC`, e.g.
+    # `bundled_bugs:`). Free-text mentions are intentionally NOT matched.
+    # Exit 0 = match (output `<bundled_topic>\t<phase>\t<state_file>`);
+    # exit 1 = no match.
 
     bundled-dedup-check:
       type: bash

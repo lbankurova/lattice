@@ -2,8 +2,9 @@
 # find-bundled-cycle.sh — Find any cycle-state YAML that bundles a given topic.
 #
 # Usage: bash scripts/find-bundled-cycle.sh <topic>
-#   topic: a specific work item ID (e.g. GAP-VEHICLE-2) that may be
-#          covered by a bundled parent cycle (e.g. gap-vehicle).
+#   topic: a specific work item ID (e.g. GAP-VEHICLE-2, DATA-GAP-VEH-5-CITATION-HYGIENE)
+#          that may be covered by a bundled parent cycle (e.g. gap-vehicle,
+#          GAP-VEHICLE-5).
 #
 # Output (one line per match): <bundled_topic>\t<phase>\t<state_file>
 #
@@ -13,15 +14,37 @@
 #
 # Why: /lattice:cycle dedup at Step 0a greps decisions.log for the literal
 # topic name. But bundled cycles log COMPLETED under the bundle name (e.g.
-# "gap-vehicle"), not the GAP IDs in scope. Re-invoking with a child GAP ID
+# "gap-vehicle"), not the child IDs in scope. Re-invoking with a child ID
 # misses the dedup and re-runs work that already shipped. This helper closes
-# the gap by scanning cycle-state YAMLs' `scope:` arrays.
+# the gap by scanning cycle-state YAMLs.
 #
-# Cycle-state YAML scope block looks like:
-#   scope:
-#     - GAP-VEHICLE-2  # comment
-#     - GAP-VEHICLE-3
-#   <next-top-level-key>:
+# What gets scanned: ANY YAML list item in the file (lines matching `- `),
+# at any nesting depth, under any parent key. The line is matched against
+# the topic via THREE patterns:
+#
+#   1. Whole-item match — `- TOPIC` or `- "TOPIC"`.
+#      Covers bare-ID arrays like `scope:` and `known_anchors:`.
+#
+#   2. Colon-prefix match — `- TOPIC: <description>` or `- "TOPIC: <description>"`.
+#      Covers descriptive arrays like `known_gap_anchors:` and the nested
+#      `todo_verified.entries:` block (the canonical post-completion record
+#      of data-gaps absorbed into the run).
+#
+#   3. id-field match — `- id: TOPIC` (inside a mapping list item).
+#      Covers `bundled_bugs:` and similar mapping-list patterns.
+#
+# Pre-2026-05-11 the script only scanned the top-level `scope:` array, so a
+# child ID listed only in `todo_verified.entries[]` slipped past dedup and
+# triggered a re-cycle. See DATA-GAP-VEH-5-CITATION-HYGIENE incident:
+# GAP-VEHICLE-5 Phase 0 shipped the cleanup work, but the child ID was not
+# in `scope:`, so /lattice:cycle DATA-GAP-VEH-5-CITATION-HYGIENE proceeded
+# as if no coverage existed.
+#
+# Free-text mentions (the topic ID appearing inside a `source:` string, a
+# prose `todo:` field, or a comment) are INTENTIONALLY NOT MATCHED — those
+# are too prone to false positives ("this cycle was triggered BY topic X"
+# vs "this cycle DID topic X's work"). When the work is genuinely bundled,
+# authors should list the child ID under a structured list field.
 
 set -euo pipefail
 
@@ -38,17 +61,36 @@ for f in "$STATE_DIR"/*.yaml; do
     base=$(basename "$f" .yaml)
     if [ "$base" = "$TOPIC" ]; then continue; fi
 
-    # Awk extracts the scope: block and tests for membership.
+    # Awk scans every YAML list item (lines matching `^[[:space:]]*- `) and
+    # tests the three match patterns described in the header.
     if awk -v t="$TOPIC" '
-        BEGIN { in_scope = 0; found = 0 }
-        /^scope:[[:space:]]*$/ { in_scope = 1; next }
-        /^[^[:space:]#]/ && in_scope { in_scope = 0 }
-        in_scope {
-            line = $0
-            sub(/[[:space:]]*#.*$/, "", line)
-            sub(/^[[:space:]]*-[[:space:]]+/, "", line)
-            sub(/[[:space:]]+$/, "", line)
-            if (line == t) { found = 1; exit }
+        function strip(s) {
+            sub(/^[[:space:]]*-[[:space:]]+/, "", s)
+            sub(/[[:space:]]*#.*$/, "", s)
+            sub(/[[:space:]]+$/, "", s)
+            if (s ~ /^".*"$/) { s = substr(s, 2, length(s) - 2) }
+            if (s ~ /^'\''.*'\''$/) { s = substr(s, 2, length(s) - 2) }
+            return s
+        }
+        function colon_prefix(s,    p) {
+            p = index(s, ":")
+            if (p == 0) return s
+            s = substr(s, 1, p - 1)
+            sub(/[[:space:]]+$/, "", s)
+            return s
+        }
+        /^[[:space:]]*-[[:space:]]/ {
+            item = strip($0)
+            if (item == t) { found = 1; exit }
+            if (colon_prefix(item) == t) { found = 1; exit }
+            if (item ~ /^id:[[:space:]]/) {
+                v = item
+                sub(/^id:[[:space:]]+/, "", v)
+                sub(/[[:space:]]+$/, "", v)
+                if (v ~ /^".*"$/) { v = substr(v, 2, length(v) - 2) }
+                if (v == t) { found = 1; exit }
+            }
+            next
         }
         END { exit !found }
     ' "$f"; then

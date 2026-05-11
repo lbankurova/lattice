@@ -33,13 +33,13 @@ If there's a COMPLETED entry for the **same phase** that would be dispatched, an
 
 > "Topic `{topic}` was already completed by {skill} at {timestamp}. Are you sure you want to re-run? If yes, re-invoke with `--force`."
 
-**Step 0a-bundled: Check for bundled-cycle coverage (mandatory).** Direct grep above misses cases where the requested topic was scoped inside a bundled parent cycle — e.g. `gap-vehicle` covering `GAP-VEHICLE-2/3/4`, where decisions.log only carries `COMPLETED\tgap-vehicle`. Run:
+**Step 0a-bundled: Check for bundled-cycle coverage (mandatory).** Direct grep above misses cases where the requested topic was scoped inside a bundled parent cycle — e.g. `gap-vehicle` covering `GAP-VEHICLE-2/3/4`, or `GAP-VEHICLE-5` absorbing `DATA-GAP-VEH-5-CITATION-HYGIENE` as Phase 0 — where decisions.log only carries `COMPLETED` under the parent name. Run:
 
 ```bash
 bash scripts/find-bundled-cycle.sh {topic}
 ```
 
-Exit 0 means a bundled parent cycle has this topic in its `scope:` array. Output is `<bundled_topic>\t<phase>\t<state_file>` — one line per match. Then:
+Exit 0 means a bundled parent cycle covers this topic. The scanner walks ANY YAML list item in each cycle-state file (at any nesting depth) and matches the topic via three patterns: (1) whole-item match (`- TOPIC` — `scope:` arrays), (2) colon-prefix match (`- TOPIC: description` — `known_gap_anchors:`, nested `todo_verified.entries:`), (3) id-field match (`- id: TOPIC` — `bundled_bugs:` mapping lists). Free-text mentions (prose `source:` / `todo:` fields, comments) are NOT matched: too prone to false positives ("triggered BY topic X" vs "DID topic X's work"). Output is `<bundled_topic>\t<phase>\t<state_file>` — one line per match. Then:
 
 - **Bundled `phase: complete`** → STOP and warn:
   > "Topic `{topic}` was bundled into parent cycle `{bundled_topic}` (state: {state_file}, phase: complete). Verify completion against the parent cycle's COMPLETED entry in decisions.log. If you still want to re-run, invoke with `--force`."
@@ -47,7 +47,7 @@ Exit 0 means a bundled parent cycle has this topic in its `scope:` array. Output
   > "Topic `{topic}` is in-flight as part of bundled cycle `{bundled_topic}` (phase: {phase}). Re-invoke as `/lattice:cycle {bundled_topic}` to resume the bundle, or `--force` to start an independent cycle for `{topic}` (rare; usually wrong)."
 - **Exit 1 (no bundled match)** → proceed to Step 0b.
 
-This dedup is unbypassable except via `--force`, same as Step 0a's direct-grep path. Why mandatory: the failure mode is silent re-research/re-build of work that already shipped, costing tokens and producing conflicting state.
+This dedup is unbypassable except via `--force`, same as Step 0a's direct-grep path. Why mandatory: the failure mode is silent re-research/re-build of work that already shipped, costing tokens and producing conflicting state. Authoring contract: when a cycle absorbs a child gap as a phase of its own work, the child ID must appear in a structured YAML list field of the parent cycle's state — `scope:`, `known_gap_anchors:`, `todo_verified.entries:`, or `bundled_bugs:` are the recognized fields. A child ID mentioned only in free text (a `source:` line or a prose `todo:` field) will NOT be caught by dedup.
 
 **Step 0b: Acquire topic lock.** If dedup passes (or `--force` was specified):
 
