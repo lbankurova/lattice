@@ -59,13 +59,56 @@ Each applied extraction:
 2. Append a `decisions.log` row: `<ts>\textract-learnings\tEXTRACTED\t<spec>\t<destination>\t<one-line summary>`.
 3. Insert a back-reference into the spec body: `[Extracted to <destination>:<anchor>](relative-path)`.
 
+## Step 4a: Hoist pending TODOs into spec frontmatter
+
+**Purpose:** archive the spec's open work-record together with the spec itself, so the durable spec-archive carries its own pending-item list without depending on TODO.md to stay correctly cross-linked over time.
+
+Read `{{lattice.project.backlog.todo}}` and identify entries that cite this spec. Match heuristics (run all three; union the hits):
+
+1. **Filename cite:** grep for `<spec-basename>` (e.g. `radar-forest-cleanup-synthesis.md`) anywhere in TODO.md.
+2. **Topic / GAP-ID cite:** read the spec's frontmatter `topic:` or `gap_id:` field (or the `# Title` slug if no frontmatter) and grep TODO.md for it.
+3. **Spec-named GAP namespace:** if the spec defines its own GAP namespace (e.g. `GAP-RFC-*` for radar-forest-cleanup), grep for `^### (DATA-GAP-RFC|GAP-RFC)` heading lines.
+
+For each open item discovered, extract:
+- `id` — the entry's identifier (e.g. `DATA-GAP-RFC-1`, `GAP-FRS-2`).
+- `title` — the entry's heading text after the colon, before the `[Area: ...]` bracket.
+- `todo_line` — the line number in TODO.md where the entry's heading lives.
+- `area` — the bracketed area tags (`[Area: Engine, Documentation]` → `[Engine, Documentation]`).
+- `autopilot` — if the entry has an `autopilot:` field, copy its value (`ready`, `needs-user`, etc.). Omit if absent.
+
+Skip entries that are already marked resolved (strikethrough `~~`, status line "RESOLVED", or have a commit-hash close-out).
+
+**Write the result** as YAML frontmatter at the top of the spec. If the spec already has frontmatter, merge into it; otherwise prepend a new block. Schema:
+
+```yaml
+---
+status: archived
+archived_date: <YYYY-MM-DD>
+shipped_commits:
+  - <hash>  # optional one-line note
+pending_todos:
+  - id: <ID>
+    title: "<heading text>"
+    todo_line: <N>
+    area: [<tags>]
+    autopilot: <ready|needs-user>  # omit if absent in TODO.md
+---
+```
+
+**Why this lives at archive-time (not earlier):** while the spec is in `incoming/`, TODO.md is the authoritative cross-link. Once the spec leaves `incoming/`, that cross-link silently rots (next sweeper / archiver loses the connection). The hoist captures the open work-record into the spec body itself, so the archived spec is self-contained: a reader of the archive can see what's still open without re-discovering the TODO.md citations.
+
+**If no pending items are found,** add `pending_todos: []` explicitly (not omit) so the absence is recorded as a deliberate finding rather than missing data.
+
+**Exemplar (from pcc 2026-05-11 mass-cleanup):** the radar-forest-cleanup-synthesis archival hoisted 6 RFC-namespaced TODOs into frontmatter; findings-default-rail-selection hoisted 4 FRS-namespaced TODOs. In both cases, the items had been silently invisible from the archived spec until this step was added.
+
 ## Step 5: Archive the spec
 
 Move the spec from `{{lattice.project.specs.incoming}}/` to `{{lattice.project.specs.archive}}/<year>-<month>/<spec-name>.md`. The archived copy:
 - Keeps the back-references inserted in Step 4
+- Keeps the `pending_todos:` frontmatter from Step 4a
 - Adds a header note: `**Archived <date>**. Durable knowledge extracted: <list of destinations>. Implementation commit: <sha>.`
 
-If the spec has no extractable durable knowledge (rare — usually means the spec was implementation-detail-heavy or trivial), record this explicitly: `Archived <date>. No durable knowledge extracted (rationale: <one line>).` and skip Step 4. The rationale is required so future audits can distinguish "no knowledge to extract" from "extraction was forgotten."
+If the spec has no extractable durable knowledge (rare — usually means the spec was implementation-detail-heavy or trivial), record this explicitly: `Archived <date>. No durable knowledge extracted (rationale: <one line>).` and skip Step 4. The rationale is required so future audits can distinguish "no knowledge to extract" from "extraction was forgotten." **Step 4a still runs** — the absence of durable knowledge does not imply absence of pending TODOs.
 
 ## Step 6: Update the architecture spec if applicable
 
@@ -144,3 +187,4 @@ If the skill produces no extractions AND the spec has no `Archived <date>. No du
 - **The conflation case (1370c103, 521f1d16):** spec extraction was bundled into a conflated commit; the commit message didn't mention the spec, so no agent invoked the extract step. With this skill auto-running at /lattice:review Step 5d, the cycle close cannot proceed without either (a) extractions logged or (b) explicit "no extraction needed" rationale logged.
 - **Restated-value drift (rule 19 sibling):** when an implementation introduces a numeric threshold, this skill catches it at extraction time and forces it to land in the typed graph rather than just in the spec body. Architects + peer-review check the placement on incoming specs (rule 19); this skill closes the loop on outgoing specs.
 - **Architecture-spec rot:** the explicit Step 6 update prevents the case where a subsystem ships changes but its architecture spec stays at last-quarter's snapshot.
+- **Pending-TODO cross-link rot (Step 4a addition, pcc 2026-05-11):** before this step existed, archived specs lost their connection to TODO.md silently — open items remained in TODO.md, but readers of the archived spec had no way to discover them without re-grepping. The hoist makes the archived spec self-contained: a reader can see what's still open from the spec body alone. Caught during the pcc mass-cleanup of 75 incoming specs (commit pending) where 6 RFC-namespaced + 4 FRS-namespaced TODOs would have become orphaned cross-references on archive.
