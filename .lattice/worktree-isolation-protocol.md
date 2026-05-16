@@ -1,6 +1,6 @@
 # Worktree Isolation Protocol
 
-**Status:** R1 (autopilot beachhead) + R2 (review-agent isolation) + R3 (e2e branch worktrees) shipped 2026-05-09. R0 (project-wide enforcement) artifacts built but NOT yet activated -- see "R0 deployment gate" below.
+**Status:** R0 + R1 + R2 + R3 all active. R1 (autopilot beachhead) + R2 (review-agent isolation) + R3 (e2e branch worktrees) shipped 2026-05-09. R0 (project-wide PreToolUse enforcement) activated per project: lattice 2026-05-09 (commit `f37b8a8`), pcc 2026-05-16 (FIX-02 cycle — matcher-split + commit of `.claude/settings.json` R0 entries). **FIX-02 lesson:** the R0 matcher MUST be 3 separate `Bash(...)` entries (`Bash(git add*)`, `Bash(git commit*)`, `Bash(git stash*)`) — pipe-alternation inside parens (`Bash(git add*|git commit*|...)`) silently fails to fire on Claude Code's matcher engine. See `docs/decisions/r0-matcher-syntax-fix-2026-05-16.md` if/when written.
 
 **Source synthesis:** [`incoming/worktree-isolation-synthesis.md`](../incoming/worktree-isolation-synthesis.md) (462 lines, blueprint-validated).
 
@@ -98,7 +98,7 @@ Four review/audit agents declare `isolation: "worktree"` + read-only `tools` all
 
 The Claude Code Agent tool natively supports `isolation: "worktree"` -- it spawns the agent into a temporary git worktree, automatically cleaned up when the agent makes no changes. The `tools` allowlist (`[Read, Glob, Grep, Bash, WebFetch, Skill]`) excludes Edit/Write so review agents structurally cannot mutate the canonical tree's working files.
 
-Attestation writes via `bash scripts/append-attestation.sh` continue to work from inside the agent's isolated worktree -- the script honors `LATTICE_PROJECT_ROOT` (D1 fallback) and resolves `.lattice/pending-attestations.json` against canonical.
+Attestation writes via `bash scripts/append-attestation.sh` work from inside the agent's isolated worktree because the pending-attestations file is per-worktree (post-2026-05-10): it lives at `$(git rev-parse --git-path pending-attestations.json)`, which resolves to `.git/worktrees/<wt>/pending-attestations.json` for a linked worktree. Concurrent review agents in different worktrees never trample each other's staging file. Pre-2026-05-10 the file lived at `LATTICE_PROJECT_ROOT/.lattice/pending-attestations.json` (shared via symlink); the per-worktree migration closed an inter-worktree race the symlink design introduced.
 
 **Build-phase verification deferred:** Probe Target 4 -- trace `executor/src/engine.ts` `executeNode` dispatch path to confirm the `isolation` frontmatter field is forwarded to the harness, not short-circuited with a shared `cwd` parameter. Runtime evidence (`git rev-parse --show-toplevel` returns a path different from the canonical) needs to be captured in real review-agent invocations.
 
@@ -120,23 +120,25 @@ Foreign-state guard for `branch` mode is downgraded from refusal to advisory -- 
 
 ---
 
-## R0 -- Project-wide enforcement (BUILT, NOT ACTIVATED)
+## R0 -- Project-wide enforcement (ACTIVATED — lattice 2026-05-09, pcc 2026-05-16)
 
-R0 adds a PreToolUse hook (`hooks/preToolUse/require-worktree.sh`) that refuses Edit/Write/`Bash(git add|commit|stash)` when the session's cwd resolves to a canonical repo root.
+R0 adds PreToolUse hooks (`hooks/preToolUse/require-worktree.sh`) that refuse Edit/Write/`Bash(git add|commit|stash)` when the session's cwd resolves to a canonical repo root.
 
-**Activation gate (stop-light, five observables):**
+**Activation history:**
 
-R1 must clear all five before R0's hook is registered in `.claude/settings.json`:
+- **Lattice activated 2026-05-09** (commit `f37b8a8`) after R1 deployment cleared the five-observable stop-light gate (see "Original activation gate" below). Initial activation used a single matcher `Bash(git add*|git commit*|git stash*)` form.
+- **Pcc activated 2026-05-16** (FIX-02 bug-fix cycle). Pcc's `.claude/settings.json` had R0 entries added on 2026-05-09 but never committed; the in-flight working-tree state was loaded by some sessions but the activation was not durable. FIX-02 committed the entries AND fixed the matcher-syntax bug below.
+- **Matcher syntax fix (FIX-02, applied to both projects 2026-05-16):** the original `Bash(git add*|git commit*|git stash*)` form (pipe-alternation inside parens) silently fails to fire on Claude Code's matcher engine. Empirically confirmed via `.lattice/require-worktree-block.log`: only 2 entries from 2026-05-10T02:12 (initial activation test) plus 0 events between 2026-05-10 and 2026-05-16 despite many canonical-root commits including a confirmed concurrent-staging conflation occurrence (#5) during pcc GAP-357 build cycle. The hook script itself works correctly when invoked directly — root cause was Claude Code's matcher not dispatching to it. Fix: split into 3 separate `Bash(...)` entries (`Bash(git add*)`, `Bash(git commit*)`, `Bash(git stash*)`) plus `Edit|Write`.
+
+**Original activation gate (stop-light, five observables) — cleared 2026-05-09 for lattice:**
 
 1. **Zero orphan worktrees > 24h** -- `lattice-worktree-prune.sh` reports clean every run.
 2. **Zero non-FF aborts** caused by base advancement during a session.
 3. **Zero `.lattice/` symlink failures** OR clean fallback to env-var mode AND explicit audit of all 16 lattice scripts confirming `LATTICE_PROJECT_ROOT` awareness. Measured via `.lattice/symlink-fallback.log`.
 4. **Zero session-creation failures** -- `lattice-session-start.sh` exits 0 every invocation; failures land in `.lattice/session-creation-errors.log`.
-5. **`require-worktree.sh` block-event count > 0 during R1 traffic** -- confirms the hook is actually firing on canonical-root attempts. Without this observable, all four others can show clean while a hook bypass survives. Measured via `.lattice/require-worktree-block.log`. **Critical signal -- without it, all-green can be a false-green.**
+5. **`require-worktree.sh` block-event count > 0 during R1 traffic** -- confirms the hook is actually firing on canonical-root attempts. Without this observable, all four others can show clean while a hook bypass survives. Measured via `.lattice/require-worktree-block.log`. **Critical signal -- without it, all-green can be a false-green** (FIX-02 retrospect: this critical signal was the one that surfaced the matcher-syntax defect, 6+ days after activation. The gate-clearance verification on 2026-05-09 only confirmed the artifact-build observables (1-4); observable 5 was assumed-passing based on the 2 initial test entries without a post-activation traffic check).
 
-These observables run continuously through R1's deployment; user confirms gate cleared via decisions.log entry; no R0 hook deploys until **all five pass** with reasonable traffic volume (>= 10 autopilot batches in a real-work week).
-
-When activated, R0 registration in `.claude/settings.json` adds matchers for `Edit|Write` and `Bash(git add*|git commit*|git stash*)` dispatching to `bash hooks/preToolUse/require-worktree.sh`. The hook MUST be inserted BEFORE the existing commit-lock matcher (probe Target 1) so users see the structural fix message before the lock-contention message.
+**Current matcher form (FIX-02 corrected, both projects):** `.claude/settings.json` PreToolUse entries are 4 separate matchers — `Bash(git add*)`, `Bash(git commit*)`, `Bash(git stash*)`, and `Edit|Write` — each dispatching to `bash hooks/preToolUse/require-worktree.sh`. The R0 hooks MUST be ordered BEFORE the existing commit-lock matcher so users see the structural fix message before the lock-contention message.
 
 **Hook behavior summary:**
 
@@ -173,6 +175,23 @@ scripts/tests/test-lock-ownership.sh
 ```
 
 The migration pattern: prepend `LATTICE_ROOT="${LATTICE_PROJECT_ROOT:-$(git rev-parse --show-toplevel 2>/dev/null || pwd)}"` to scripts that operate on `.lattice/`, and replace bare `.lattice/...` references with `$LATTICE_ROOT/.lattice/...`. Test scripts unset `LATTICE_PROJECT_ROOT` to keep their temp-repo SUTs from leaking writes back to a parent session's canonical.
+
+### D1.1 -- Per-review-cycle state lives in git's per-worktree dir
+
+The D1 LATTICE_PROJECT_ROOT pattern correctly handles **shared inter-session state** (locks, decisions.log, cycle-state YAMLs, config files like `algorithm-paths.txt` / `rule-attestations.yaml` / `budget.yaml`). It is the **wrong** pattern for **per-cycle transient state** that one worktree owns for the duration of a stage→commit cycle: in symlink mode, every worktree's `.lattice/` resolves to the same canonical path, so two concurrent worktree sessions doing concurrent reviews would race on a single shared file.
+
+Four files are per-cycle and migrated to `git rev-parse --git-path <name>` (post-2026-05-10):
+
+| File | Purpose | Lifetime |
+|---|---|---|
+| `commit-intent.txt` | declared file set for one stage→commit cycle | `declare-commit-intent.sh` writes; pre-commit Step -0.5 reads; post-commit clears |
+| `review-gate.json` | review verdict + attestations for one commit | `write-review-gate.sh` writes; pre-commit Step 0 / commit-msg read; post-commit clears |
+| `pending-attestations.json` | staging buffer feeding review-gate.json | `append-attestation.sh` writes; `write-review-gate.sh` consumes (deletes) |
+| `last-review-output.md` | side-channel structured review output for D7 anchor check | `/lattice:review` writes; `write-review-gate.sh` reads |
+
+These now live at `.git/<name>` in canonical and `.git/worktrees/<wt>/<name>` in linked worktrees. Concurrent worktrees never trample each other's per-cycle state, and because `.git/` is outside the tracked tree the files can never be staged accidentally — incidentally fixing the "pending-attestations.json leaks into commit-intent" class documented in pcc's `feedback_pending_attestations_not_in_commit.md`.
+
+The migration pattern for these files: replace `$LATTICE_ROOT/.lattice/<name>` (the D1 pattern) with `$(git rev-parse --git-path <name>)`.
 
 ---
 

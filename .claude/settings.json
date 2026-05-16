@@ -2,12 +2,32 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash(git add*|git commit*|git stash*)",
+        "matcher": "Bash(git add*)",
         "hooks": [
           {
             "type": "command",
             "command": "bash -c 'ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; bash \"$ROOT/hooks/preToolUse/require-worktree.sh\"'",
-            "_comment": "Worktree-isolation R0. BLOCKS Edit/Write/Bash(git add|commit|stash) at canonical root unless allowlisted or exempted. See .lattice/worktree-isolation-protocol.md."
+            "_comment": "Worktree-isolation R0 (git-add). BLOCKS Bash(git add) at canonical root unless allowlisted or exempted. See .lattice/worktree-isolation-protocol.md. Split from pipe-alternation form 2026-05-16 (FIX-02) -- pipe-alternation inside parens is not reliably honored by Claude Code's matcher engine."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(git commit*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; bash \"$ROOT/hooks/preToolUse/require-worktree.sh\"'",
+            "_comment": "Worktree-isolation R0 (git-commit). BLOCKS Bash(git commit) at canonical root unless allowlisted or exempted."
+          }
+        ]
+      },
+      {
+        "matcher": "Bash(git stash*)",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; bash \"$ROOT/hooks/preToolUse/require-worktree.sh\"'",
+            "_comment": "Worktree-isolation R0 (git-stash). BLOCKS Bash(git stash) at canonical root unless allowlisted or exempted."
           }
         ]
       },

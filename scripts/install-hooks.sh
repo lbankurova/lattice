@@ -234,13 +234,19 @@ def has_matcher(matcher_pattern, command):
                     return True
     return False
 
+# Matchers are 4 separate entries -- pipe-alternation inside parens
+# (Bash(git add*|git commit*|...)) silently fails to fire on Claude Code's
+# matcher engine (FIX-02 root cause, 2026-05-16). See
+# .lattice/worktree-isolation-protocol.md "Matcher syntax fix (FIX-02)".
 new_matchers = [
-    ("Edit|Write", hook_cmd),
-    ("Bash(git add*|git commit*|git stash*)", hook_cmd),
+    ("Edit|Write", hook_cmd, "Worktree-isolation R0 (edit-write). BLOCKS Edit/Write at canonical root unless allowlisted or exempted. See .lattice/worktree-isolation-protocol.md."),
+    ("Bash(git add*)", hook_cmd, "Worktree-isolation R0 (git-add). BLOCKS Bash(git add) at canonical root unless allowlisted or exempted. Split from pipe-alternation form 2026-05-16 (FIX-02) -- pipe-alternation inside parens silently fails to fire."),
+    ("Bash(git commit*)", hook_cmd, "Worktree-isolation R0 (git-commit). BLOCKS Bash(git commit) at canonical root unless allowlisted or exempted."),
+    ("Bash(git stash*)", hook_cmd, "Worktree-isolation R0 (git-stash). BLOCKS Bash(git stash) at canonical root unless allowlisted or exempted."),
 ]
 
 added = 0
-for matcher, cmd in new_matchers:
+for matcher, cmd, comment in new_matchers:
     if has_matcher(matcher, cmd):
         continue
     new_entry = {
@@ -248,7 +254,7 @@ for matcher, cmd in new_matchers:
         "hooks": [{
             "type": "command",
             "command": cmd,
-            "_comment": "Worktree-isolation R0. BLOCKS Edit/Write/Bash(git add|commit|stash) at canonical root unless allowlisted or exempted. See .lattice/worktree-isolation-protocol.md.",
+            "_comment": comment,
         }],
     }
     # Insert at BEGINNING of array (probe Target 1: fire before commit-lock).
