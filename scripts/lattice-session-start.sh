@@ -201,13 +201,22 @@ fi
 CANONICAL_LATTICE="$CANONICAL/.lattice"
 mkdir -p "$CANONICAL_LATTICE"
 
+# If the worktree's .lattice/ already exists with tracked content (e.g., pcc
+# tracks handoffs per its CLAUDE.md rule 24), DO NOT attempt the symlink.
+# `ln -s TARGET EXISTING_DIR/` creates a nested TARGET symlink INSIDE the
+# existing dir instead of failing -- and the resulting working tree shows
+# `.lattice/.lattice/` as an untracked entry that blocks session-end.
+TRACKED_LATTICE_PRE="$(git -C "$WORKTREE" ls-files .lattice/ 2>/dev/null | head -1)"
+
 SYMLINK_OK=false
-if ln -s "$CANONICAL_LATTICE" "$WORKTREE/.lattice" 2>/dev/null; then
-    if [ -L "$WORKTREE/.lattice" ]; then
-        # Verify it actually resolves (some Windows configs create a junction
-        # that ln reports as success but doesn't behave as a real symlink).
-        if [ -d "$WORKTREE/.lattice" ] && [ -e "$WORKTREE/.lattice/." ]; then
-            SYMLINK_OK=true
+if [ -z "$TRACKED_LATTICE_PRE" ]; then
+    if ln -s "$CANONICAL_LATTICE" "$WORKTREE/.lattice" 2>/dev/null; then
+        if [ -L "$WORKTREE/.lattice" ]; then
+            # Verify it actually resolves (some Windows configs create a junction
+            # that ln reports as success but doesn't behave as a real symlink).
+            if [ -d "$WORKTREE/.lattice" ] && [ -e "$WORKTREE/.lattice/." ]; then
+                SYMLINK_OK=true
+            fi
         fi
     fi
 fi
@@ -216,7 +225,17 @@ if [ "$SYMLINK_OK" = "true" ]; then
     echo "  .lattice/ -> $CANONICAL_LATTICE (symlink mode)"
 else
     rm -f "$WORKTREE/.lattice" 2>/dev/null || true
-    rm -rf "$WORKTREE/.lattice" 2>/dev/null || true
+    # PRESERVE TRACKED CONTENT: a project may track files inside .lattice/
+    # (pcc tracks handoffs per its CLAUDE.md rule 24). rm -rf would surface
+    # tracked files as 'D' deletions and block lattice-session-end.sh's
+    # clean-tree check. Only remove the dir if it has no tracked content;
+    # otherwise leave it in place and let scripts use LATTICE_PROJECT_ROOT
+    # for shared state while the worktree's own .lattice/ files stay as
+    # ordinary tracked working-tree files.
+    TRACKED_LATTICE="$(git -C "$WORKTREE" ls-files .lattice/ 2>/dev/null | head -1)"
+    if [ -z "$TRACKED_LATTICE" ]; then
+        rm -rf "$WORKTREE/.lattice" 2>/dev/null || true
+    fi
     cat <<EOF
 WARNING: .lattice/ symlink creation failed.
          Likely cause: Windows without Developer Mode (standard user lacks
