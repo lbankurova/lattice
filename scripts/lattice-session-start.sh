@@ -280,6 +280,30 @@ if [ -f "$WORKTREE/.gitmodules" ]; then
             "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TOPIC" "$WORKTREE" \
             >> "$CANONICAL_LATTICE/session-creation-errors.log" 2>/dev/null || true
     fi
+
+    # WTI-FU-1 (2026-05-28): land each submodule on its tracking branch (per
+    # .gitmodules `branch = X`, defaulting to `main`), not the DETACHED HEAD
+    # that `submodule update --init` leaves. Detached commits strand on the
+    # next `submodule update` and trigger rescue-branch sprawl -- the failure
+    # mode documented in worktree-isolation post_ship_followup WTI-FU-1.
+    # Architect gate selected the shared-`main` + commit-lock model over
+    # per-session submodule branches; this is the source-side enforcement.
+    # The submodule .githooks/pre-commit branch guard is the self-enforcing
+    # backstop. Failures are logged but non-fatal (worktree usable for
+    # non-submodule paths).
+    git -C "$WORKTREE" config --file .gitmodules --get-regexp 'submodule\..*\.path' 2>/dev/null | \
+    while read -r path_key sm_path; do
+        section="${path_key%.path}"
+        sm_branch=$(git -C "$WORKTREE" config --file .gitmodules --get "${section}.branch" 2>/dev/null || echo main)
+        if [ -n "$sm_path" ] && [ -d "$WORKTREE/$sm_path" ]; then
+            if ! git -C "$WORKTREE/$sm_path" checkout "$sm_branch" 2>/dev/null; then
+                echo "WARNING: submodule '$sm_path' could not checkout '$sm_branch' (may remain detached)" >&2
+                printf '%s\tlattice-session-start\tSUBMODULE_CHECKOUT_FAILED\t%s\t%s\t%s\n' \
+                    "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TOPIC" "$sm_path" "$sm_branch" \
+                    >> "$CANONICAL_LATTICE/session-creation-errors.log" 2>/dev/null || true
+            fi
+        fi
+    done
 fi
 
 # ── Project setup auto-detection (superpowers Step 3, R2-NI-4 non-fatal) ──
