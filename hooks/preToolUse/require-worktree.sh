@@ -56,12 +56,16 @@ case "$TOOL" in
         # Always-gated.
         ;;
     Bash)
-        # Match git add / git commit / git stash subcommands inside the
-        # tool input's "command" field. Use a simple grep -- the hook is
-        # advisory under settings.json's matcher (which already narrows
-        # to Bash(git add*|...)) so this script's own check is a defense
-        # in depth.
-        if echo "$INPUT" | grep -qE 'git[[:space:]]+(add|commit|stash)\b'; then
+        # Gate git add/commit/stash, but ONLY at a real command position --
+        # command-value start ("command":"git ...) or after a shell
+        # separator/space (; & | = or whitespace) -- never when merely
+        # MENTIONED right after a quote (echo "...", grep '...', "Bash(git ...)").
+        # The settings.json matcher is the bare tool name "Bash" (matchers
+        # cannot filter on arguments -- FIX-03), so this grep IS the filter.
+        # Residual (accepted): a subcommand in PROSE preceded by a space
+        # (echo "note git commit") is regex-indistinguishable from a real
+        # '&& git commit' and still gates; use the exemption for those.
+        if echo "$INPUT" | grep -qE '("command"[[:space:]]*:[[:space:]]*"|[[:space:];&|=])git[[:space:]]+(add|commit|stash)\b'; then
             : # gated
         else
             exit 0

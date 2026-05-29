@@ -297,6 +297,16 @@ check_stdin_block "trivial rationale fix is rejected" '{"tool_name":"Bash","tool
 check_stdin_block "allow without rationale is rejected" '{"tool_name":"Bash","tool_input":{"command":"LATTICE_ALLOW_MAIN_TREE=1 git commit"}}'
 cd / && rm -rf "$REPO"
 
+# -- Case 18: command-position gating (FIX-03 over-gating fix) --
+# git subcommands MENTIONED inside quotes are NOT real invocations -> PERMIT;
+# real invocations after a separator still BLOCK.
+echo "[case 18] STDIN: quoted git-subcommand mentions -> PERMIT; real -> BLOCK"
+REPO=$(setup_repo); cd "$REPO"; mkdir -p .lattice
+check_stdin_permit "quoted 'git commit' mention not gated" '{"tool_name":"Bash","tool_input":{"command":"echo \"git commit done\""}}'
+check_stdin_permit "quoted Bash(git add) mention not gated" '{"tool_name":"Bash","tool_input":{"command":"echo \"see Bash(git add) docs\""}}'
+check_stdin_block "cd && git commit (real) still blocks" '{"tool_name":"Bash","tool_input":{"command":"cd sub && git commit -m x"}}'
+cd / && rm -rf "$REPO"
+
 echo ""
 echo "Tests: $ok passed, $fail failed"
 if [ "$fail" -gt 0 ]; then exit 1; fi
