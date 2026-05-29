@@ -29,19 +29,31 @@ Model: the declarative `Role(...)` registry in `docs/_internal/incoming/per-anim
 - `docs/_internal/redesign/01-capabilities.md` — the user-question corpus (the D1 anchor: `Q-*` IDs, §2 cross-cutting axes, §3 tensions, §1.7 branches).
 - `../sendex-ia/DECISIONS.md` (sibling repo; the recovered IA — read if available) — full typing vocabulary, the honesty/scope discriminators, OPEN/NEXT. Essentials embedded below so this skill is self-sufficient without it.
 - `docs/_internal/incoming/per-animal-classification-index.md` — the exemplar registry shape.
+- `docs/_internal/architecture/entity-model.md` — **the three-plane model (READ FIRST for typing): DB entity (P1) · judgment registry (P2) · override surface (P3). Only a P2 *judgment* gets a registry from this skill — run the plane gate below.**
 - `docs/_internal/SPINE.md` — the scope + traceability + build spine; **§6 the edition-dimension gate** (D-EDITION: editions are settings-flavors; every entity carries edition as a dimension from day one). The recovered entity's edition applicability is recorded in its SPINE row.
 - `CLAUDE.md` — rules 5 (reuse), 11 (ROADMAP intake), 16 (verify on real output), 17 (spec-value audit), 18 (contract triangles), 19 (algorithm defensibility on real data), 21 (advisory over engine), 22 (typed-fact thresholds).
 
+## Plane gate — run BEFORE typing (prevents mis-allocation)
+
+`$ARGUMENTS` is a domain noun. **First decide which plane it lives on** (`docs/_internal/architecture/entity-model.md`). Only a Plane-2 judgment gets a registry from this skill:
+
+- **Plane 2 — a contradictable domain judgment** (a call the engine makes that a toxicologist argues about; rules with provenance that must explain their negative space). → **PROCEED — author its registry.** e.g. adversity, adequacy (control/vehicle/hcd), syndrome-detection, NOAEL.
+- **Plane 1 — a DB entity / scope** (identity; countable per study; "show me all of them" is a sensible query: study, organ, endpoint, dose-group, subject-as-record). → **STOP — not a registry.** The judgments *attach to* it; it belongs in the entity-model Plane-1 list + gets a *view*. Redirect.
+- **Plane 3 — an override surface** (a per-instance correction to a verdict attribute: onset-dose, control-type). → **Not a registry** — an override-surface spec: name the triple `(verdict-attribute, DB-entity, producing-registry)` + edition-scoping.
+- **Axis / dimension** (substrate/analysis_unit, severity, confidence, edition). → **Not a registry** — a declared property every judgment carries.
+
+**The judgment is *about* a scope, not the scope** (`control-group` registry = "is the reference adequate?", not "the control group"). If you can't name a contradictable call with rules-that-could-be-wrong, this skill does not apply. Test: *"show me all of them" is a sensible query → Plane 1, stop.*
+
 ## IA typing vocabulary (embedded — the kind fixes the registry SHAPE)
 
-Type the entity against these kinds; the kind determines the registry's shape:
+Type the entity against these kinds — **but only after the plane gate above; a kind only applies to a Plane-2 judgment.** Each kind is tagged with its plane:
 
-- **leaf-atom** → a role-tag **set** per instance (the per-animal model).
-- **containment-level** → a node in the entity tree (endpoint→organ→organ_system→study→program→portfolio).
-- **overlay** — a many-to-many regroup cutting *across* the tree → membership **relation** + a *consume-don't-recompute* coordination contract. Two flavors: **input-side / acquisition** (e.g. clin-path panel: read-together by shared sample) vs **output-side / interpretation** (e.g. syndrome / concordance / correlates: grouped by shared meaning).
-- **axis** — **substrate** (unit-of-analysis: re-rooting / crossing; a lens at the wrong unit is *wrong, not uncertain*) or **adequacy** (is-the-datum-usable, orthogonal to what it shows).
-- **verdict-boundary** → determination rules + driver-set + honesty-states (a member's **contribution** to the boundary, never *ownership* — group→member projection is a violation).
-- **modifier** — a disclosure-depth / persona / stratification dial on the one atom; never a new screen.
+- **leaf-atom** *(P1 instance + P2 classification — the registry is the classification)* → a role-tag **set** per instance (`subject` is the P1 record; `subject-classification` is the P2 registry).
+- **containment-level** *(P1 scope — NOT a registry)* → a node in the entity tree (endpoint→organ→organ_system→study→program→portfolio). Judgments *attach to* it; do not author a registry — redirect to the DB-entity model.
+- **overlay** *(P1 instance + P2 catalog — the registry is the definition/detection)* — a many-to-many regroup cutting *across* the tree → membership **relation** + a *consume-don't-recompute* coordination contract. Two flavors: **input-side / acquisition** (e.g. clin-path panel) vs **output-side / interpretation** (e.g. syndrome / concordance / correlates). The *detected* instance is P1 (queryable); the *catalog* is the P2 registry.
+- **axis** *(substrate = axis/dimension, NOT a registry; adequacy = a P2 registry **family**)* — **substrate** (unit-of-analysis: re-rooting / crossing; wrong unit is *wrong, not uncertain*) is a declared property; **adequacy** (is-the-datum-usable) is a *family* of P2 registries (control / vehicle / hcd / study-conduct / species-relevance) — pick the instance.
+- **verdict-boundary** *(P2 — a registry)* → determination rules + driver-set + honesty-states (a member's **contribution** to the boundary, never *ownership* — group→member projection is a violation).
+- **modifier** *(P1 attribute / P3 dial — NOT a registry)* — a disclosure-depth / persona / stratification dial on the one atom; never a new screen, never a registry.
 - **NEW kind** → flag it; ratify-first.
 
 Discriminators: **D2** route-or-not (navigable noun vs cognitive verb — verbs are lens rows / inspectors, never routes); **D3** atom / modifier-not-fork; **D11** substrate-vs-lens (different failure layers — keep separate); **D22** overlay input/output flavor.
@@ -80,6 +92,7 @@ Cross-cutting rules carried as data: **magnitude ≠ verdict**; predicates **cit
 - **Categorical vocabularies carry CT provenance.** Every categorical term the registry emits or predicates on — role names, class values, cause categories, finding/term IDs — must (a) cite the CDISC controlled-terminology codelist/code where one exists, and (b) tag each term `status: observed | cdisc_ct | user_defined`. This is rule 22's "reference, never literal" discipline applied to *categorical* vocabulary, not just numeric thresholds: the vocabulary is standard-anchored where CT exists **and** user-expandable (the clin-path-panels `status:` model). A bare term with neither a codelist citation (where CT exists) nor a `status` tag is a defect. Terms that have no CDISC codelist (a SENDEX-layer judgment vocabulary) carry `status: observed | user_defined` and say so explicitly — "no CT codelist for this axis" is a valid, recorded answer, not a silent omission.
 - **Declare edition applicability (D-EDITION, SPINE §6).** The entity — and each capability/rule it serves — carries an `editions` field (`sponsor-IND` [primary] · `cro` · `fda`, multi). Editions are settings-flavors, so the registry shape must *represent* edition as a dimension from day one: no `sponsor-IND` assumption baked so deep that a `cro`/`fda` flavor would force a schema change. A `sponsor-IND`-only entity **with rationale** is valid; silent absence is `EDITION-DRIFT`. The substrate carries the dimension even when only the sponsor-IND flavor is populated (persona drives edition).
 - Ship in the spec: (a) **the registry itself** (YAML / typed-facts, authoritative — no hardcoded logic); (b) the **thin evaluator** signature (`map` over registry, the `resolve_panel` pattern); (c) the **introspection contract** — schema + `explain(instance) → {rules fired + evidence, rejected, out-of-scope}`; (d) an **audit hook** (every threshold → typed fact; every rule → source facts).
+- **Name the Plane-3 override surface(s) (entity-model P3, edition-scoped).** For every verdict attribute this registry writes onto a DB entity, name the triple `(verdict-attribute, DB-entity, producing-registry=this)` + which editions may override vs consume-read-only (entity-model "edition gates overridability" — e.g. `severity` is override-in-CRO, read-only-in-sponsor). State it even when the propagation machinery is deferred — the override *binding* is part of the registry, not downstream work.
 - Wrap in a spec at `docs/_internal/incoming/{entity}-registry.md` in the per-animal-index shape: why-it-exists / taxonomy-from-first-principles / the distinctions it must preserve / architecture / **THE REGISTRY** / validation (rule 19) / out-of-scope / engine-gaps. The prose serves the registry, not the reverse.
 
 ## Close-out (every run)
