@@ -52,3 +52,11 @@ if [ -x "$FRAMEWORK_ROOT/scripts/lattice-worktree-prune.sh" ]; then
             --auto-confirm-merged-only 2>/dev/null | sed "s/^/  [prune] /" || true
     fi
 fi
+
+# --- R0 worktree-hook liveness canary (report-only; INFRA-03 / BUG-009) ---
+# Surfaces a silently-dead require-worktree.sh within ONE commit instead of the
+# 13 days BUG-009 went unnoticed. post-commit cannot block, but the canary
+# prints a loud stderr alert if the hook fails its stdin/exit-2 self-test.
+if [ -f "$REPO_ROOT/scripts/check-r0-liveness.sh" ]; then
+    bash "$REPO_ROOT/scripts/check-r0-liveness.sh" --quiet || true
+fi
