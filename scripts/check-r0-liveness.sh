@@ -35,6 +35,12 @@ QUIET=0
 for a in "$@"; do [ "$a" = "--quiet" ] && QUIET=1; done
 say() { [ "$QUIET" -eq 1 ] || echo "$@"; }
 
+# The canary tests the gate's BASE behavior. A session-wide exemption
+# (LATTICE_ALLOW_MAIN_TREE in the environment) must NOT leak into the probes,
+# or the hook would exempt the BLOCK probe and the canary would false-alarm on
+# every commit made under an active exemption. Strip it for the probe subshells.
+unset LATTICE_ALLOW_MAIN_TREE LATTICE_EXEMPTION_RATIONALE
+
 GIT_COMMON="$(git rev-parse --git-common-dir 2>/dev/null || true)"
 if [ -z "$GIT_COMMON" ]; then
     echo "check-r0-liveness: not in a git repo -- skipping." >&2
