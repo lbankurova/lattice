@@ -44,6 +44,19 @@
           }
         ]
       }
+    ],
+    "SessionStart": [
+      {
+        "matcher": "startup|resume",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash -c 'ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; bash \"$ROOT/scripts/submodule-checkout-main.sh\"'",
+            "timeout": 30,
+            "_comment": "Submodule detached-HEAD fix. On session start/resume, returns any detached submodule to 'main' (git is the safety layer: carries non-conflicting uncommitted work, refuses + warns on real conflict). Resolves the recurring submodule detached-HEAD pain at its source. Never blocks (exit 0). See .lattice/worktree-isolation-protocol.md."
+          }
+        ]
+      }
     ]
   }
 }
