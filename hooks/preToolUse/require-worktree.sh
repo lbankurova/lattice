@@ -1,29 +1,53 @@
 #!/bin/bash
 # require-worktree.sh -- PreToolUse hook for project-wide worktree isolation.
 #
-# Reads $CLAUDE_TOOL_NAME and $CLAUDE_TOOL_INPUT (provided by Claude Code's
-# hook protocol). Refuses Edit/Write/Bash(git add|commit|stash) when the
-# session's cwd resolves to a canonical repo root (i.e., NOT a session
-# worktree). When the call is permitted, writes nothing; when blocked,
-# prints an actionable session-spawn message to stderr and exits 1.
+# Refuses Edit/Write/Bash(git add|commit|stash) when the session's cwd
+# resolves to a canonical repo root (i.e., NOT a session worktree). When the
+# call is permitted, writes nothing; when blocked, prints an actionable
+# session-spawn message to stderr and exits 2.
 #
-# Exit codes:
-#   0 -- tool call permitted (in worktree, OR allowlisted path, OR exempted)
-#   1 -- tool call blocked (canonical-root + non-allowlisted + no exemption)
+# INPUT INTERFACE: Claude Code delivers the tool-call payload as a JSON object
+# on STDIN (fields: tool_name, tool_input{...}, cwd, hook_event_name, ...).
+# This hook reads stdin first, and falls back to the CLAUDE_TOOL_NAME /
+# CLAUDE_TOOL_INPUT environment variables when set (the unit-test harness and
+# some alternate callers use env vars). Reading ONLY the env vars is what
+# silently no-op'd this hook 2026-05-16..2026-05-29: Claude Code never set
+# them, so TOOL was empty, Step 1's '*' branch fired, and every call was
+# permitted (exit 0). See worktree-isolation-protocol.md "Interface drift".
+#
+# EXIT CODES (PreToolUse contract -- current Claude Code):
+#   0 -- tool call permitted (in worktree, OR allowlisted path, OR exempted).
+#        Non-blocking. stdout/stderr are logged, not surfaced as an error.
+#   2 -- tool call BLOCKED. stderr is fed back to Claude as the block reason.
+#        (Exit 1 is a NON-blocking error in the hook protocol -- it would
+#        print a warning and let the tool proceed, so blocks MUST use 2.)
 #
 # Per worktree-isolation-synthesis.md Section 1 R0, D5.
-#
-# DEPLOYMENT STATUS: This hook is BUILT but NOT YET REGISTERED in lattice's
-# .claude/settings.json. Per the synthesis "Stop-light gate before R0
-# deployment", the hook activates only after R1 (autopilot beachhead) clears
-# five named observables in real autopilot traffic. Until then, this script
-# stands as ready-to-deploy artifact + reference for unit tests in
-# hooks/tests/test-require-worktree.sh.
 
 set -euo pipefail
 
+# ── Step 0: Read the tool-call payload (stdin JSON, env-var fallback) ──
+
 TOOL="${CLAUDE_TOOL_NAME:-}"
 INPUT="${CLAUDE_TOOL_INPUT:-}"
+
+if [ -z "$TOOL" ] || [ -z "$INPUT" ]; then
+    STDIN_PAYLOAD=""
+    # Only read when stdin is not a terminal (it never is under the hook
+    # protocol); guards against blocking on an interactive invocation.
+    if [ ! -t 0 ]; then
+        STDIN_PAYLOAD="$(cat 2>/dev/null || true)"
+    fi
+    if [ -z "$TOOL" ]; then
+        TOOL="$(printf '%s' "$STDIN_PAYLOAD" | grep -oE '"tool_name"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed -E 's/.*:[[:space:]]*"([^"]*)".*/\1/' || true)"
+    fi
+    if [ -z "$INPUT" ]; then
+        # The full payload is a superset of tool_input; downstream greps key
+        # off the quoted field names ("command", "file_path"), which appear
+        # only inside tool_input -- so passing the whole payload is safe.
+        INPUT="$STDIN_PAYLOAD"
+    fi
+fi
 
 # ── Step 1: Should this tool call be gated at all? ──
 
@@ -82,6 +106,32 @@ if [ -n "$SUPERPROJECT" ]; then
     IN_CANONICAL=true
 fi
 
+# Normalize a Windows drive-letter absolute path (C:/x or C:\x) to MSYS form
+# (/c/x), so file_path arguments (which Claude Code emits in C:/... form on
+# Windows) compare correctly against CWD_ABS / CANONICAL_ROOT (which come from
+# `pwd -P` in /c/... form). No-op on POSIX paths. Without this, prong B's
+# absolute-path-bypass detection silently never fires on Windows (the
+# C:/... vs /c/... prefix mismatch -- caught by test case 7b, 2026-05-29).
+to_msys_path() {
+    local p="$1"
+    # Convert backslash separators to forward slashes, then squeeze duplicate
+    # slashes. Claude Code emits Windows file_path values with backslash
+    # separators, and JSON-escaped pairs survive in the stdin payload; without
+    # the squeeze each escaped pair becomes // and the allowlist prefix-strip
+    # fails (caught live 2026-05-29 blocking an allowlisted .claude/ edit).
+    p="${p//\\//}"
+    p="$(printf '%s' "$p" | tr -s '/')"
+    case "$p" in
+        [a-zA-Z]:/*)
+            local drive rest
+            drive="$(printf '%s' "${p%%:*}" | tr '[:upper:]' '[:lower:]')"
+            rest="${p#*:}"
+            printf '/%s%s' "$drive" "$rest"
+            ;;
+        *) printf '%s' "$p" ;;
+    esac
+}
+
 # ── Step 3: Two-pronged detection (peer-review F3 finding) ──
 #
 # Prong A: cwd == canonical-root.
@@ -116,6 +166,9 @@ if [ -n "$FILE_PATH_RAW" ]; then
         /*|[a-zA-Z]:[/\\]*) FILE_PATH_ABS="$FILE_PATH_RAW" ;;
         *) FILE_PATH_ABS="$CWD_ABS/$FILE_PATH_RAW" ;;
     esac
+    # Normalize Windows drive-letter form to MSYS form before any prefix
+    # comparison (CANONICAL_ROOT / CWD_ABS are already in MSYS form).
+    FILE_PATH_ABS="$(to_msys_path "$FILE_PATH_ABS")"
     # Stable iterative collapse of `/a/b/..` segments using sed (the only
     # cross-platform reliable approach -- Bash glob ${//} doesn't match
     # path components correctly across versions). Loop terminates when no
@@ -187,12 +240,12 @@ if [ "${LATTICE_ALLOW_MAIN_TREE:-}" = "1" ]; then
             echo "BLOCKED by require-worktree: LATTICE_ALLOW_MAIN_TREE=1 set but rationale" >&2
             echo "  ('${RATIONALE:-(empty)}') is missing or trivial." >&2
             echo "  Set LATTICE_EXEMPTION_RATIONALE=\"<>=10-char specific reason\"." >&2
-            exit 1
+            exit 2
             ;;
     esac
     if [ "${#RATIONALE}" -lt 10 ]; then
         echo "BLOCKED by require-worktree: LATTICE_EXEMPTION_RATIONALE too short (<10 chars)." >&2
-        exit 1
+        exit 2
     fi
     # Audit-log the exemption to the per-event log AND to decisions.log
     # (Full System AC6 -- "decisions.log records every R0 hook block + every
@@ -245,4 +298,4 @@ For one-off exemptions:
 
 See .lattice/worktree-isolation-protocol.md for full details.
 EOF
-exit 1
+exit 2

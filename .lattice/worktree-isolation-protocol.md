@@ -149,6 +149,24 @@ R0 adds PreToolUse hooks (`hooks/preToolUse/require-worktree.sh`) that refuse Ed
 
 **Submodule note (probe Target 6):** when session A merges back with submodule@SHA-X and session B merges back with submodule@SHA-Y, the second FF-merge fails. This is normal git behavior, not a worktree defect. Use `--branch-as-pr` for the second session, or rebase manually.
 
+### Interface drift (FIX-03, 2026-05-29) — the hook that ran but never blocked
+
+A second false-green, same shape as FIX-02's matcher defect but at the hook-input layer. Between 2026-05-16 and 2026-05-29 the R0 hook fired on every gated tool call but **permitted everything** — `.lattice/require-worktree-block.log` showed zero new entries while canonical-root edits to `backend/`, `frontend/src/`, and `scripts/` accumulated freely.
+
+**Root cause:** `require-worktree.sh` read the tool call from the `CLAUDE_TOOL_NAME` / `CLAUDE_TOOL_INPUT` environment variables. Current Claude Code does not set those — it delivers the payload as a **JSON object on stdin** (`tool_name`, `tool_input{...}`, `cwd`, `hook_event_name`). With the env vars empty, `TOOL` was the empty string, Step 1's `*)` branch fired, and the hook exited 0 (permit) for every call. The unit tests passed throughout because the test harness set the env vars — testing the one interface production never used.
+
+**Second defect, same fix:** the block path used `exit 1`. In the PreToolUse contract, **only `exit 2` blocks** (stderr is fed back to Claude as the reason); `exit 1` is a non-blocking error that prints a warning and lets the tool proceed. So even with input fixed, `exit 1` would not have blocked.
+
+**Fix (both defects):**
+- Read stdin JSON first (`tool_name` via grep/sed; full payload reused for the `command`/`file_path` greps), env vars kept as a fallback for the test harness and alternate callers.
+- All block exits changed `1` -> `2`.
+- Windows path normalization (`to_msys_path`): Claude Code emits `file_path` with backslash separators and JSON-escapes them (`C:\pg\...`); convert backslashes to `/` and squeeze duplicate slashes so the allowlist prefix-strip and prong-B comparison work. Without it, prong B's absolute-path-bypass detection silently never fired on Windows, and allowlisted `.claude/` / `.lattice/` edits were wrongly blocked.
+- Regression tests now feed **stdin JSON** and assert the exact exit code (0 permit / 2 block): `hooks/tests/test-require-worktree.sh` cases 10-14.
+
+**Sibling hooks, same root cause:** the inline `.claude/settings.json` hooks that read `$CLAUDE_TOOL_INPUT` were dead for the same reason — co-author block (CLAUDE.md rule 4), complexity, engine-change, TS/Python post-edit checks, topic-trailer. All converted to read stdin in the same pass. The four `file_path`-extracting hooks now call a shared helper (`hooks/lib/extract-tool-file.sh`) instead of an inline `grep -oP ... \K` (which also failed: `grep -P` is unavailable in non-UTF-8 locales, and nested single quotes broke parse-time quote parity).
+
+**Lesson (extends FIX-02 observable 5):** "the hook script works when invoked directly" is necessary but not sufficient — it must be exercised through the *exact* interface Claude Code uses (stdin JSON, exit-2 contract), and the block-event log must be checked for accumulation after activation. A test harness that uses a different input interface than production manufactures false-green.
+
 ---
 
 ## D1 -- `.lattice/` cross-worktree visibility

@@ -35,6 +35,27 @@ check_fail() {
     fi
 }
 
+# Stdin-interface helpers. Current Claude Code delivers the hook payload as
+# JSON on STDIN (NOT env vars). These feed that interface and assert the exact
+# exit-code contract: 0 = permit, 2 = block (exit 1 is a non-blocking error
+# and would let the tool proceed -- so blocks must be 2, not just "non-zero").
+# This is the interface that silently no-op'd in production while the env-var
+# cases above passed -- the regression guard for that drift.
+check_stdin_permit() {
+    local desc="$1" payload="$2" rc
+    printf '%s' "$payload" | bash "$HOOK" >/dev/null 2>&1; rc=$?
+    if [ "$rc" -eq 0 ]; then echo "  PASS  $desc"; ok=$((ok+1));
+    else echo "  FAIL  $desc (expected exit 0, got $rc)"; fail=$((fail+1));
+    fi
+}
+check_stdin_block() {
+    local desc="$1" payload="$2" rc
+    printf '%s' "$payload" | bash "$HOOK" >/dev/null 2>&1; rc=$?
+    if [ "$rc" -eq 2 ]; then echo "  PASS  $desc"; ok=$((ok+1));
+    else echo "  FAIL  $desc (expected exit 2, got $rc)"; fail=$((fail+1));
+    fi
+}
+
 setup_repo() {
     local d
     d=$(mktemp -d)
@@ -151,9 +172,18 @@ rmdir "$WT"
 git -C "$REPO" worktree add -b session/test-bypass "$WT" HEAD >/dev/null 2>&1
 mkdir -p "$REPO/.lattice"
 cd "$WT"
-# Construct an absolute path that resolves INSIDE canonical AND is NOT
-# in the Tier 1 allowlist (src.ts, not CLAUDE.md / .lattice/ / .claude/).
-ABS_PATH="$REPO/src.ts"
+# Construct an absolute path that resolves INSIDE canonical AND is NOT in the
+# Tier 1 allowlist (src.ts, not CLAUDE.md / .lattice/ / .claude/). Derive the
+# canonical root the SAME way the hook does -- from `git rev-parse
+# --git-common-dir` + `pwd -P` -- NOT from $REPO (mktemp output). On MSYS
+# these differ: git reports the common-dir in C:/... form, and `cd`-ing into
+# it resolves through the /tmp mount alias (/tmp/claude/...), whereas the
+# mktemp string is /c/Users/.../Temp/.... The hook compares against the /tmp
+# form, so the test must build the expected path identically. (Real-world
+# C:/... drive-form file_paths -- e.g. C:/pg/pcc/... with no /tmp alias --
+# are normalized by the hook's to_msys_path and exercised in verification.)
+CANON_RESOLVED="$(dirname "$(cd "$(git rev-parse --git-common-dir)" && pwd -P)")"
+ABS_PATH="$CANON_RESOLVED/src.ts"
 check_fail "Edit absolute-path canonical/src.ts from worktree is blocked" \
     env CLAUDE_TOOL_NAME=Edit \
         CLAUDE_TOOL_INPUT="{\"file_path\": \"$ABS_PATH\"}" bash "$HOOK"
@@ -193,6 +223,59 @@ else
     echo "  SKIP  submodule add failed in this environment; case 9 not exercised"
 fi
 cd /; rm -rf "$REPO" "$SUB"
+
+# ── Case 10: STDIN interface -- Edit at canonical root -> BLOCK (exit 2) ──
+# THE regression test for the 2026-05 interface-drift no-op: env-var cases
+# above passed while this exact scenario silently permitted in production.
+echo "[case 10] STDIN: Edit at canonical root -> BLOCK (exit 2)"
+REPO=$(setup_repo)
+cd "$REPO"
+mkdir -p .lattice
+check_stdin_block "stdin Edit src.ts at canonical root blocks with exit 2" \
+    '{"hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"src.ts"}}'
+cd / && rm -rf "$REPO"
+
+# ── Case 11: STDIN -- Edit CLAUDE.md at canonical root -> PERMIT (allowlist) ──
+echo "[case 11] STDIN: Edit CLAUDE.md at canonical root -> PERMIT"
+REPO=$(setup_repo)
+cd "$REPO"
+mkdir -p .lattice
+check_stdin_permit "stdin Edit CLAUDE.md at canonical root is permitted" \
+    '{"hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"CLAUDE.md"}}'
+cd / && rm -rf "$REPO"
+
+# ── Case 12: STDIN -- Bash(git add) at canonical root -> BLOCK (exit 2) ──
+echo "[case 12] STDIN: Bash(git add) at canonical root -> BLOCK (exit 2)"
+REPO=$(setup_repo)
+cd "$REPO"
+mkdir -p .lattice
+check_stdin_block "stdin 'git add foo.txt' at canonical blocks with exit 2" \
+    '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git add foo.txt"}}'
+check_stdin_permit "stdin 'git status' at canonical is permitted (not gated)" \
+    '{"hook_event_name":"PreToolUse","tool_name":"Bash","tool_input":{"command":"git status"}}'
+cd / && rm -rf "$REPO"
+
+# ── Case 13: STDIN -- non-gated tool (Read) -> PERMIT (exit 0) ──
+echo "[case 13] STDIN: non-gated tool (Read) -> PERMIT"
+REPO=$(setup_repo)
+cd "$REPO"
+mkdir -p .lattice
+check_stdin_permit "stdin Read is not gated" \
+    '{"hook_event_name":"PreToolUse","tool_name":"Read","tool_input":{"file_path":"src.ts"}}'
+cd / && rm -rf "$REPO"
+
+# ── Case 14: STDIN -- Edit inside worktree -> PERMIT (exit 0) ──
+echo "[case 14] STDIN: Edit inside worktree -> PERMIT"
+REPO=$(setup_repo)
+WT=$(mktemp -d)
+rmdir "$WT"
+git -C "$REPO" worktree add -b session/test-stdin "$WT" HEAD >/dev/null 2>&1
+mkdir -p "$REPO/.lattice"
+cd "$WT"
+check_stdin_permit "stdin Edit src.ts inside worktree is permitted" \
+    '{"hook_event_name":"PreToolUse","tool_name":"Edit","tool_input":{"file_path":"src.ts"}}'
+cd / && git -C "$REPO" worktree remove --force "$WT" >/dev/null 2>&1
+rm -rf "$REPO"
 
 echo ""
 echo "Tests: $ok passed, $fail failed"
