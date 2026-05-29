@@ -2,32 +2,12 @@
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "Bash(git add*)",
+        "matcher": "Bash",
         "hooks": [
           {
             "type": "command",
             "command": "bash -c 'ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; bash \"$ROOT/hooks/preToolUse/require-worktree.sh\"'",
-            "_comment": "Worktree-isolation R0 (git-add). BLOCKS Bash(git add) at canonical root unless allowlisted or exempted. See .lattice/worktree-isolation-protocol.md. Split from pipe-alternation form 2026-05-16 (FIX-02) -- pipe-alternation inside parens is not reliably honored by Claude Code's matcher engine."
-          }
-        ]
-      },
-      {
-        "matcher": "Bash(git commit*)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; bash \"$ROOT/hooks/preToolUse/require-worktree.sh\"'",
-            "_comment": "Worktree-isolation R0 (git-commit). BLOCKS Bash(git commit) at canonical root unless allowlisted or exempted."
-          }
-        ]
-      },
-      {
-        "matcher": "Bash(git stash*)",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "bash -c 'ROOT=\"$(git rev-parse --show-toplevel 2>/dev/null || pwd)\"; bash \"$ROOT/hooks/preToolUse/require-worktree.sh\"'",
-            "_comment": "Worktree-isolation R0 (git-stash). BLOCKS Bash(git stash) at canonical root unless allowlisted or exempted."
+            "_comment": "Worktree-isolation R0 (bash-git). BLOCKS Bash git add/commit/stash at canonical root unless allowlisted or exempted. Bare 'Bash' matcher: Claude Code hook matchers match the tool NAME only; Bash(git ...) is permission syntax that never fires (FIX-03, 2026-05-29). require-worktree.sh self-filters to git add/commit/stash. Inline exemption: LATTICE_ALLOW_MAIN_TREE=1 LATTICE_EXEMPTION_RATIONALE=\"<reason>\" git commit ..."
           }
         ]
       },

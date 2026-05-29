@@ -61,7 +61,7 @@ case "$TOOL" in
         # advisory under settings.json's matcher (which already narrows
         # to Bash(git add*|...)) so this script's own check is a defense
         # in depth.
-        if echo "$INPUT" | grep -qE '"command"\s*:\s*"\s*git\s+(add|commit|stash)\b'; then
+        if echo "$INPUT" | grep -qE 'git[[:space:]]+(add|commit|stash)\b'; then
             : # gated
         else
             exit 0
@@ -231,8 +231,21 @@ fi
 
 # ── Step 5: Exemption envelope (Tier 2, explicit) ──
 
-if [ "${LATTICE_ALLOW_MAIN_TREE:-}" = "1" ]; then
-    RATIONALE="${LATTICE_EXEMPTION_RATIONALE:-}"
+# Resolve the exemption from the session environment OR -- for Bash commands --
+# from an inline exemption embedded in the command string. Inline env vars set
+# in a command (LATTICE_ALLOW_MAIN_TREE=1 ... git commit) do NOT reach this hook
+# (it runs in Claude Code's environment, not as a child of the command), so the
+# documented escape hatch is parsed out of the payload here. Edit/Write carry no
+# command string -- their exemption must come from the session environment.
+ALLOW="${LATTICE_ALLOW_MAIN_TREE:-}"
+RATIONALE="${LATTICE_EXEMPTION_RATIONALE:-}"
+if [ "$ALLOW" != "1" ] && printf '%s' "$INPUT" | grep -q 'LATTICE_ALLOW_MAIN_TREE=1'; then
+    ALLOW=1
+    if [ -z "$RATIONALE" ]; then
+        RATIONALE="$(printf '%s' "$INPUT" | sed -n 's/.*LATTICE_EXEMPTION_RATIONALE=[\\]*"\([^"\\]*\).*/\1/p' | head -1)"
+    fi
+fi
+if [ "$ALLOW" = "1" ]; then
     # Trivial-rationale rejection list. Inline because the list has 5
     # entries and one consumer.
     case "$RATIONALE" in

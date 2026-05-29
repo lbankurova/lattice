@@ -234,15 +234,15 @@ def has_matcher(matcher_pattern, command):
                     return True
     return False
 
-# Matchers are 4 separate entries -- pipe-alternation inside parens
-# (Bash(git add*|git commit*|...)) silently fails to fire on Claude Code's
-# matcher engine (FIX-02 root cause, 2026-05-16). See
-# .lattice/worktree-isolation-protocol.md "Matcher syntax fix (FIX-02)".
+# Two matchers, tool-NAME only. Claude Code hook matchers match the tool name,
+# NOT arguments: Bash(git add*) is PERMISSION-rule syntax and is never honored
+# as a hook matcher -- it is read as a literal tool name and never fires (FIX-03
+# root cause, 2026-05-29; the FIX-02 "split into separate Bash(...)" treated the
+# same dead-dispatch symptom with the wrong cause). require-worktree.sh
+# self-filters Bash to git add/commit/stash internally, so bare "Bash" is right.
 new_matchers = [
     ("Edit|Write", hook_cmd, "Worktree-isolation R0 (edit-write). BLOCKS Edit/Write at canonical root unless allowlisted or exempted. See .lattice/worktree-isolation-protocol.md."),
-    ("Bash(git add*)", hook_cmd, "Worktree-isolation R0 (git-add). BLOCKS Bash(git add) at canonical root unless allowlisted or exempted. Split from pipe-alternation form 2026-05-16 (FIX-02) -- pipe-alternation inside parens silently fails to fire."),
-    ("Bash(git commit*)", hook_cmd, "Worktree-isolation R0 (git-commit). BLOCKS Bash(git commit) at canonical root unless allowlisted or exempted."),
-    ("Bash(git stash*)", hook_cmd, "Worktree-isolation R0 (git-stash). BLOCKS Bash(git stash) at canonical root unless allowlisted or exempted."),
+    ("Bash", hook_cmd, "Worktree-isolation R0 (bash-git). BLOCKS Bash git add/commit/stash at canonical root unless allowlisted or exempted. Bare 'Bash' matcher: hook matchers match the tool NAME only; Bash(git ...) is permission syntax that never fires (FIX-03). require-worktree.sh self-filters."),
 ]
 
 added = 0

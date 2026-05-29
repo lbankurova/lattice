@@ -277,6 +277,26 @@ check_stdin_permit "stdin Edit src.ts inside worktree is permitted" \
 cd / && git -C "$REPO" worktree remove --force "$WT" >/dev/null 2>&1
 rm -rf "$REPO"
 
+# -- Case 15-17: Bash git hard-block + inline exemption (FIX-03) --
+echo "[case 15] STDIN: raw/prefixed git commit + git add at canonical -> BLOCK"
+REPO=$(setup_repo); cd "$REPO"; mkdir -p .lattice
+check_stdin_block "git commit at canonical blocks (exit 2)" '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}'
+check_stdin_block "PREFIXED git commit still blocks (no bypass)" '{"tool_name":"Bash","tool_input":{"command":"true; git commit -m x"}}'
+check_stdin_block "git add at canonical blocks" '{"tool_name":"Bash","tool_input":{"command":"git add ."}}'
+check_stdin_permit "git status not gated" '{"tool_name":"Bash","tool_input":{"command":"git status"}}'
+cd / && rm -rf "$REPO"
+
+echo "[case 16] STDIN: inline exemption with valid rationale -> PERMIT"
+REPO=$(setup_repo); cd "$REPO"; mkdir -p .lattice
+check_stdin_permit "valid >=10-char inline rationale permits git commit" '{"tool_name":"Bash","tool_input":{"command":"LATTICE_ALLOW_MAIN_TREE=1 LATTICE_EXEMPTION_RATIONALE=\"committing the hardblock fix\" git commit -m x"}}'
+cd / && rm -rf "$REPO"
+
+echo "[case 17] STDIN: inline exemption with trivial/missing rationale -> BLOCK"
+REPO=$(setup_repo); cd "$REPO"; mkdir -p .lattice
+check_stdin_block "trivial rationale fix is rejected" '{"tool_name":"Bash","tool_input":{"command":"LATTICE_ALLOW_MAIN_TREE=1 LATTICE_EXEMPTION_RATIONALE=\"fix\" git commit"}}'
+check_stdin_block "allow without rationale is rejected" '{"tool_name":"Bash","tool_input":{"command":"LATTICE_ALLOW_MAIN_TREE=1 git commit"}}'
+cd / && rm -rf "$REPO"
+
 echo ""
 echo "Tests: $ok passed, $fail failed"
 if [ "$fail" -gt 0 ]; then exit 1; fi
