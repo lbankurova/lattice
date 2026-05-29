@@ -233,6 +233,21 @@ if [ -n "${FILE_PATH_RAW}" ] && is_allowlisted "$FILE_PATH_ABS"; then
     exit 0
 fi
 
+# ── Mode gate: STRICT enforces worktree isolation; LENIENT (default) permits ──
+#
+# Hard-block forces work off the canonical HEAD, but a Claude session cannot
+# relaunch itself into a worktree -- so hard-blocking a MANUAL canonical session
+# breaks interactive editing. Autopilot is isolated separately (R1: it runs in
+# its own worktree, so it never reaches this point at canonical). Default here is
+# therefore LENIENT: permit the write and rely on the commit-level git hooks
+# (commit-intent + commit-lock + review-gate) for concurrency safety. STRICT
+# (LATTICE_R0_STRICT=1) is the opt-in for sessions that SHOULD be forced into a
+# worktree -- e.g. when knowingly running concurrent/automated work alongside.
+if [ "${LATTICE_R0_STRICT:-}" != "1" ]; then
+    { printf '%s\trequire-worktree\tLENIENT_PERMIT\ttool=%s\tfile=%s\tcwd=%s\n' "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$TOOL" "${FILE_PATH_RAW:-(n/a)}" "$CWD_ABS"; } >> "$CANONICAL_ROOT/.lattice/r0-lenient-permit.log" 2>/dev/null || true
+    exit 0
+fi
+
 # ── Step 5: Exemption envelope (Tier 2, explicit) ──
 
 # Resolve the exemption from the session environment OR -- for Bash commands --

@@ -20,6 +20,9 @@ fi
 # Tests run inside a per-test temp git repo. Unset any inherited
 # LATTICE_PROJECT_ROOT / LATTICE_ALLOW_MAIN_TREE so tests see a clean env.
 unset LATTICE_PROJECT_ROOT LATTICE_ALLOW_MAIN_TREE LATTICE_EXEMPTION_RATIONALE
+# Default R0 is LENIENT (solo-interactive); the block-expecting cases below
+# test the STRICT enforcement path. Lenient cases unset this explicitly.
+export LATTICE_R0_STRICT=1
 
 ok=0; fail=0
 check() {
@@ -53,6 +56,17 @@ check_stdin_block() {
     printf '%s' "$payload" | bash "$HOOK" >/dev/null 2>&1; rc=$?
     if [ "$rc" -eq 2 ]; then echo "  PASS  $desc"; ok=$((ok+1));
     else echo "  FAIL  $desc (expected exit 2, got $rc)"; fail=$((fail+1));
+    fi
+}
+
+# Lenient-mode helper: with STRICT off (the default), a canonical-root write is
+# PERMITTED (exit 0) -- interactive editing is not blocked; commit-level git
+# hooks provide concurrency safety instead.
+check_lenient_permit() {
+    local desc="$1" payload="$2" rc
+    printf '%s' "$payload" | env -u LATTICE_R0_STRICT bash "$HOOK" >/dev/null 2>&1; rc=$?
+    if [ "$rc" -eq 0 ]; then echo "  PASS  $desc"; ok=$((ok+1));
+    else echo "  FAIL  $desc (expected exit 0 lenient, got $rc)"; fail=$((fail+1));
     fi
 }
 
@@ -305,6 +319,13 @@ REPO=$(setup_repo); cd "$REPO"; mkdir -p .lattice
 check_stdin_permit "quoted 'git commit' mention not gated" '{"tool_name":"Bash","tool_input":{"command":"echo \"git commit done\""}}'
 check_stdin_permit "quoted Bash(git add) mention not gated" '{"tool_name":"Bash","tool_input":{"command":"echo \"see Bash(git add) docs\""}}'
 check_stdin_block "cd && git commit (real) still blocks" '{"tool_name":"Bash","tool_input":{"command":"cd sub && git commit -m x"}}'
+cd / && rm -rf "$REPO"
+
+# -- Case 19: LENIENT mode (default, solo-interactive) -> canonical writes PERMIT --
+echo "[case 19] LENIENT (default): canonical Edit + git commit -> PERMIT"
+REPO=$(setup_repo); cd "$REPO"; mkdir -p .lattice
+check_lenient_permit "lenient: Edit non-allowlisted at canonical permitted" '{"tool_name":"Edit","tool_input":{"file_path":"src.ts"}}'
+check_lenient_permit "lenient: git commit at canonical permitted" '{"tool_name":"Bash","tool_input":{"command":"git commit -m x"}}'
 cd / && rm -rf "$REPO"
 
 echo ""

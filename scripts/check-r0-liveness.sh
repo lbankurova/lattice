@@ -40,6 +40,10 @@ say() { [ "$QUIET" -eq 1 ] || echo "$@"; }
 # or the hook would exempt the BLOCK probe and the canary would false-alarm on
 # every commit made under an active exemption. Strip it for the probe subshells.
 unset LATTICE_ALLOW_MAIN_TREE LATTICE_EXEMPTION_RATIONALE
+# Probe the STRICT enforcement path regardless of the session's mode -- the
+# canary verifies the hook CAN block (the mechanism is alive), not the
+# session's current lenient/strict policy.
+export LATTICE_R0_STRICT=1
 
 GIT_COMMON="$(git rev-parse --git-common-dir 2>/dev/null || true)"
 if [ -z "$GIT_COMMON" ]; then
