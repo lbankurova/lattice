@@ -191,3 +191,118 @@ test('lattice-session-end.sh --merge-back fast-forwards into base', () => {
     rmSync(cwd, { recursive: true, force: true });
   }
 });
+
+// ── Integration phase: --rebase path (ENH-17a) ──
+//
+// Builds a session branch that is BEHIND base (the normal case once master
+// advances during the run). Bare --merge-back strands it (FF-only); --rebase
+// rebases onto base, optionally re-gates, and lands it.
+
+/** Start a session, commit `feature.txt` on the branch, then advance master on
+ *  a DIFFERENT file so the branch is 1-ahead / 1-behind (clean rebase). */
+function setupBehindBranch(topic: string, cwd: string): string {
+  const r = runHelper(SESSION_START, [topic, '--skip-deps'], cwd);
+  assert.equal(r.status, 0, `start failed:\n${r.stderr}`);
+  const wt = extractWorktreePath(r.stdout);
+  assert.ok(wt, 'worktree path not parseable');
+  // Branch work.
+  writeFileSync(join(wt!, 'feature.txt'), 'shipped\n');
+  execSync('git add feature.txt && git commit --quiet -m "feature work"',
+    { cwd: wt!, stdio: ['ignore', 'pipe', 'pipe'] });
+  // Base advances on an unrelated file -> branch is now behind.
+  writeFileSync(join(cwd, 'other.txt'), 'base moved\n');
+  execSync('git add other.txt && git commit --quiet -m "base advance"',
+    { cwd, stdio: ['ignore', 'pipe', 'pipe'] });
+  return wt!;
+}
+
+test('lattice-session-end.sh --merge-back (no --rebase) strands a behind-branch (exit 2)', () => {
+  if (!existsSync(SESSION_START) || !existsSync(SESSION_END)) {
+    console.log('SKIP: R1 helpers not present');
+    return;
+  }
+  const cwd = mkRepo();
+  let wt: string | null = null;
+  try {
+    wt = setupBehindBranch('behind-noreb', cwd);
+    const end = runHelper(SESSION_END, ['behind-noreb', '--merge-back'], cwd);
+    assert.equal(end.status, 2, `expected exit 2 (non-FF), got ${end.status}:\n${end.stdout}`);
+    // Branch + worktree left intact for recovery.
+    assert.equal(existsSync(wt!), true, 'worktree should be left intact on non-FF abort');
+    // Master did NOT gain feature.txt.
+    const has = spawnSync('git', ['show', 'master:feature.txt'], { cwd, encoding: 'utf-8' });
+    assert.notEqual(has.status, 0, 'feature.txt must NOT be on master after a stranded merge-back');
+  } finally {
+    if (wt && existsSync(wt)) runHelper(SESSION_END, ['behind-noreb', '--discard'], cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('lattice-session-end.sh --merge-back --rebase lands a behind-branch', () => {
+  if (!existsSync(SESSION_START) || !existsSync(SESSION_END)) {
+    console.log('SKIP: R1 helpers not present');
+    return;
+  }
+  const cwd = mkRepo();
+  let wt: string | null = null;
+  try {
+    wt = setupBehindBranch('behind-reb', cwd);
+    const end = runHelper(SESSION_END, ['behind-reb', '--merge-back', '--rebase'], cwd);
+    assert.equal(end.status, 0, `rebase-land failed:\n${end.stderr}\n${end.stdout}`);
+    assert.equal(existsSync(wt!), false, 'worktree should be removed after a successful rebase-land');
+    // Master now has BOTH the base advance and the rebased feature.
+    assert.ok(execSync('git show master:feature.txt', { cwd, encoding: 'utf-8' }).includes('shipped'),
+      'feature.txt did not land after rebase');
+    assert.ok(execSync('git show master:other.txt', { cwd, encoding: 'utf-8' }).includes('base moved'),
+      'base advance lost');
+    // initial + other + feature = 3 (linear history via rebase, no merge commit).
+    const count = execSync('git rev-list --count master', { cwd, encoding: 'utf-8' }).trim();
+    assert.equal(count, '3', `master commit count after rebase-land should be 3; got ${count}`);
+    wt = null;
+  } finally {
+    if (wt && existsSync(wt)) runHelper(SESSION_END, ['behind-reb', '--discard'], cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('lattice-session-end.sh --rebase --gate-cmd refuses to land on a red re-gate (exit 2)', () => {
+  if (!existsSync(SESSION_START) || !existsSync(SESSION_END)) {
+    console.log('SKIP: R1 helpers not present');
+    return;
+  }
+  const cwd = mkRepo();
+  let wt: string | null = null;
+  try {
+    wt = setupBehindBranch('behind-redgate', cwd);
+    // Re-gate fails -> clean rebase but must NOT merge.
+    const end = runHelper(SESSION_END, ['behind-redgate', '--merge-back', '--rebase', '--gate-cmd', 'exit 1'], cwd);
+    assert.equal(end.status, 2, `expected exit 2 on red gate, got ${end.status}:\n${end.stdout}`);
+    assert.equal(existsSync(wt!), true, 'worktree must be left intact on red re-gate');
+    const has = spawnSync('git', ['show', 'master:feature.txt'], { cwd, encoding: 'utf-8' });
+    assert.notEqual(has.status, 0, 'feature.txt must NOT land when the re-gate is red');
+  } finally {
+    if (wt && existsSync(wt)) runHelper(SESSION_END, ['behind-redgate', '--discard'], cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test('lattice-session-end.sh --rebase --gate-cmd lands when the re-gate passes', () => {
+  if (!existsSync(SESSION_START) || !existsSync(SESSION_END)) {
+    console.log('SKIP: R1 helpers not present');
+    return;
+  }
+  const cwd = mkRepo();
+  let wt: string | null = null;
+  try {
+    wt = setupBehindBranch('behind-greengate', cwd);
+    const end = runHelper(SESSION_END, ['behind-greengate', '--merge-back', '--rebase', '--gate-cmd', 'test -f feature.txt'], cwd);
+    assert.equal(end.status, 0, `green-gate land failed:\n${end.stderr}\n${end.stdout}`);
+    assert.equal(existsSync(wt!), false, 'worktree should be removed after a green-gate land');
+    assert.ok(execSync('git show master:feature.txt', { cwd, encoding: 'utf-8' }).includes('shipped'),
+      'feature.txt did not land after green re-gate');
+    wt = null;
+  } finally {
+    if (wt && existsSync(wt)) runHelper(SESSION_END, ['behind-greengate', '--discard'], cwd);
+    rmSync(cwd, { recursive: true, force: true });
+  }
+});

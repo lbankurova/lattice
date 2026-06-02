@@ -113,13 +113,17 @@ bash scripts/lattice-session-start.sh "$BATCH_ID" --skip-deps
 
 The session-spawn helper handles `.lattice/` cross-worktree visibility (symlink primary, `LATTICE_PROJECT_ROOT` env-var fallback on Windows-without-Developer-Mode), submodule init, and project-setup auto-detection. Failures are non-fatal -- session-creation errors land in `.lattice/session-creation-errors.log`. See `.lattice/worktree-isolation-protocol.md` for the full contract.
 
-**Step 3.6 -- End the session:** after the last item commits (or the batch errors out), tear the worktree down:
+**Step 3.6 -- End the session (integration phase):** after the last item commits (or the batch errors out), tear the worktree down AND land the work:
 
 ```bash
-bash scripts/lattice-session-end.sh "$BATCH_ID" --merge-back
+bash scripts/lattice-session-end.sh "$BATCH_ID" --merge-back --rebase
 ```
 
-`--merge-back` fast-forwards the session branch into the base (default master/main) and removes the worktree. If the base has advanced past the session's merge-base (multi-day batch), `--merge-back` aborts and the protocol doc instructs `--branch-as-pr` for branch-as-PR review. The R1 tests (`executor/src/autopilot-worktree.test.ts`) verify that two concurrent batches each commit to their own branch with master untouched -- the conflation precedents (`1370c103`, `521f1d16`, `a47ee865`, `abdb31c9`) cannot recur under R1.
+`--merge-back` fast-forwards the session branch into the base (default master/main) and removes the worktree. `--rebase` closes the merge-back loop for the **normal** case where the base advanced while the batch ran: the branch is *behind*, so a bare `--merge-back` would abort and **strand** the batch (this is exactly how behind-branches accumulated — they were un-*rebased*, not un-merged). With `--rebase`, the script rebases the branch onto the base, **re-gates** it (build/lint/test, auto-discovered from `lattice-project.toml` `[project.integrate] gate_cmd` — merge-only-when-green), and fast-forwards. On rebase conflict or red re-gate it leaves the worktree + branch in place (exit 2) — drained later by `/lattice:integrate --sweep`, never force-merged. When invoked via the executor, `runAutopilot` already passes `--rebase` automatically. The R1 tests (`executor/src/autopilot-worktree.test.ts`) verify that two concurrent batches each commit to their own branch with master untouched -- the conflation precedents (`1370c103`, `521f1d16`, `a47ee865`, `abdb31c9`) cannot recur under R1.
+
+> **Per-cycle integrate is suppressed during autopilot.** `runAutopilot` sets `LATTICE_AUTOPILOT_RUN=1`, so the build-cycle `integrate` node and `/lattice:review` Step 7 no-op — autopilot owns the single batch-level teardown above. Do not run `/lattice:integrate` (without `--sweep`) inside a batch.
+
+**Periodic strand drain:** run `/lattice:integrate --sweep` between batches (or on demand) to land any branches that earlier batches couldn't auto-land (pre-`--rebase` strands, conflicts, red re-gates). The sweep applies the full rebase + re-gate + escalate contract per branch and reports a land/remove/escalate table.
 
 **Step 3.1 -- per item:** for each selected item:
 1. Announce: `"Advancing {name} ({source}/{phase-or-kind}) via {route}"`

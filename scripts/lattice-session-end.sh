@@ -7,13 +7,23 @@
 #   --branch-as-pr    -- push session branch but do NOT merge; print gh pr create cmd
 #   --discard         -- abandon session (delete worktree + branch without merging)
 #   --base <branch>   -- override base branch (default: master/main, auto-detected)
+#   --rebase          -- when the branch is BEHIND base (non-FF), rebase it onto base
+#                        in the worktree and retry the FF, instead of exiting 2. A
+#                        rebase CONFLICT aborts the rebase and exits 2 (escalate).
+#   --gate-cmd <cmd>  -- (with --rebase) shell command run in the rebased worktree
+#                        before the FF-merge; non-zero exit aborts the rebase and
+#                        exits 2. This is the semantic re-gate (build/lint/test) that
+#                        guards against a clean-textual-but-semantically-broken rebase.
+#                        If omitted, no semantic re-gate runs (clean rebase + FF only).
 #
 # Exit codes:
 #   0 -- session ended cleanly
 #   1 -- precondition failure (no matching worktree, dirty tree, etc.)
-#   2 -- merge failed (non-FF, conflict)
+#   2 -- merge failed (non-FF without --rebase, rebase conflict, or red --gate-cmd)
 #
 # Per worktree-isolation-synthesis.md Section 1 R1, D2.
+# Rebase + re-gate path (--rebase / --gate-cmd) added for the integration phase
+# (lattice:integrate) so behind-branches land instead of stranding.
 
 set -euo pipefail
 
@@ -35,12 +45,20 @@ shift
 
 MODE="merge-back"
 BASE_OVERRIDE=""
+REBASE=false
+GATE_CMD=""
 
 while [ $# -gt 0 ]; do
     case "$1" in
         --merge-back) MODE="merge-back"; shift ;;
         --branch-as-pr) MODE="branch-as-pr"; shift ;;
         --discard) MODE="discard"; shift ;;
+        --rebase) REBASE=true; shift ;;
+        --no-rebase) REBASE=false; shift ;;
+        --gate-cmd)
+            shift
+            [ $# -ge 1 ] || { echo "ERROR: --gate-cmd requires a command string" >&2; exit 1; }
+            GATE_CMD="$1"; shift ;;
         --base)
             shift
             [ $# -ge 1 ] || { echo "ERROR: --base requires a branch name" >&2; exit 1; }
@@ -107,8 +125,20 @@ else
     fi
 fi
 
+# Auto-discover the semantic re-gate command from project config when --rebase
+# is requested without an explicit --gate-cmd. Lets autopilot pass a bare
+# --rebase and still re-gate (merge-only-when-green) without the generic
+# executor needing to know the project's build/test command. Projects opt in
+# via lattice-project.toml:  [project.integrate]\n  gate_cmd = "npm run build && npm test"
+if [ "$REBASE" = "true" ] && [ -z "$GATE_CMD" ] && [ -f "$CANONICAL/lattice-project.toml" ]; then
+    GATE_CMD="$(grep -E '^[[:space:]]*gate_cmd[[:space:]]*=' "$CANONICAL/lattice-project.toml" \
+        | head -1 | sed -E 's/^[^=]*=[[:space:]]*"?([^"]*)"?[[:space:]]*$/\1/')"
+    [ -n "$GATE_CMD" ] && echo "Re-gate command (from lattice-project.toml): $GATE_CMD"
+fi
+
 echo "Base branch:      $BASE"
 echo "Mode:             $MODE"
+echo "Rebase-when-behind: $REBASE"
 
 # ── Validate clean tree ──
 
@@ -135,14 +165,64 @@ case "$MODE" in
             BASE_SHA="$(git -C "$CANONICAL" rev-parse "$BASE")"
             MERGE_BASE="$(git -C "$WORKTREE" merge-base "$BASE_SHA" HEAD)"
             if [ "$MERGE_BASE" != "$BASE_SHA" ]; then
-                cat >&2 <<EOF
+                if [ "$REBASE" != "true" ]; then
+                    cat >&2 <<EOF
 ERROR: $BASE has advanced beyond the session's merge-base; cannot fast-forward.
   Recovery options:
-    (a) Re-run with --branch-as-pr to push the branch and open a PR
-    (b) See worktree-isolation-protocol.md for rebase guidance
+    (a) Re-run with --rebase to rebase the branch onto $BASE and retry the FF
+    (b) Re-run with --branch-as-pr to push the branch and open a PR
+    (c) Run /lattice:integrate (handles rebase + re-gate + escalation)
   This is a normal multi-day-session edge case, not a worktree defect.
 EOF
-                exit 2
+                    exit 2
+                fi
+
+                # ── Rebase-when-behind path (--rebase) ──
+                # Replay the branch's commits onto the current base tip so the
+                # result fast-forwards. Conflict -> abort + exit 2 (escalate;
+                # never force-resolve). This is the gap that stranded behind-
+                # branches: --merge-back alone is FF-only.
+                echo "Rebasing $BRANCH onto $BASE (branch is behind)..."
+                if ! git -C "$WORKTREE" rebase "$BASE"; then
+                    git -C "$WORKTREE" rebase --abort 2>/dev/null || true
+                    cat >&2 <<EOF
+ERROR: rebase of $BRANCH onto $BASE hit conflicts; aborted (branch left intact).
+  Resolve manually in $WORKTREE, or run /lattice:integrate for guided handling.
+  NOT forcing a merge -- a stranded branch is recoverable; a forced bad merge is not.
+EOF
+                    exit 2
+                fi
+
+                # ── Semantic re-gate on the rebased result (--gate-cmd) ──
+                # A clean TEXTUAL rebase can still be semantically broken (base
+                # renamed a symbol, moved a file, changed a contract). Re-run the
+                # project's build/lint/test gate before merging. Red -> abort the
+                # rebase (restore pre-rebase tip) + exit 2.
+                if [ -n "$GATE_CMD" ]; then
+                    echo "Re-gating rebased result: $GATE_CMD"
+                    PRE_REBASE_SHA="$(git -C "$WORKTREE" rev-parse "$BRANCH@{1}" 2>/dev/null || echo "")"
+                    if ! ( cd "$WORKTREE" && eval "$GATE_CMD" ); then
+                        if [ -n "$PRE_REBASE_SHA" ]; then
+                            git -C "$WORKTREE" reset --hard "$PRE_REBASE_SHA" 2>/dev/null || true
+                        fi
+                        cat >&2 <<EOF
+ERROR: re-gate failed on the rebased result; branch left intact (pre-rebase tip restored).
+  Fix in $WORKTREE then re-run, or run /lattice:integrate for guided handling.
+  NOT merging a red result onto $BASE.
+EOF
+                        exit 2
+                    fi
+                fi
+
+                # Rebase (and re-gate, if any) succeeded -- recompute base SHA;
+                # the FF below now applies cleanly.
+                BASE_SHA="$(git -C "$CANONICAL" rev-parse "$BASE")"
+                MERGE_BASE="$(git -C "$WORKTREE" merge-base "$BASE_SHA" HEAD)"
+                if [ "$MERGE_BASE" != "$BASE_SHA" ]; then
+                    echo "ERROR: $BASE moved again during rebase/re-gate; re-run to retry." >&2
+                    exit 2
+                fi
+                AHEAD="$(git -C "$WORKTREE" rev-list --count "${BASE}..HEAD" 2>/dev/null || echo 0)"
             fi
 
             # FF-merge in canonical tree.

@@ -306,6 +306,14 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
   const { latticeRoot, adapter, maxAdvancePerLoop, dryRun, singlePass } = opts;
   const maxLoops = opts.maxLoops ?? 50;
 
+  // Integration phase: mark this as an autopilot run so the per-cycle
+  // `/lattice:integrate` step (build-cycle terminal node / review.md Step 7)
+  // no-ops. Autopilot owns a single BATCH-scoped worktree and tears it down
+  // once at the end (below); a per-cycle integrate would remove that worktree
+  // mid-batch and strand the remaining items. See commands/lattice/integrate.md
+  // Step 0 "Autopilot guard".
+  process.env.LATTICE_AUTOPILOT_RUN = '1';
+
   // Worktree-isolation R1: spawn a session worktree at startup and run the
   // entire batch from there. Closes the CONFLATED-COMMIT class -- autopilot's
   // git index is now isolated from the user's canonical tree and from any
@@ -356,7 +364,16 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
     }
   }
 
-  const stateDir = resolve(cwd, '.lattice/cycle-state');
+  // Worktree-isolation D1: when the symlink fallback is active (Windows
+  // without Developer Mode), .lattice/ does not exist inside the worktree --
+  // it lives only in the canonical project root, exposed via
+  // LATTICE_PROJECT_ROOT (written to .lattice-env by lattice-session-start.sh).
+  // The bash scripts already honor this; the executor must too, or autopilot
+  // reports "No cycle state directory" inside the worktree even when canonical
+  // has plenty of work. In symlink mode, .lattice/ inside the worktree
+  // resolves to canonical, so the env var is unset and cwd is the right root.
+  const projectRoot = process.env.LATTICE_PROJECT_ROOT ?? cwd;
+  const stateDir = resolve(projectRoot, '.lattice/cycle-state');
 
   const result: AutopilotResult = {
     loopsCompleted: 0,
@@ -813,8 +830,8 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
           try {
             const ts = new Date().toISOString();
             const row = `${ts}\tautopilot\tCIRCUIT_BREAKER\t-\tprefix=${prefix.replace(/\t/g, ' ')}\tconsecutive=${consecutiveFailures}\n`;
-            mkdirSync(`${cwd}/.lattice`, { recursive: true });
-            appendFileSync(`${cwd}/.lattice/decisions.log`, row, 'utf-8');
+            mkdirSync(`${projectRoot}/.lattice`, { recursive: true });
+            appendFileSync(`${projectRoot}/.lattice/decisions.log`, row, 'utf-8');
           } catch { /* best-effort */ }
           result.circuitBreakerTripped = true;
           break;
@@ -874,21 +891,27 @@ export async function runAutopilot(opts: AutopilotOptions): Promise<AutopilotRes
   await adapter.sendMessage(`Blocked topics: ${result.coherenceReport.blocked.length}`);
 
   // Worktree-isolation R1: tear down the spawned worktree if R1 mode was
-  // active. lattice-session-end.sh handles the FF-merge contract (D2). On
-  // failure (e.g., non-FF), leaves the worktree + branch in place for user
-  // recovery -- the next prune cycle reports it.
+  // active. lattice-session-end.sh handles the FF-merge contract (D2).
+  //
+  // Integration phase: pass --rebase so a BEHIND batch branch (the normal case
+  // once master advances during the run) rebases onto base, re-gates, and lands
+  // instead of stranding. The script auto-discovers the re-gate command from
+  // lattice-project.toml [project.integrate] gate_cmd (merge-only-when-green).
+  // On rebase conflict / red re-gate it still leaves the worktree + branch in
+  // place (exit 2) for recovery -- drained later by `/lattice:integrate --sweep`.
   if (spawnedWorktree) {
     try {
       const endScript = resolve(latticeRoot, 'scripts/lattice-session-end.sh');
-      const result = spawnSync('bash', [endScript, spawnedWorktree.topic, '--merge-back'], {
+      const result = spawnSync('bash', [endScript, spawnedWorktree.topic, '--merge-back', '--rebase'], {
         cwd: opts.cwd, // run end script from canonical, not from inside the worktree we're tearing down
         encoding: 'utf-8',
-        timeout: 60_000,
+        timeout: 600_000, // re-gate (build/lint/test) can take minutes
       });
       if (result.status !== 0) {
         await adapter.sendMessage(
           `Worktree-isolation R1: lattice-session-end.sh exit ${result.status}. ` +
-          `Worktree at ${spawnedWorktree.path} left in place; recover with lattice-worktree-prune.sh.\n${result.stderr ?? ''}`,
+          `Worktree at ${spawnedWorktree.path} left in place; drain with \`/lattice:integrate --sweep\` ` +
+          `or recover with lattice-worktree-prune.sh.\n${result.stderr ?? ''}`,
         );
       } else {
         await adapter.sendMessage(`Worktree-isolation R1: session merged back and worktree removed.`);

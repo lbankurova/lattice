@@ -23,17 +23,19 @@ If you catch yourself skipping a section or writing "N/A — not applicable" wit
 
 ### Side-channel review-output file (D7 — mandatory side-effect)
 
-Before invoking `bash scripts/write-review-gate.sh ...` (Step 6), write the **structured review output** to:
+Before invoking `bash scripts/write-review-gate.sh ...` (Step 6), write the **structured review output** to the per-worktree path:
 
+```bash
+$(git rev-parse --git-path last-review-output.md)
 ```
-.lattice/last-review-output.md
-```
+
+This resolves to `.git/last-review-output.md` in canonical and `.git/worktrees/<wt>/last-review-output.md` in each linked worktree, so concurrent reviews don't trample each other (worktree-isolation D1; pre-2026-05-10 the file lived at `.lattice/last-review-output.md` and shared via symlink).
 
 The file MUST be a markdown document containing the seven section anchors above as `## ` headings (exact strings: `## CHANGES`, `## ARCHITECT REVIEW`, `## DECISION AUDIT`, `## REQUIREMENT TRACE`, `## MECHANICAL CHECKS`, `## DOCS UPDATE`, `## VERDICT`). Mirror the actual review output you present to the user — same evidence, same verdicts.
 
 `write-review-gate.sh` greps the file for each anchor and exits non-zero with the missing list if any anchor is absent. The mechanical check replaces the prose-only enforcement that was honor-system before D7 (compare `design-mode-gate.sh` for the established pattern).
 
-The file is **single-use per gate write**: the gate consumes it; rewrite for the next review. If `.lattice/last-review-output.md` does not exist when `write-review-gate.sh` runs, the anchor check is SKIPPED — appropriate for trivial-fix invocations that bypass the full review skill (where the prose discipline still applies but no full structured output exists).
+The file is **single-use per gate write**: the gate consumes it; rewrite for the next review. If the file does not exist when `write-review-gate.sh` runs, the anchor check is SKIPPED — appropriate for trivial-fix invocations that bypass the full review skill (where the prose discipline still applies but no full structured output exists).
 
 ---
 
@@ -374,7 +376,7 @@ When ALL checks pass:
    - `bug-pattern` — bug-pattern propagation verification (F6)
    - `retro-action` — retro action-item pointer (F7)
 
-   Compose entries via `bash scripts/append-attestation.sh <kind> <ref> <verdict> <rationale> [agent_id]` BEFORE running `write-review-gate.sh`. The pending file (`.lattice/pending-attestations.json`) is consumed when the gate writes. Validation is strict (rationale ≥ 10 chars, no trivial values like `n/a`/`tbd`, no duplicates within a gate); see `scripts/test-attestation-format.sh` for the contract. Until F3/F6/F7 ship, attestations are optional and the gate writes with `attestations: []`.
+   Compose entries via `bash scripts/append-attestation.sh <kind> <ref> <verdict> <rationale> [agent_id]` BEFORE running `write-review-gate.sh`. The pending file is per-worktree at `$(git rev-parse --git-path pending-attestations.json)` and is consumed when the gate writes. Validation is strict (rationale ≥ 10 chars, no trivial values like `n/a`/`tbd`, no duplicates within a gate); see `scripts/test-attestation-format.sh` for the contract. Until F3/F6/F7 ship, attestations are optional and the gate writes with `attestations: []`.
 
 2. Tell the user: **"All checks pass. Ready to commit. Here's what changed: [file list + summary]. Shall I commit?"**
 
@@ -412,7 +414,23 @@ When ALL checks pass:
 
 ---
 
-## Step 7: Session end protocol
+## Step 7: Integration (land the reviewed branch)
+
+If — and only if — the commit in Step 6 **passed and landed**, close the merge-back loop by invoking the integration phase:
+
+```
+/lattice:integrate
+```
+
+`/lattice:integrate` is **self-guarding** — you do not need to pre-check the context:
+
+- **Not in a session worktree** → no-op (the commit is already on the base branch). This is the common case for a direct canonical-tree review; integrate reports "nothing to integrate" and exits.
+- **Autopilot run** (`LATTICE_AUTOPILOT_RUN=1`) → no-op. Autopilot owns batch-level teardown; do not integrate per-cycle.
+- **In a session worktree** → rebase onto base, re-run the gates on the rebased result, fast-forward, remove the worktree + branch. On rebase conflict or red re-gate it **escalates and leaves the branch intact** (never forces) — the strand is drained later by `/lattice:integrate --sweep`.
+
+Skip this step if the review verdict was FAIL or the commit did not land — there is nothing reviewed to integrate.
+
+## Step 8: Session end protocol
 
 Update `.claude/roles/review-notes.md` with:
 
@@ -423,6 +441,7 @@ Update `.claude/roles/review-notes.md` with:
 - Bundle size (flag if changed from baseline)
 - Records updated (docs, MANIFEST, TODO, design decisions)
 - What should be reviewed next session
+- Integration outcome (landed on base / no-op / escalated-strand)
 
 ---
 

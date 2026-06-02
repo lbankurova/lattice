@@ -379,11 +379,40 @@ workflow:
         state_key: build.3
         captures: [specs_refreshed]
 
+    # ── Layer 3.5: Integrate (land the reviewed branch) ──────
+    #
+    # Closes the merge-back loop: if this build ran in a session worktree,
+    # rebase the branch onto base, re-run the gates on the rebased result,
+    # fast-forward, and remove the worktree. Without this node, manual
+    # worktree cycles ended at `complete` (release-lock) and stranded 100%
+    # of the time -- the work sat on a session branch that nobody merged.
+    #
+    # The integrate skill is self-guarding (commands/lattice/integrate.md):
+    #   - NOT in a session worktree  -> no-op (work is already on base)
+    #   - LATTICE_AUTOPILOT_RUN=1     -> no-op (autopilot owns batch teardown)
+    #   - review did not pass / dirty -> escalate, leave branch
+    #   - rebase conflict / red gate  -> escalate, leave branch (drain via --sweep)
+    # So it runs unconditionally after spec-refresh; a non-landable result
+    # never blocks `complete` (the topic lock still releases below) -- the
+    # strand is drained later by `/lattice:integrate --sweep`.
+
+    integrate:
+      type: skill
+      skill: lattice/integrate
+      context: inherit
+      depends_on: [spec-refresh]
+      inputs:
+        topic: "{{inputs.topic}}"
+      checkpoint:
+        state_key: build.3.5
+        captures: [integration_result]
+      log: true
+
     # ── Layer 4: Complete ────────────────────────────────────
 
     complete:
       type: bash
-      depends_on: [spec-refresh]
+      depends_on: [spec-refresh, integrate]
       command: bash scripts/release-topic-lock.sh "{{inputs.topic}}" "build-cycle"
       checkpoint:
         state_key: complete
