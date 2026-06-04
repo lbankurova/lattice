@@ -26,7 +26,7 @@ Model: the declarative `Role(...)` registry in `docs/_internal/incoming/per-anim
 
 ## Read first
 
-- `docs/_internal/redesign/01-capabilities.md` — the user-question corpus (the D1 anchor: `Q-*` IDs, §2 cross-cutting axes, §3 tensions, §1.7 branches).
+- `docs/_internal/redesign/01-user-questions-inventory.md` — the user-question corpus (the D1 anchor: `Q-*` IDs, §2 cross-cutting axes, §3 tensions, §1.7 branches).
 - `../sendex-ia/DECISIONS.md` (sibling repo; the recovered IA — read if available) — full typing vocabulary, the honesty/scope discriminators, OPEN/NEXT. Essentials embedded below so this skill is self-sufficient without it.
 - `docs/_internal/incoming/per-animal-classification-index.md` — the exemplar registry shape.
 - `docs/_internal/architecture/entity-model.md` — **the three-plane model (READ FIRST for typing): DB entity (P1) · judgment registry (P2) · override surface (P3). Only a P2 *judgment* gets a registry from this skill — run the plane gate below.**
@@ -68,7 +68,7 @@ Cross-cutting rules carried as data: **magnitude ≠ verdict**; predicates **cit
 
 ## Phases (stop at the ratify checkpoint)
 
-**Phase 0 — CORPUS GATHER (forward) — SYSTEMATIC SWEEP, not from recall.** Do **not** gather from memory. **Search the whole corpus** for the entity's footprint: grep `01-capabilities.md` for the entity's terms *and its near-synonyms / mechanisms / antonyms* (e.g. for `syndrome`: constellation, concordance, **on-target / off-target, expected-effect, pharmacolog, adaptive**, mechanism, XS/XC), then read every §1.x mode table, §2 axis, §3 tension, and §1.7 branch the hits land in. List every `Q-*` / `D-*` / §-id whose *question text **or** decision-served* touches the entity, with the decisions-served (chapter units). **Completeness self-check (mandatory, written):** state (a) what the sweep surfaced that you would **not** have recalled, and (b) where you may still be blind (sections not yet swept). A from-recall gather is a **defect** — it silently drops corpus the entity depends on. *(This rule exists because the pilot's from-recall Phase 0 missed §3.6 and the contract-level §3.13 for `syndrome`.)*
+**Phase 0 — CORPUS GATHER (forward) — SYSTEMATIC SWEEP, not from recall.** Do **not** gather from memory. **Search the whole corpus** for the entity's footprint: grep `01-user-questions-inventory.md` for the entity's terms *and its near-synonyms / mechanisms / antonyms* (e.g. for `syndrome`: constellation, concordance, **on-target / off-target, expected-effect, pharmacolog, adaptive**, mechanism, XS/XC), then read every §1.x mode table, §2 axis, §3 tension, and §1.7 branch the hits land in. List every `Q-*` / `D-*` / §-id whose *question text **or** decision-served* touches the entity, with the decisions-served (chapter units). **Completeness self-check (mandatory, written):** state (a) what the sweep surfaced that you would **not** have recalled, and (b) where you may still be blind (sections not yet swept). A from-recall gather is a **defect** — it silently drops corpus the entity depends on. *(This rule exists because the pilot's from-recall Phase 0 missed §3.6 and the contract-level §3.13 for `syndrome`.)*
 
 **Phase 1 — CORPUS COMPLETENESS (first principles).** Reasoning from the *decision the entity protects* (NOT from the engine), what does a toxicologist NEED that is MISSING from capabilities? List as candidate questions to append (the corpus is deliverable-zero).
 
@@ -97,7 +97,7 @@ Cross-cutting rules carried as data: **magnitude ≠ verdict**; predicates **cit
 
 ## Close-out (every run)
 
-- **Capabilities additions** → append Phase-1 corpus gaps + new `[ENGINE-GAP]` flags to `docs/_internal/redesign/01-capabilities.md`.
+- **Capabilities additions** → append Phase-1 corpus gaps + new `[ENGINE-GAP]` flags to `docs/_internal/redesign/01-user-questions-inventory.md`.
 - **ROADMAP intake (rule 11)** → add a Feature for this entity under **Area 15 (Declarative Entity Registries)**, tagged `interpretation engine`, cross-linked to the spec.
 - **TODO** → add an implementation item `### {ENTITY}-REGISTRY: …` tagged `autopilot: needs-user` (registry is design-bearing), `kind: spec→implement`, linking the spec.
 - **IA decisions** → propose candidate `Dn` entries for the IA repo (`../sendex-ia/DECISIONS.md`) for any typing call — **ratify-first**; do NOT unilaterally encode contract-spine changes.
