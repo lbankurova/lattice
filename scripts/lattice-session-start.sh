@@ -320,11 +320,45 @@ run_npm_install() {
 }
 
 run_pip_check() {
-    # Python projects vary widely on venv handling -- never auto-install.
-    # Just notify the user.
-    if [ -f "$WORKTREE/requirements.txt" ] || [ -f "$WORKTREE/pyproject.toml" ]; then
-        echo "  python: requirements.txt/pyproject.toml detected. Venv setup is per-project;"
-        echo "          if your tests need a venv, configure it manually in $WORKTREE."
+    # Python deps: NEVER auto-install, and NEVER symlink/junction a venv into
+    # the worktree. A venv symlink is followed DESTRUCTIVELY by some Windows
+    # worktree-teardown paths and has damaged canonical venvs (Lib + pyvenv.cfg
+    # gone). The safe reuse model is to invoke the CANONICAL venv's python by
+    # ABSOLUTE path from the worktree: deps resolve from canonical's
+    # site-packages, while the worktree's own source is imported via cwd
+    # (works because the backend is run as plain source, not editable-installed
+    # -- an editable install would shadow worktree source with canonical and
+    # silently break isolation; check `pip show -f <pkg>` if unsure).
+    if [ ! -f "$WORKTREE/requirements.txt" ] && [ ! -f "$WORKTREE/pyproject.toml" ] \
+       && [ ! -f "$WORKTREE/backend/requirements.txt" ]; then
+        return 0
+    fi
+
+    # Locate the canonical venv's python (only when --reuse-deps gave us the
+    # canonical root). Cover the common Windows + POSIX layouts.
+    local canon_py=""
+    if [ -n "$REUSE_DEPS" ]; then
+        for cand in \
+            "$REUSE_DEPS/backend/venv/Scripts/python.exe" \
+            "$REUSE_DEPS/backend/venv/bin/python" \
+            "$REUSE_DEPS/venv/Scripts/python.exe" \
+            "$REUSE_DEPS/venv/bin/python"; do
+            if [ -f "$cand" ]; then canon_py="$cand"; break; fi
+        done
+    fi
+
+    if [ -n "$canon_py" ]; then
+        echo "  python: REUSING canonical venv -- zero setup (no install, no symlink):"
+        echo "            $canon_py"
+        echo "          Run backend commands FROM the worktree, e.g.:"
+        echo "            cd \"$WORKTREE/backend\" && \"$canon_py\" -m pytest"
+        echo "          Do NOT 'cd' into the canonical backend (you would run/edit"
+        echo "          canonical source), and do NOT symlink the venv into the"
+        echo "          worktree (Windows teardown can destroy the canonical venv)."
+    else
+        echo "  python: requirements/pyproject detected, no canonical venv to reuse."
+        echo "          Invoke your canonical venv's python by ABSOLUTE path from"
+        echo "          $WORKTREE/backend -- do NOT symlink a venv into the worktree."
     fi
 }
 
