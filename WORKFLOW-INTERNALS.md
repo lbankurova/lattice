@@ -263,3 +263,16 @@ Missing section = incomplete review.
 - `/lattice:resume-work` -- restore and continue
 - All artifacts persist to disk -- terminal crashes lose nothing
 - Cross-session resume: each cycle reads `.lattice/cycle-state/{topic}.yaml` and decisions log to resume from last completed step
+
+### Worktree isolation
+
+Write-capable work runs in a linked git worktree so concurrent sessions never conflate the shared index (the `1370c103` / `521f1d16` / `a47ee865` / `abdb31c9` conflation precedents). Four layers, all enforced in code — never by skill prose:
+
+- **R0 (PreToolUse hook, `hooks/preToolUse/require-worktree.sh`)** -- blocks Edit/Write and `git add|commit|stash` at the canonical root for non-allowlisted paths. This is the *guarantee*: any code write outside a worktree fails safe.
+- **R1 (autopilot, `executor/src/autopilot.ts`)** -- a batch spawns one worktree at startup (`lattice-session-start.sh`) and tears it down at batch end (`lattice-session-end.sh --merge-back --rebase`). Sets `LATTICE_AUTOPILOT_RUN=1`, which makes per-cycle worktree creation and per-cycle `integrate` no-op (the batch owns teardown).
+- **R2 (review agents)** -- `architect-reviewer` / `peer-review` / `decision-auditor` / `post-impl-reviewer` declare `isolation: worktree` frontmatter; the Agent tool spawns each into its own ephemeral worktree.
+- **R3 (e2e, `executor/src/e2e.ts`)** -- branch-comparison runs in two detached worktrees.
+
+**Build phase (interactive cycles):** `scripts/lattice-build.sh {topic}` is the entry point. It provisions a `session/{topic}-{ts}` worktree via `lattice-session-start.sh` (`.lattice/` shared by symlink, or the `LATTICE_PROJECT_ROOT` env fallback that a *tracked* `.lattice/` forces; deps reused from canonical), then `exec`s `claude` from inside it — because a running session cannot be relocated (no hook/frontmatter does it; `EnterWorktree` is model-discretion only, confirmed against the Claude Code docs). Re-running with the same topic re-enters the existing worktree (resume after `/clear`). Research and blueprint phases stay in canonical — they touch only allowlisted paths. **Python deps are reused, not reinstalled or symlinked:** the build session invokes the canonical venv's python by *absolute path* (a venv symlink is followed destructively by some Windows worktree-teardown paths and has destroyed canonical venvs). Teardown + merge-back is `/lattice:integrate` (rebase-onto-base, re-gate, fast-forward, `git worktree remove --force`); skipping it strands the branch (BUG-049 double-fix).
+
+Full protocol + incident history: `.lattice/worktree-isolation-protocol.md`.

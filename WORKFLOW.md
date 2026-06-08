@@ -299,10 +299,12 @@ The three cycles form a pipeline with explicit boundaries. `/lattice:cycle` **de
 |------|-----|----------|
 | (start) | Research | New topic with no existing artifacts → dispatches to `/lattice:research-cycle` |
 | Research complete | Blueprint | Prints "Research phase complete. Cycle state saved. Run `/clear` to free context, then `/lattice:cycle {topic}` to start blueprint phase." Logs `PHASE_TRANSITION_PENDING`. STOPS. |
-| Blueprint complete | Build | Same pattern — logs `PHASE_TRANSITION_PENDING`, STOPS. |
-| Build complete | Done | Code committed. |
+| Blueprint complete | Build | Same checkpoint pattern, plus: the build phase runs in **its own git worktree**. The transition prints `bash scripts/lattice-build.sh {topic}` — which provisions a `session/{topic}` worktree and launches a fresh Claude session inside it — then `/lattice:cycle {topic}` to start the build. Logs `PHASE_TRANSITION_PENDING`, STOPS. |
+| Build complete | Done | Code committed. `/lattice:integrate` lands the branch and removes the worktree. |
 
 When the user re-invokes `/lattice:cycle {topic}` after `/clear`, the dispatcher reads the state file and dispatches the next phase deterministically — no re-classification, no re-decision.
+
+**Build runs isolated; research and blueprint don't.** The build phase writes code (`backend/`, `frontend/`, `scripts/`) — the paths the R0 require-worktree hook blocks at the canonical root — so it launches inside a worktree via `scripts/lattice-build.sh`. Research and blueprint write only allowlisted paths (`docs/**`, `.lattice/**`, `.claude/**`) and run in canonical; isolating them buys nothing and costs a dependency setup. A running session cannot be relocated into a worktree (no hook or frontmatter does it; `EnterWorktree` is model-discretion only), so the only reliable isolation is to *launch* the build session in the worktree. A build run in canonical instead fails safe — R0 blocks the first code write rather than conflating the shared index. Autopilot is exempt: it owns one batch-scoped worktree (see Session Management in WORKFLOW-INTERNALS.md).
 
 **`--continue` flag (autopilot, not interactive):** `lattice:cycle {topic} --continue` auto-dispatches the next phase in-session. Autopilot uses this; humans usually shouldn't.
 
