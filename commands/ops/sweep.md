@@ -41,6 +41,22 @@ grep -c "^- \*\*Category:\*\*.*not a research task" {{lattice.project.backlog.to
 
 Report: `TODO.md annotations: {A} research-exhausted (data-acquisition), {B} mis-tagged (non-research work).`
 
+### Step 1c: Done-when staleness sweep
+
+Catches the OTHER half of the staleness defect the pre-commit filing-block (Step 0p) can't: entries that were real when filed but became **satisfied later** by unrelated work, without their TODO entry being closed. (The filing-block only checks NEW entries at commit; this checks the standing backlog.) Run the satisfaction audit in report mode:
+
+```bash
+LATTICE_PROJECT_ROOT={{lattice.project.root}} python scripts/audit-todo-done-when.py
+```
+
+Two report sections matter:
+- **`AUTHORED done-when PASSES`** — entries whose hand-authored `done-when:` probe now exits 0 = the work shipped. These are **high-confidence stale**; close/record them (the implementation gap is done).
+- **`TIER-A likely-stale`** (additive verb + cited symbol already defined) — a heuristic candidate list for entries that have no `done-when:` yet. Review each: if already done, close it; if still open, consider backfilling a real `done-when:` probe so the next sweep is precise. `TIER-B` is lower-signal (modify-class verb) — scan only if time permits.
+
+Do NOT auto-close from the heuristic (TIER-A/B) — it mis-classifies some consume/wire gaps. AUTHORED-passing entries are safe to close. This is report-only; it never edits TODO.md.
+
+Report: `Done-when sweep: {P} authored-probe-passes (stale -> close), {A} TIER-A candidates, {B} TIER-B candidates.`
+
 ## Step 2: ROADMAP.md Cross-Reference
 
 ROADMAP is the highest-impact index for prioritization accuracy. `/lattice:prioritize` reads it first. Stale ROADMAP entries directly cause bad recommendations (e.g., recommending features that already shipped).

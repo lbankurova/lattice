@@ -108,6 +108,8 @@ During implementation you often discover gaps that weren't in the spec — missi
 - **Data gap** (missing data, species coverage, validation): append to `{{lattice.project.backlog.todo}}` with `[Area: {relevant}]` tag.
 - **Implementation gap** (code TODO, known limitation, deferred wiring): append to `{{lattice.project.backlog.todo}}` and add to the DEFERRED table in the final audit.
 
+**`done-when:` probe (REQUIRED for artifact-asserting gaps; pre-commit-enforced).** A data/implementation gap that asserts a concrete buildable artifact (code symbol / generated-data field / file) MUST carry a `- **done-when:** \`<cmd>\`` line — a read-only shell command exiting 0 **iff the gap is already satisfied** — and you MUST run it and confirm it **FAILS** before filing. A probe that already passes means the work is done; record/close it, don't file it open. The pre-commit done-when filing-block (Step 0p) blocks otherwise. Parked (`waiting-data`/`blocked`/`needs-user`) and design/research gaps are exempt.
+
 **A gap mentioned in conversation or in the audit table but not written to the registry or TODO is a gap that will be forgotten next session.** The audit is ephemeral — the registry and TODO survive.
 
 ## Phase N+1: Implementation Audit

@@ -329,7 +329,7 @@ Present the complete requirement trace to the user. This is the evidence table, 
 During the review you may have identified research gaps, data gaps, or implementation gaps — from the architect review, the requirement trace, the reuse audit, or the protocol checks. **Persist them now.**
 
 1. **Read `{{lattice.project.research.registry}}`** — for each research gap (needs investigation before deciding), add a new stream or append to an existing stream's `open-questions`. Set `source: "review/{commit-or-topic}"`.
-2. **Read `{{lattice.project.backlog.todo}}`** — for each data gap or implementation gap, append with appropriate `[Area:]` tag.
+2. **Read `{{lattice.project.backlog.todo}}`** — for each data gap or implementation gap, append with appropriate `[Area:]` tag. **For an artifact-asserting gap** (asserts a concrete code symbol / generated-data field / file), the entry MUST carry a `- **done-when:** \`<read-only cmd exiting 0 iff already satisfied>\`` line, and you MUST run it and confirm it **FAILS** before filing — a probe that already passes means the work shipped; record/close it instead of filing it open. The pre-commit done-when filing-block (Step 0p) enforces this on commit (it caught the IMPL-GAP-SGE-B4-CONFOUNDER-APPLICATION class: a gap filed as "remaining" in the same commit that shipped it). Parked (`waiting-data`/`blocked`/`needs-user`) and design/research gaps are exempt.
 3. **If the implementation phase already logged gaps (implement.md Step E)**, verify they're still in REGISTRY.md and TODO.md — don't duplicate, but confirm they weren't lost.
 
 ### 5c: Bug registry (bug fixes — produces BUG SWEEP line in GAPS output)

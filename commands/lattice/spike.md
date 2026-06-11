@@ -73,4 +73,6 @@ For each "what's missing" item:
 - **Data gap** (missing data/coverage) → append to `docs/_internal/TODO.md` with `[Area: {relevant}]`
 - **Implementation gap** (known limitation, deferred wiring) → append to `docs/_internal/TODO.md`
 
+**`done-when:` probe (REQUIRED for artifact-asserting gaps; pre-commit-enforced).** When the gap asserts a concrete buildable artifact — a code symbol, a generated-data field, a file — the TODO entry MUST carry a `- **done-when:** \`<cmd>\`` line: a *read-only* shell command that exits 0 **iff the gap is already satisfied** (e.g. `` `grep -q _annotate_intercurrent backend/generator/subject_syndromes.py` ``). Before filing, RUN it and confirm it **FAILS** — a probe that already passes means the work is done; don't file it as open (close/record it instead). The pre-commit done-when filing-block (Step 0p) blocks a newly-added gap that lacks the probe or whose probe already passes. Parked gaps (`waiting-data`/`blocked`/`needs-user`) and pure design/research gaps are exempt — no probe demanded.
+
 Gap persistence is the ONE doc lifecycle step that is NOT suspended during spikes.
