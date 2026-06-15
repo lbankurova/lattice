@@ -2,14 +2,20 @@
 
 > **Not a skill.** Sited outside `commands/` so it is not auto-discovered as a skill. This file is included by reference from `review.md` Step 3b.
 >
-> Contains the four detailed protocols that `review.md` keeps short:
+> Contains the detailed protocols that `review.md` and the cycle / gate skills keep short. Two groups:
 >
+> **Review-time mechanical protocols** (run by `review.md` MECHANICAL CHECKS, one PASS / FAIL / SKIPPED line each):
 > - `## VISUAL` — Playwright navigation, screenshot, interaction smoke test.
 > - `## DATA` — empirical-claim verification against generated JSON.
 > - `## TRIANGLE` — contract-triangle synchronization audit (CLAUDE.md rule 18).
 > - `## ALGORITHM` — algorithm-output defensibility on representative data (CLAUDE.md rule 19).
 >
-> `review.md` invokes these by section heading. The MECHANICAL CHECKS section emits one line per protocol with PASS / FAIL / SKIPPED, in the format documented at the bottom of this file.
+> **Design-intent conformance protocols** (run by `synthesize` / `blueprint-cycle` / `build-cycle` / `design` and the `architect-reviewer` / `post-impl-reviewer` agents — NOT by `review.md` MECHANICAL CHECKS; concrete oracle map + disposition in the project design-intent rule, pcc CLAUDE.md rule 27):
+> - `## PRIMITIVE` — does a reused primitive compute the asserted quantity at the asserted grain (read the body, never the emitted artifact). Leg B.
+> - `## LOCUS` — is the science computed where it belongs (backend computes, UI projects). Leg C.
+> - `## CONFORMANCE` — does every surface element bind to the four design-intent oracles at the right grain. Leg A + the binding contract.
+>
+> Skills invoke these by section heading. The review-time group emits one line per protocol with PASS / FAIL / SKIPPED, in the format documented at the bottom of this file.
 
 ---
 
@@ -21,6 +27,9 @@
 | DATA | Spec contains any cardinality / numeric / "shows X" claim, OR diff consumes generated output |
 | TRIANGLE | Diff modifies an enum constant, JSON schema, Pydantic model, TS type union, contract-doc table row, or pytest invariant over generated JSON |
 | ALGORITHM | Diff modifies OR consumes the output of a path matching `.lattice/algorithm-paths.txt` (default paths below if file is absent) |
+| PRIMITIVE | A spec / plan reuses or depends on any reuse anchor (`file.ext:LINE`), OR a path in `.lattice/algorithm-paths.txt` |
+| LOCUS | A frontend diff renders an analytical value (classification / threshold / score / severity), OR a spec proposes one |
+| CONFORMANCE | A spec / synthesis / diff introduces or modifies a surface element (column / role / badge / chip / cell) |
 
 Default ALGORITHM paths if `.lattice/algorithm-paths.txt` does not exist:
 `**/derive-summaries.ts`, `**/endpoint-confidence.ts`, `**/findings-rail-engine.ts`, `**/cross-domain-syndromes.ts`, `**/syndrome-rules.ts`, `**/services/analysis/**/*.py` (when the file mentions NOAEL/LOAEL/scoring/classification keywords).
@@ -199,6 +208,129 @@ A SCIENCE-FLAG raised by any review agent on algorithmic grounds clears only via
 
 ---
 
+## PRIMITIVE
+
+**Question answered:** "does the reused primitive compute the asserted quantity at the asserted grain?"
+
+Leg B of the design-intent contract. The authority for the source-read obligation is CLAUDE.md rule 19 (algorithm defensibility — the *source*, not only its output) and rule 5 (consumption = import the symbol **at the asserted grain**). The artifact a primitive emits is **never** evidence about what the primitive computes — the artifact reflects what the *caller* wired in.
+
+### When to run
+
+- Any spec / plan that cites a reuse anchor (`file.ext:LINE`) or otherwise depends on an existing function.
+- Any dependency on a path in `.lattice/algorithm-paths.txt`.
+- Both phases: at **blueprint** time against the anchor list; at **build / review** time against the actual call sites in the diff.
+
+### How to run
+
+For every reused / depended-on primitive:
+
+1. Open the **function body** — not the signature, not the call site's comment, not the emitted JSON.
+2. Record: its **inputs**; its **grain** (per-subject / per-syndrome / per-organ / aggregate / **grain-agnostic**); which args are **optional** (and their defaults); and **what the caller must supply that the function does not enforce**.
+3. State whether the primitive **guarantees** the asserted quantity-at-grain, or whether the grain is **caller-selected**. If caller-selected, read the actual call site to see which selection it makes.
+4. FAIL when the asserted grain is contradicted by the body — e.g. a "syndrome-scoped" claim against a function whose syndrome arg is a passthrough label used in no computation, or whose discriminator arg defaults to a grain-agnostic path.
+
+### Forms that satisfy
+
+- A recorded body-read: inputs / grain / optional-args / caller-must-supply, citing the function's `file:line`.
+- Canonical incident shape: "`resolve_position` (`animal_position.py:99-187`) is grain-agnostic — `syndrome_members` optional (default `None` → all endpoints weight 1), `syndrome_id` a passthrough label used in no computation; grain selected by the caller's endpoint set."
+
+### Forms that do NOT satisfy
+
+- "the emitted artifact shows X" — the artifact reflects what the **caller** wired in, not what the primitive guarantees (the exact `per-animal-evidence-table` failure).
+- "the symbol exists / is imported" / "`file:line` resolves" — presence is not grain.
+- "the spec says the primitive is syndrome-scoped" — the spec may have read the grain off the artifact.
+
+### FAIL handling
+
+PRIMITIVE: FAIL on a grain contradiction is a hard block — the ground-truth-of-MEANING defect. Mechanical companion: `REUSE-ANCHOR-GRAIN` in `scripts/audit-spec-reuse.py` (blocks when an anchored function with an optional discriminator is called with it omitted).
+
+---
+
+## LOCUS
+
+**Question answered:** "is the science computed where it belongs?"
+
+Leg C of the design-intent contract. The authority is the project's compute-locus invariant (pcc: backend-computes / frontend-projects — the GAP-393 dual-engine boundary). LOCUS is distinct from DATA and PRIMITIVE: not "is the value right" but "is the value computed in the right **layer**."
+
+### When to run
+
+- A frontend diff renders an analytical value.
+- A spec proposes a UI surface that **derives**, rather than displays, an analytical value.
+
+### How to run
+
+1. Trace every analytical value the UI displays to its origin.
+2. FAIL when the value is computed in TS but the backend already emits it, OR it is a domain computation that belongs in the engine per the compute-locus invariant.
+
+**"Analytical value" by example (the trigger boundary):**
+
+- **Analytical → belongs in the backend:** classification / verdict assignment; threshold comparison or re-derivation (e.g. a `1.1×` fold-change cutoff); statistical-test or slope re-application; severity / tier assignment; cross-domain aggregation or scoring.
+- **NOT analytical → fine in TS:** string truncation; number formatting (`toFixed`, unit suffixing); label construction; sort / filter of already-computed values; color-mapping a value the backend already classified.
+- **When in doubt** (a borderline aggregation), flag it and let the architect adjudicate.
+
+### Forms that satisfy
+
+- A per-value origin trace: each displayed analytical value mapped to the backend field / emitter that produces it, OR an explicit note that nothing analytical is computed in the UI (it projects).
+
+### Forms that do NOT satisfy
+
+- "the TS value matches the backend value" — that it matches **today** is luck; the locus is still wrong and will drift. Canonical example: the `CohortEvidenceTable.tsx:455-464` `1.1×` heuristic — a frontend re-invention of a backend domain computation.
+
+### FAIL handling
+
+LOCUS: FAIL is a hard block — ship the computation in the backend and have the UI project it; do not lock in a frontend re-derivation.
+
+---
+
+## CONFORMANCE
+
+**Question answered:** "does every surface element bind to the four design-intent oracles, at the right grain?"
+
+Leg A + the binding contract. The **concrete oracle map** (which file backs each binding) and the **disposition-on-miss** are owned by the project design-intent rule (pcc: CLAUDE.md rule 27) — read it for the project specifics; this protocol is the generic mechanism. CONFORMANCE **composes with** (does not replace) rule 17 (spec-value-audit, the isolation / scope-creep axis); CONFORMANCE is the relational / semantic-grain axis.
+
+### When to run
+
+Any spec / synthesis / diff that introduces or modifies a surface element (column / role / badge / chip / cell).
+
+### How to run
+
+1. **DE-NOMINATE (the discovery half).** The reviewing agent reads the **staged diff / the plan's proposed-modifications list** and *enumerates every surface element it introduces or modifies*. This diff-read does **not** depend on the author having recognized the element — it is what puts an un-flagged chip on the checklist. It *finds* elements the author never declared; it does not confirm a known list.
+2. **CROSS-CHECK against the author's intent header (the declaration half).** Compare the diff-derived enumeration against the spec's Surface Intent Header per-element table. An element present in the diff / plan but **absent from the header** is a **FAIL** (undeclared element).
+3. **RESOLVE the four bindings** for each element (concrete oracles per the project rule):
+
+   | Binding | Question | Disposition on miss |
+   |---|---|---|
+   | what it IS | semantic definition + GRAIN (project typed knowledge-graph fact + role oracle) | untyped load-bearing semantic → promote the typed fact FIRST (inline prerequisite) |
+   | why it's HERE | which reader question it serves (a reader-question oracle ID) | serves none → ROT, cut it |
+   | at what UNIT | the grain it is computed at (unit-of-analysis / substrate-axis declaration) | wrong unit = wrong, not uncertain; **this row mandates the PRIMITIVE read** (it does not by itself refute the grain) |
+   | reaches what | which capability node it unblocks (a capability-reachability node) | new dimension → promote a new node FIRST |
+
+   An element with an **unresolved binding** is a **FAIL**.
+
+> **Promote-first is an INLINE prerequisite, not a deferred queue entry.** When a binding misses (untyped semantic / new dimension / serves-no-question), resolve it *within the same cycle* — promote the typed fact / promote the node / cut the element — then the binding resolves. It does **not** enter a prioritization queue to be ranked later.
+
+> **The oracle is not self-certifying (load-bearing).** Binding the *what-it-IS* row to an oracle that itself carries an emission-grain framing **surfaces** the ambiguity, it does not **refute** it. Closure is three steps, distinct roles: (1) **DE-NOMINATE** enumerates the element independent of author recognition (closes the meta-failure); (2) the **at-what-UNIT** row requires a declared grain, which *mandates* the PRIMITIVE read (the UNIT row alone does not refute — a wrong-grain unit would still pass the binding check); (3) the **PRIMITIVE** source-read *refutes* the wrong grain. The refutation is step 3; steps 1–2 guarantee step 3 happens on an element the author never flagged.
+
+### Phase-dependence
+
+- **Build / review time:** the diff is **code-level** — the agent reads the actual rendering code, fully author-independent (the strongest form; `audit-design-intent.py` + the post-impl reviewer run here).
+- **Blueprint time:** there is no code diff — the input is the synthesis's **Section-1d per-element table**, which MUST describe each UI surface's elements *at element grain* (a file path alone does not enumerate elements). The architect cross-checks 1d against the proposed-modifications list + `.lattice/algorithm-paths.txt`; an under-specified 1d fails the gate *for under-specification*. At this phase the gate's contribution is to **correct the fix-direction** (an enumerated chip routes to a PRIMITIVE read instead of escaping as "advisory / no flag").
+
+### Forms that satisfy
+
+- A per-element table (diff-enumerated, cross-checked against the header) with all four bindings resolved, plus a PRIMITIVE row for any element whose UNIT binding mandates a source-read.
+
+### Forms that do NOT satisfy
+
+- An author-populated intent header **alone** (without the agent's diff-read) — the declaration half does not guarantee completeness (the incident author wrote a 14-anchor reuse inventory and still omitted the position chip).
+- Binding the what-it-IS row to the oracle text **without** the mandated PRIMITIVE read — a wrong-grain unit passes the binding check; only the source-read refutes it.
+
+### FAIL handling
+
+CONFORMANCE: FAIL (undeclared element, unresolved binding, or a UNIT-mandated PRIMITIVE read not performed) is a hard block at the gate that runs it. Mechanical companion: `scripts/audit-design-intent.py` validates the bindings of the *listed* elements; the diff-vs-header completeness cross-check is the agent's job — the audit cannot generate scope (same as `audit-todo-serves.py` validates entries but does not discover them).
+
+---
+
 ## Output format (used by `review.md` MECHANICAL CHECKS)
 
 `review.md` appends one block per protocol to the MECHANICAL CHECKS section:
@@ -225,6 +357,21 @@ ALGORITHM: PASS — [N] algorithms verified defensible on representative data
   - ...
 ALGORITHM: FAIL — {algorithm} on {study} produces {output}; tox-indefensible because {reason}. Escalating.
 ALGORITHM: SKIPPED — no algorithmic code touched (no path match against .lattice/algorithm-paths.txt)
+
+PRIMITIVE: PASS — [N] reused primitives body-read, grain confirmed
+  - {primitive} ({file:line}): grain={...}, optional args={...}, caller-must-supply={...}
+PRIMITIVE: FAIL — {primitive} asserted {grain} but body computes {actual}; {arg} is a passthrough / optional default
+PRIMITIVE: SKIPPED — no reuse anchor or algorithm-path dependency in this change
+
+LOCUS: PASS — [N] displayed analytical values trace to backend emitters (UI projects)
+  - {value}: emitted by {backend file:field}
+LOCUS: FAIL — {value} computed in {TS file:line}; belongs in backend ({backend already emits it / domain computation})
+LOCUS: SKIPPED — no analytical value rendered in a frontend diff
+
+CONFORMANCE: PASS — [N] surface elements enumerated by diff-read, all bound to the four oracles
+  - {element}: IS={fact-id}, HERE={Q-*}, UNIT={grain}, REACHES={RN-*}[, PRIMITIVE: {grain confirmation}]
+CONFORMANCE: FAIL — {element} {absent from header / unresolved {binding} / UNIT-mandated PRIMITIVE read not performed}
+CONFORMANCE: SKIPPED — no surface element introduced or modified
 ```
 
-Include screenshot path(s) so the user can inspect the visual. Include the cited JSON path and observed values for DATA. **VISUAL FAIL does not auto-block. DATA FAIL, TRIANGLE FAIL, and ALGORITHM FAIL all auto-block.**
+Include screenshot path(s) so the user can inspect the visual. Include the cited JSON path and observed values for DATA. **VISUAL FAIL does not auto-block. DATA FAIL, TRIANGLE FAIL, and ALGORITHM FAIL all auto-block.** PRIMITIVE FAIL (grain contradiction), LOCUS FAIL (wrong compute-layer), and CONFORMANCE FAIL (undeclared element / unresolved binding / un-performed UNIT-mandated read) auto-block at the gate that runs them.

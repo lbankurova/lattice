@@ -107,11 +107,12 @@ Write to `{{lattice.project.specs.incoming}}/{topic}-synthesis.md`.
 
 **Mandatory section gate.** Verify these sections exist with substantive content (not just headers):
 1. **Build Plan** — at least one feature with acceptance criteria
-2. **Reuse Inventory** — at least one row in the search table
+2. **Reuse Inventory** — at least one row in the search table, **with the Grain/contract column filled per reuse anchor** (body-read, not artifact)
 3. **Simplicity Rationale** — has content (even if "no new abstractions")
 4. **Test Strategy** — at least one row in the test table
-5. **Research Gaps** — has content (even if "none identified")
-6. **Data Gaps** — has content (even if "none identified")
+5. **Design-Intent Conformance (Section 1d)** — for any plan that touches a UI surface: the per-element binding table (at element grain) + the Leg-A algorithmic-primitive enumeration. (Skip only for a plan with no UI surface; state that explicitly.)
+6. **Research Gaps** — has content (even if "none identified")
+7. **Data Gaps** — has content (even if "none identified")
 
 If any section missing or empty: re-run synthesize with explicit instruction: "Your synthesis is missing section {X}. This is mandatory — the architect gate will reject without it."
 
@@ -133,6 +134,8 @@ Launch with:
 | **SIMPLIFY** | Auto-apply simplifications, re-gate once. If second gate is PASS, proceed. If still SIMPLIFY or worse, **STOP**. |
 | **REJECT** | **STOP** — present to user with alternative approach |
 | **SCIENCE-FLAG** | **STOP** — present flagged items, each needs explicit accept/reject |
+
+**Conformance enumeration check (Section 1d).** For any UI-surface plan, the architect verifies the Section-1d element + primitive enumeration is **complete** — anchored to the two concrete inputs the gate already receives (the synthesis's proposed-modifications file list + `.lattice/algorithm-paths.txt`), NOT open-ended prose reading. The check: every surface element implied by a proposed-modifications UI file, and every algorithmic primitive on an algorithm-path the plan reuses / consumes / emits / feeds, must appear in the Section-1d enumeration. A primitive or element reachable from those two inputs but **absent from 1d is a gate failure**. Because a file path does not by itself enumerate elements, Section 1d MUST describe each proposed UI surface's elements *at element grain*; if it does not, the gate fails **for under-specification** (the spec is not yet buildable) and directs the author to enumerate before proceeding.
 
 Write review to `{{lattice.project.research.peer_reviews}}/{topic}-architect-review.md`.
 
@@ -242,7 +245,7 @@ Log to decisions.log:
 ## Key Rules
 
 1. **Prerequisite: validated research.** Don't synthesize from unvalidated research.
-2. **Synthesis section gate is non-negotiable.** All 6 sections must exist with content.
+2. **Synthesis section gate is non-negotiable.** All 7 sections (1, 1a, 1b, 1c, 1d, 2, 3) must exist with content — 1d (Design-Intent Conformance) for any plan that touches a UI surface.
 3. **Architect gate is non-negotiable.** Every build plan passes through the architect.
 4. **Peer review runs in a separate agent. No exceptions.**
 5. **2 rounds max.** Unresolved → escalate to user. No Round 3.

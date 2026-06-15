@@ -163,9 +163,22 @@ Before the sketch, quote the rule IDs that bind here. Categories:
 
 Naming the rules at this stage prevents Failure Mode #2 below (mechanical rule compliance over analytical value): you can't apply rules thoughtfully if you haven't named which ones bind, and you can't break a rule defensibly if you haven't acknowledged it exists.
 
+### 1.5 Design-intent bindings (per-element table — surfaces with >1 element)
+
+For any surface introducing or modifying more than one element (column / role / badge / chip / cell), bind each element before sketching. This is the synthesis's Section 1d seen from the design side; it runs the `CONFORMANCE` protocol (`docs/skills-includes/review-protocols.md`), and the concrete oracle map + disposition is the project design-intent rule (pcc: CLAUDE.md rule 27).
+
+| Element | what it IS (semantic + GRAIN) | why it's HERE (Q-*) | at what UNIT | reaches what (RN-*) |
+|---------|-------------------------------|---------------------|--------------|---------------------|
+| [element] | [fact-id @ grain] | [Q-*] | [(animal, organ)] | [RN-*] |
+
+- The **at-what-UNIT** row is where a wrong-grain reuse is caught: declare the element's grain, then (if its value comes from a reused primitive) read the primitive's body to confirm it computes that quantity at that grain — the UNIT declaration *mandates* the source-read; the source-read *refutes* a wrong grain. The UNIT row alone does not refute (a wrong-grain unit still passes the binding check).
+- A binding that misses is an **inline promote-first** prerequisite (untyped semantic → promote the typed fact, rule 22; new dimension → promote a capability node, rule 26; serves no question → cut the element), not a deferral.
+
+Single-element surfaces state "1.5 N/A — single element" and proceed.
+
 ---
 
-**Gate enforcement.** All four blocks must be visible to the user *in the same response*, before any of: sketch, mockup HTML, layout spec, technology pick, reference-component citation, code edit. If the user has explicitly redirected you to skip the preamble for a known-trivial case (typo, copy fix, single-token change, an already-approved design being implemented verbatim), say so explicitly and cite which trigger applies. Default is **preamble required**.
+**Gate enforcement.** All four blocks (plus block 1.5 when the surface has >1 element) must be visible to the user *in the same response*, before any of: sketch, mockup HTML, layout spec, technology pick, reference-component citation, code edit. If the user has explicitly redirected you to skip the preamble for a known-trivial case (typo, copy fix, single-token change, an already-approved design being implemented verbatim), say so explicitly and cite which trigger applies. Default is **preamble required**.
 
 ## Step 2: Redundancy check
 

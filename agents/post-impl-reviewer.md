@@ -56,11 +56,23 @@ For each requirement, also check:
 - Visual elements (icons, borders, orientation)
 - Sort/order (column order, sort direction)
 
+### CONFORMANCE dimension (UI-surface specs)
+
+For each surface element the diff introduces or modifies — **enumerate them by reading the rendering code** (the code-level diff is author-independent; this is the strongest form of de-nomination) — verify it delivers its **contracted semantics AND locus**:
+
+- **Semantics + grain (PRIMITIVE):** trace the element's value to the primitive that produces it and read that primitive's **body** — confirm it computes the asserted quantity at the asserted grain. The emitted artifact / JSON is not evidence about the primitive; a syndrome-keyed artifact does not make a grain-agnostic resolver syndrome-scoped.
+- **Locus (LOCUS):** the value is computed where it belongs — flag any analytical value (classification / threshold / score / severity) computed in the frontend that the backend already emits, or that is a domain computation per the compute-locus invariant.
+- **Binding completeness (CONFORMANCE):** the element resolves its four design-intent bindings and appears in the spec's Surface Intent Header; an element rendered by the diff but **absent from the header** is a FAIL.
+
+Output one line per element: `CONFORMANCE — [element]: PASS / FAIL — [reason]`.
+
 ### Data reuse check
 
 For every new function or computed value:
 - Search for existing code computing the same thing
 - Flag: "DUPLICATION — [new] recomputes [value] from [existing source]"
+
+**Read the primitive's body when the spec cites the primitive OR its output.** The body-read obligation widens beyond "the spec cites the function": when the spec cites the primitive's *output artifact* (e.g. a field in generated JSON), read the *producing primitive* anyway — the artifact reflects what the caller wired in, not what the function guarantees at what grain (PRIMITIVE protocol). This is the exact `per-animal-evidence-table` failure: every gate read the syndrome-keyed artifact, none opened the grain-agnostic resolver.
 
 ## Output
 

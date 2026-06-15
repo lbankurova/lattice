@@ -80,6 +80,8 @@ For every proposed new computation or data transformation:
 - Search the codebase for existing code that computes the same or similar value
 - Flag: "REUSE — [proposed new thing] duplicates [existing thing at file:line]"
 
+**For every primitive the plan DEPENDS on (reuses / consumes / extends), read its body** — not its signature, not the artifact it emits (PRIMITIVE protocol). State its grain (per-subject / per-syndrome / aggregate / grain-agnostic), which args are optional, and **distinguish what the function guarantees from what the current caller passes**. Flag: "PRIMITIVE — [anchor at file:line] asserted [grain] but the body computes [actual]; [arg] is a passthrough label / optional default." The emitted artifact is never evidence about what the primitive computes — it reflects what the caller wired in.
+
 #### 3. Test Strategy Check
 
 - Does the plan specify what needs tests?
@@ -104,6 +106,10 @@ What changes: [specific analytical behavior that would differ]
 Risk: [false positives/negatives/changed classifications/altered verdicts]
 Required: Scientist review before proceeding
 ```
+
+#### 4b. Design-Intent Conformance Check (UI-surface plans)
+
+Run the `CONFORMANCE` protocol. **Enumerate every surface element the plan introduces or modifies by reading the proposed-modifications UI files** — NOT by trusting the author's nomination (the meta-failure is an un-flagged element escaping the checklist). Cross-check that enumeration against the spec's Section 1d / Surface Intent Header; an element in the proposed mods but **absent from 1d** is a failure (or under-specification — direct the author to enumerate at element grain). For each element, verify the four bindings resolve (what-IS + GRAIN / why-HERE / at-what-UNIT / reaches-what) per the project design-intent rule (pcc: CLAUDE.md rule 27). The **at-what-UNIT** binding mandates a PRIMITIVE body-read for any element fed by a reused primitive — the unit declaration alone does not refute a wrong grain. Also run `LOCUS`: an analytical value the plan computes in the frontend that the backend already emits (or that is a domain computation per the compute-locus invariant) is a conformance violation. Promote-first on a missed binding is an inline same-cycle prerequisite, not a deferral.
 
 #### 5. Verdict
 
@@ -205,7 +211,7 @@ Always produce a structured report with these sections:
 
 ## Rules
 
-1. **Never propose simplifying code you haven't read.** Read the full function/module, not just the signature.
+1. **Never propose simplifying code you haven't read, and never approve a reuse whose body you haven't read.** Read the full function/module, not just the signature — for simplification targets AND for every primitive the plan depends on. The artifact a primitive emits is not a substitute for its body; grain lives in the body, not the signature (PRIMITIVE protocol).
 2. **Never propose simplifying domain logic without stating what output changes.** If you can't articulate the output change, you haven't understood the code.
 3. **"It looks complicated" is not a finding.** State the specific accidental complexity pattern from the table above.
 4. **1 consumer = no abstraction.** This is a hard rule, not a guideline. The only exception is when the abstraction exists for testability (and tests actually exist).

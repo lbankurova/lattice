@@ -33,6 +33,8 @@ Acquire at Step 1, release at end of Step 4, heartbeat on every `current_step` u
 
 **Context discipline:** Re-read the state file and the spec before starting. If resuming mid-phase, check which step was last completed.
 
+**Surface Intent Header prerequisite (UI-surface topics).** Before starting build on a topic that touches a UI surface, verify the spec/synthesis carries a **Surface Intent Header** (the per-element binding table — Element / Q-ID / fact-id / Unit) and a **Section 1d** enumeration. If absent, **STOP** and route back: the spec is not buildable until intent is declared (this is the intent-DOWN inversion — you cannot verify an implementation against intent that was never written). Non-UI topics state "no UI surface — header N/A" and proceed.
+
 ---
 
 ## Steps
@@ -68,6 +70,7 @@ After building, check whether this implementation invalidates any downstream spe
 
 2. **For each dependent spec found:** Read the spec and compare against the actual shipped code. Check:
    - Field names and data shapes — does the spec reference fields that exist as shipped?
+   - **Producing grain, not just field existence** — does the field exist *at the grain the spec assumes*? A field that exists but is emitted per-syndrome where the spec consumes it per-animal (or vice versa) is a grain mismatch, not a match. Read the producer's body (PRIMITIVE protocol), not only the artifact, to confirm the grain — this is the exact `per-animal-evidence-table` failure surfaced at the spec-refresh gate.
    - Module/function locations — did the implementation put things where the spec expects?
    - Assumptions about available data — does the spec assume data that the shipped code actually produces?
 

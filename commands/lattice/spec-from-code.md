@@ -27,6 +27,7 @@ Read every file involved in the feature. Do not skim — read fully. Capture:
 - How it looks (UI: styling, layout, typography, colors)
 - What data it consumes (API fields, generated JSON, computed values)
 - What existing patterns it reuses (hooks, components, utils)
+- **For every reused primitive: read its BODY at the cited `file:LINE`** — not the line description, not the artifact it emits. A `file.ext:LINE` citation is a contract; record the primitive's **grain** (per-subject / per-syndrome / aggregate / grain-agnostic), its optional args, and **what the caller supplies that the function does not enforce**. This is the reverse-flow guard against re-seeding the artifact-for-source misread into the `/review` mirror oracle: the generated spec must describe what the primitive *guarantees*, not the (e.g. syndrome-keyed) shape the current caller happens to emit (PRIMITIVE protocol; the positive anchor is `implement.md` Phase 0 — "read the surrounding code at the cited line, not the line description alone").
 
 ### 3. Generate the spec
 
@@ -53,10 +54,10 @@ Write the spec to `docs/_internal/incoming/` using this structure:
 ...
 
 ## Data Dependencies
-[API fields, generated JSON keys, computed values consumed]
+[API fields, generated JSON keys, computed values consumed — for each computed value cite the producing primitive `file:function` AND its grain (body-read), not only the artifact field]
 
 ## Reused Patterns
-[Existing hooks, components, utils this feature builds on]
+[Existing hooks, components, utils this feature builds on — cite each at the importable symbol + its grain, never the output artifact]
 
 ## Visual Design
 [Layout, spacing, typography, colors — with Tailwind classes where applicable]

@@ -50,6 +50,8 @@ Write a table mapping research proposals to codebase reality:
 
 Priority comes from the research (how critical is the gap?), NOT from implementation effort.
 
+**Anchor the "Existing Code" column at the importable primitive, never its output artifact.** Cite `file:function` (the symbol the build will import / extend), not the generated JSON it emits. The artifact reflects what the *caller* wired in; only the function body says what the primitive computes at what grain (PRIMITIVE protocol). Citing `unified_findings.json` as the reuse anchor is the artifact-for-source trap that the design-intent contract exists to close.
+
 ## Step 4: Three-Section Output
 
 The synthesis produces three sections. Each routes differently.
@@ -71,11 +73,11 @@ Routes to: `{{lattice.project.specs.incoming}}/` spec -> ROADMAP intake (Spec ->
 
 For every NEW or PARTIAL capability in the build plan, document your search:
 
-| Capability | Searched | Found | Reusing | Building New |
-|------------|----------|-------|---------|-------------|
-| [feature] | [where you looked — specific dirs/files/methods-index] | [what exists] | [what you'll call/extend] | [only what doesn't exist yet] |
+| Capability | Searched | Found | Reusing | Grain/contract (read body) | Building New |
+|------------|----------|-------|---------|----------------------------|-------------|
+| [feature] | [where you looked — specific dirs/files/methods-index] | [what exists] | [what you'll call/extend] | [the anchor's grain + optional args + what the caller must supply that the function does not enforce — from reading the body, not the artifact] | [only what doesn't exist yet] |
 
-This section is auditable evidence that Reuse before reinventing (CLAUDE.md) was followed. **Missing = incomplete synthesis.** The architect gate will reject a synthesis without a reuse inventory.
+The **Grain/contract** column is mandatory for every reuse anchor: read the function body and record its grain, optional args, and the caller-must-supply gap (PRIMITIVE protocol). "The symbol exists / is imported" is not a grain. This section is auditable evidence that Reuse before reinventing (CLAUDE.md) was followed. **Missing = incomplete synthesis.** The architect gate will reject a synthesis without a reuse inventory.
 
 ### Section 1b: Simplicity Rationale (mandatory)
 
@@ -110,6 +112,24 @@ Rules:
 - **"Test everything" is not a strategy.** Tests that mock everything and assert `toBeCalled()` are worse than no tests — they create false confidence and resist refactoring. Test observable behavior.
 
 **Missing = incomplete synthesis.**
+
+### Section 1d: Design-Intent Conformance (mandatory for any UI-surface build plan)
+
+For every surface element (column / role / badge / chip / cell) the build plan introduces or modifies, bind it to the four design-intent oracles BEFORE the synthesis is fixed. Runs the `CONFORMANCE` protocol (`docs/skills-includes/review-protocols.md`); the concrete oracle map (which file backs each binding) + the disposition-on-miss live in the project design-intent rule (pcc: CLAUDE.md rule 27).
+
+**Per-element bindings** (one row per element; mirrors the spec's Surface Intent Header):
+
+| Element | what it IS (semantic + GRAIN, fact-id) | why it's HERE (reader-question ID) | at what UNIT (grain) | reaches what (capability node) |
+|---------|----------------------------------------|------------------------------------|----------------------|--------------------------------|
+| [element] | [fact-id @ grain] | [Q-*] | [(animal, organ)] | [RN-*] |
+
+- **At blueprint time there is no code diff** — this table IS the de-nomination input, so it MUST describe each proposed UI surface's elements *at element grain* (not just name a file path). An under-specified 1d fails the architect gate *for under-specification* (the spec is not yet buildable). At build / review time the code diff re-enumerates directly.
+- **Disposition on a missed binding is an INLINE prerequisite** (same cycle, not a deferred queue): untyped load-bearing semantic → promote the typed fact FIRST (rule 22); new dimension → promote a capability node FIRST (rule 26); serves no question → cut the element (ROT).
+- **The at-what-UNIT row mandates a PRIMITIVE read** for any element whose value comes from a reused primitive: declare the grain, then read the primitive's body to confirm it computes that quantity at that grain (the UNIT row alone does not refute a wrong grain — the source-read does). Record the body-read as a PRIMITIVE row.
+
+**Leg-A algorithmic-primitive enumeration.** List every algorithmic primitive the plan reuses / consumes / emits / feeds — including advisory / rule-21-exempt ones — derived mechanically from the proposed-modifications list + `.lattice/algorithm-paths.txt`, NOT from author-nominated SCIENCE-FLAGs. Each gets a PRIMITIVE body-read. This is what puts an un-flagged primitive on the checklist (the meta-failure the contract closes).
+
+**Missing = incomplete synthesis** (for any plan that touches a UI surface). The architect gate verifies the element + primitive enumeration is complete against the proposed-modifications list + `.lattice/algorithm-paths.txt`.
 
 ### Section 2: Research Gaps
 
@@ -187,12 +207,12 @@ The build plan section is a standard incoming spec — subject to ROADMAP intake
 - **Trace every plan item to a research finding.** No implementation tasks without a research-backed justification.
 - **Don't add scope.** If the research didn't identify it as a gap, don't invent features. The research is the scope boundary.
 - **Research gaps are not deferrals.** A research gap means "we need to learn more before deciding." A deferral means "we decided not to do it." Research gaps get a next `/lattice:research` cycle. Deferrals require user approval (No unprompted deferrals, CLAUDE.md).
-- **Six mandatory sections.** The synthesis output must contain: (1) Build Plan, (1a) Reuse Inventory, (1b) Simplicity Rationale, (1c) Test Strategy, (2) Research Gaps, (3) Data & Coverage Gaps. Missing any section = incomplete synthesis. The `/lattice:architect` gate will reject it.
+- **Seven mandatory sections.** The synthesis output must contain: (1) Build Plan, (1a) Reuse Inventory, (1b) Simplicity Rationale, (1c) Test Strategy, (1d) Design-Intent Conformance (for any UI-surface plan), (2) Research Gaps, (3) Data & Coverage Gaps. Missing any section = incomplete synthesis. The `/lattice:architect` gate will reject it.
 - **Science preservation.** When proposing to simplify, refactor, or restructure existing code, state what analytical output changes. If any output changes, flag it explicitly in the build plan — the architect gate checks for this.
 
 ## Known Failure Modes
 
-1. **Inferring capability from code structure.** When mapping research proposals to codebase reality (Step 2), read the actual generated output — not just function signatures. A function that exists but produces wrong/empty results is not "EXISTS."
+1. **Inferring capability from code structure — and its mirror, inferring grain from the artifact.** When mapping research proposals to codebase reality (Step 2), read the actual generated output — not just function signatures. A function that exists but produces wrong/empty results is not "EXISTS." **But reading the generated output is necessary and NOT sufficient for a reuse:** the artifact reflects what the *caller* wired in, so confirming the artifact is self-consistent stops one step short of the body and *reinforces* the artifact-for-source trap. For any reused primitive, read the function body and record its grain (PRIMITIVE protocol) — the `per-animal-evidence-table` incident shipped past every gate precisely because each gate reasoned from the syndrome-keyed artifact and none opened the grain-agnostic resolver.
 
 2. **Threshold transplants from other domains.** Cohen's d thresholds (0.3, 0.5) from behavioral science are not validated for preclinical tox. Inbred strains have lower within-group variance, producing larger d for the same absolute effect. When proposing thresholds, state the domain they come from and flag if validation is needed.
 
